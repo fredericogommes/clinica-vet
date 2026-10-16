@@ -75,6 +75,14 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `sale_items`     | Item com profissional [RN-24] | Cópia de nome, preço de tabela, preço praticado e comissão do momento da venda; desconto rateado; CHECK de valores                                                                                      |
 | `sales_settings` | Parâmetros de venda           | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
 
+| Tabela             | Papel                                                  | Regras principais                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `payment_methods`  | Forma de recebimento por adquirente e bandeira [RN-27] | Nome único por organização (sem diferenciar maiúsculas); prazo de liquidação de 0 a 365 dias; parcelamento de 1 a 24, acima de 1 só para crédito e convênio; taxa de 0 a 30%; arquivável |
+| `sale_payments`    | Forma usada para baixar a venda                        | Cópia do nome, tipo, prazo e taxa da forma no momento do recebimento; valor > 0; quem recebeu e quando                                                                                   |
+| `sale_receivables` | Parcela a receber                                      | Número, data prevista, valor, taxa e líquido (líquido = valor − taxa); base da conciliação de cartões e do fluxo previsto                                                                |
+
+`sales.closed_at`/`closed_by` marcam a baixa; CHECK garante que só venda baixada os tem (migração 0007, que também cria Dinheiro e PIX nas organizações existentes).
+
 `sale_items.clinical_event_id` liga o item ao atendimento que o lançou (migração 0006); o índice único parcial impede cobrar o mesmo atendimento duas vezes [RN-19].
 
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.

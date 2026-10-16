@@ -826,6 +826,7 @@ export const sales = pgTable(
       .notNull()
       .references(() => users.id),
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    closedBy: uuid('closed_by').references(() => users.id),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     cancelledBy: uuid('cancelled_by').references(() => users.id),
     cancelReason: text('cancel_reason'),
@@ -841,6 +842,10 @@ export const sales = pgTable(
       'sales_totals_ck',
       sql`${t.grossTotal} >= 0 and ${t.discountTotal} >= 0 and ${t.discountTotal} <= ${t.grossTotal}
         and ${t.netTotal} = ${t.grossTotal} - ${t.discountTotal} and ${t.discountValue} >= 0`,
+    ),
+    check(
+      'sales_closed_ck',
+      sql`(${t.status} = 'closed') = (${t.closedAt} is not null and ${t.closedBy} is not null)`,
     ),
     check(
       'sales_cancel_ck',
@@ -920,4 +925,103 @@ export const salesSettings = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [check('sales_settings_discount_ck', sql`${t.discountLimitPercent} between 0 and 100`)],
+);
+
+/**
+ * Forma de recebimento por adquirente e bandeira [RN-27, p.9], com prazo de liquidação,
+ * parcelamento e taxa. Arquivada some do PDV, mas continua nos recebimentos já gravados.
+ */
+export const paymentMethods = pgTable(
+  'payment_methods',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    kind: text('kind', {
+      enum: ['cash', 'pix', 'debit', 'credit', 'voucher', 'other'],
+    }).notNull(),
+    acquirer: text('acquirer').notNull().default(''),
+    brand: text('brand').notNull().default(''),
+    settlementDays: smallint('settlement_days').notNull().default(0),
+    maxInstallments: smallint('max_installments').notNull().default(1),
+    feePercent: numeric('fee_percent', { precision: 5, scale: 2, mode: 'number' })
+      .notNull()
+      .default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('payment_methods_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    check(
+      'payment_methods_values_ck',
+      sql`${t.settlementDays} between 0 and 365 and ${t.maxInstallments} between 1 and 24
+        and ${t.feePercent} between 0 and 30
+        and (${t.maxInstallments} = 1 or ${t.kind} in ('credit', 'voucher'))`,
+    ),
+  ],
+);
+
+/**
+ * Forma usada para baixar a venda; uma venda aceita várias [RN-27]. Nome, tipo, prazo e taxa são
+ * copiados da forma no momento do recebimento.
+ */
+export const salePayments = pgTable(
+  'sale_payments',
+  {
+    id: uuid('id').primaryKey(),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    position: smallint('position').notNull(),
+    paymentMethodId: uuid('payment_method_id')
+      .notNull()
+      .references(() => paymentMethods.id),
+    methodName: text('method_name').notNull(),
+    kind: text('kind').notNull(),
+    amount: money('amount').notNull(),
+    installments: smallint('installments').notNull(),
+    settlementDays: smallint('settlement_days').notNull(),
+    feePercent: numeric('fee_percent', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull(),
+    receivedBy: uuid('received_by')
+      .notNull()
+      .references(() => users.id),
+  },
+  (t) => [
+    uniqueIndex('sale_payments_sale_position_uq').on(t.saleId, t.position),
+    index('sale_payments_method_idx').on(t.paymentMethodId),
+    check(
+      'sale_payments_values_ck',
+      sql`${t.amount} > 0 and ${t.installments} between 1 and 24 and ${t.feePercent} between 0 and 30`,
+    ),
+  ],
+);
+
+/**
+ * Parcela a receber de cada forma: valor, taxa e data prevista de liquidação. É a agenda de
+ * recebíveis que a conciliação de cartões e o fluxo de caixa previsto usam (Fase 2).
+ */
+export const saleReceivables = pgTable(
+  'sale_receivables',
+  {
+    id: uuid('id').primaryKey(),
+    salePaymentId: uuid('sale_payment_id')
+      .notNull()
+      .references(() => salePayments.id),
+    number: smallint('number').notNull(),
+    dueDate: date('due_date').notNull(),
+    amount: money('amount').notNull(),
+    feeAmount: money('fee_amount').notNull(),
+    netAmount: money('net_amount').notNull(),
+  },
+  (t) => [
+    uniqueIndex('sale_receivables_payment_number_uq').on(t.salePaymentId, t.number),
+    index('sale_receivables_due_idx').on(t.dueDate),
+    check(
+      'sale_receivables_values_ck',
+      sql`${t.amount} > 0 and ${t.feeAmount} >= 0 and ${t.netAmount} = ${t.amount} - ${t.feeAmount}`,
+    ),
+  ],
 );

@@ -6,6 +6,7 @@ import {
   clinicalTemplates,
   costCenters,
   organizations,
+  paymentMethods,
   rolePermissions,
   roles,
   species,
@@ -80,6 +81,11 @@ export async function provisionOrganization(
   await syncTemplateRoles(tx, organizationId);
   await seedSpecies(tx, organizationId);
   await seedSchedule(tx, organizationId, unitId);
+  // Formas iniciais; cartões e convênios dependem das adquirentes de cada clínica [RN-27].
+  await tx.insert(paymentMethods).values([
+    { id: newId(), organizationId, name: 'Dinheiro', kind: 'cash' },
+    { id: newId(), organizationId, name: 'PIX', kind: 'pix' },
+  ]);
 
   const [adminRole] = await tx
     .select({ id: roles.id })

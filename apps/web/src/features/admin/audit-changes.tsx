@@ -95,6 +95,12 @@ const fieldLabels: Record<string, string> = {
   netTotal: 'Total (R$)',
   defaultSaleType: 'Tipo de venda padrão',
   service: 'Serviço cobrado',
+  acquirer: 'Adquirente',
+  cardBrand: 'Bandeira',
+  settlementDays: 'Prazo de liquidação (dias)',
+  maxInstallments: 'Parcelamento máximo',
+  feePercent: 'Taxa (%)',
+  payments: 'Formas de recebimento',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */

@@ -3,6 +3,7 @@ import {
   pageSchema,
   patientSaleItemInputSchema,
   patientSalesSchema,
+  receiveSaleSchema,
   saleContextSchema,
   saleInputSchema,
   saleListItemSchema,
@@ -133,5 +134,14 @@ export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (
       schema: { params: idParams, body: cancelSaleSchema, response: { 200: saleSchema } },
     },
     async (request) => sales.cancel(requireAuth(request), request.params.id, request.body.reason),
+  );
+
+  app.post(
+    '/:id/receive',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.receive' } },
+      schema: { params: idParams, body: receiveSaleSchema, response: { 200: saleSchema } },
+    },
+    async (request) => sales.receive(requireAuth(request), request.params.id, request.body),
   );
 };

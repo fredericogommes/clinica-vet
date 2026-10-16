@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CalendarDays,
   ClipboardList,
+  CreditCard,
   Dna,
   FileText,
   FolderTree,
@@ -73,6 +74,12 @@ export const navigation: NavSection[] = [
         to: '/vendas/pdv',
         icon: ShoppingCart,
         permission: 'sales.manage',
+      },
+      {
+        label: 'Formas de recebimento',
+        to: '/vendas/formas-de-recebimento',
+        icon: CreditCard,
+        permission: 'sales.configure',
       },
       {
         label: 'Configuração de vendas',

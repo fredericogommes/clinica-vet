@@ -1,6 +1,9 @@
 import {
+  feeCents,
   fromCents,
+  receivableOffsetDays,
   saleStatusLabels,
+  splitInstallments,
   saleTotals,
   saleTypeLabels,
   toCents,
@@ -8,6 +11,7 @@ import {
   type SaleContext,
   type PatientSaleItemInput,
   type PatientSales,
+  type ReceiveSaleInput,
   type SaleData,
   type SaleListItem,
   type SaleListQuery,
@@ -35,20 +39,25 @@ import { nextCounter } from '../../core/counters.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import { containsText } from '../../core/search.js';
+import { addDays, instantToZoned } from '../../core/zoned-time.js';
 import type { Database, Executor } from '../../db/client.js';
 import {
   clients,
   costCenters,
   patients,
+  paymentMethods,
   productCommissions,
   products,
   saleItems,
+  salePayments,
+  saleReceivables,
   sales,
   salesSettings,
   units,
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import type { PaymentMethodService } from '../payments/service.js';
 
 const invalid = (path: string, message: string) =>
   new AppError('validation_failed', 'Dados da venda inválidos.', [{ path, message }]);
@@ -71,7 +80,10 @@ const pct = (value: number) => `${value.toLocaleString('pt-BR', { maximumFractio
  * desconto com limite e totais sempre recalculados aqui, nunca aceitos do cliente.
  */
 export class SaleService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly methods: PaymentMethodService,
+  ) {}
 
   async settings(auth: AuthContext, executor?: Executor): Promise<SalesSettings> {
     const [row] = await (executor ?? this.db)
@@ -116,7 +128,7 @@ export class SaleService {
   }
 
   async context(auth: AuthContext): Promise<SaleContext> {
-    const [settings, limit, professionals] = await Promise.all([
+    const [settings, limit, professionals, methods] = await Promise.all([
       this.settings(auth),
       this.userLimit(this.db, auth),
       this.db
@@ -124,11 +136,13 @@ export class SaleService {
         .from(users)
         .where(and(eq(users.organizationId, auth.organizationId), eq(users.active, true)))
         .orderBy(asc(sql`lower(${users.name})`)),
+      this.methods.list(auth, { activeOnly: true }),
     ]);
     return {
       discountLimitPercent: auth.permissions.has('sales.discount') ? limit : 0,
       defaultSaleType: settings.defaultSaleType,
       professionals,
+      paymentMethods: methods,
     };
   }
 
@@ -233,6 +247,7 @@ export class SaleService {
     const db = executor ?? this.db;
     const creator = alias(users, 'creator');
     const canceller = alias(users, 'canceller');
+    const closer = alias(users, 'closer');
     const [row] = await db
       .select({
         sale: sales,
@@ -242,11 +257,13 @@ export class SaleService {
         unitName: units.name,
         createdBy: creator.name,
         cancelledBy: canceller.name,
+        closedBy: closer.name,
       })
       .from(sales)
       .innerJoin(units, eq(units.id, sales.unitId))
       .innerJoin(creator, eq(creator.id, sales.createdBy))
       .leftJoin(canceller, eq(canceller.id, sales.cancelledBy))
+      .leftJoin(closer, eq(closer.id, sales.closedBy))
       .leftJoin(clients, eq(clients.id, sales.clientId))
       .leftJoin(patients, eq(patients.id, sales.patientId))
       .where(and(eq(sales.id, id), eq(sales.organizationId, auth.organizationId)));
@@ -264,6 +281,7 @@ export class SaleService {
       .innerJoin(products, eq(products.id, saleItems.productId))
       .where(eq(saleItems.saleId, id))
       .orderBy(asc(saleItems.position));
+    const payments = await this.paymentsOf(db, id);
     const s = row.sale;
     const pending = s.status === 'quote' || s.status === 'open';
     return {
@@ -309,8 +327,14 @@ export class SaleService {
         s.cancelledAt && s.cancelReason
           ? { at: s.cancelledAt.toISOString(), by: row.cancelledBy ?? '', reason: s.cancelReason }
           : null,
+      closed:
+        s.closedAt && row.closedBy !== null
+          ? { at: s.closedAt.toISOString(), by: row.closedBy }
+          : null,
+      payments,
       editable: pending && auth.permissions.has('sales.manage'),
       cancellable: pending && auth.permissions.has('sales.cancel'),
+      receivable: s.status === 'open' && auth.permissions.has('sales.receive'),
     };
   }
 
@@ -567,6 +591,166 @@ export class SaleService {
       });
       return this.get(auth, id, tx);
     });
+  }
+
+  /**
+   * Registrar recebimento [RN-27]: as formas somam exatamente o líquido da venda, cada uma dentro
+   * do seu parcelamento, e a venda é baixada na mesma transação. Cada forma gera as parcelas a
+   * receber com valor, taxa e data prevista de liquidação.
+   */
+  async receive(auth: AuthContext, id: string, input: ReceiveSaleInput): Promise<Sale> {
+    return this.db.transaction(async (tx) => {
+      const current = await this.lock(tx, auth, id);
+      if (current.status === 'quote') {
+        throw conflict('Converta o orçamento em venda antes de registrar o recebimento.');
+      }
+      if (current.status !== 'open') {
+        throw conflict(
+          `Venda ${saleStatusLabels[current.status].toLowerCase()} não recebe pagamento.`,
+        );
+      }
+      const netCents = toCents(current.netTotal);
+      if (input.payments.length === 0 && netCents > 0) {
+        throw invalid('payments', 'Informe ao menos uma forma de recebimento');
+      }
+      const ids = [...new Set(input.payments.map((p) => p.methodId))];
+      const found = ids.length
+        ? await tx
+            .select()
+            .from(paymentMethods)
+            .where(
+              and(
+                inArray(paymentMethods.id, ids),
+                eq(paymentMethods.organizationId, auth.organizationId),
+              ),
+            )
+        : [];
+      const lines = input.payments.map((p, i) => {
+        const method = found.find((m) => m.id === p.methodId);
+        if (!method || method.archivedAt) {
+          throw invalid(`payments.${i}.methodId`, 'Forma de recebimento indisponível');
+        }
+        if (p.installments > method.maxInstallments) {
+          throw invalid(
+            `payments.${i}.installments`,
+            method.maxInstallments === 1
+              ? 'Esta forma não parcela'
+              : `Esta forma aceita até ${String(method.maxInstallments)} parcelas`,
+          );
+        }
+        const cents = toCents(p.amount);
+        if (cents < p.installments) {
+          throw invalid(`payments.${i}.installments`, 'Parcelas menores que um centavo');
+        }
+        return { input: p, method, cents };
+      });
+      const paid = lines.reduce((a, l) => a + l.cents, 0);
+      if (paid !== netCents) {
+        const diff = Math.abs(paid - netCents);
+        throw invalid(
+          'payments',
+          paid < netCents
+            ? `Faltam ${brl(fromCents(diff))} para fechar ${brl(current.netTotal)}`
+            : `Passou ${brl(fromCents(diff))} do total de ${brl(current.netTotal)}`,
+        );
+      }
+
+      const now = new Date();
+      const [unit] = await tx
+        .select({ timeZone: units.timeZone })
+        .from(units)
+        .where(eq(units.id, current.unitId));
+      const today = instantToZoned(now, unit?.timeZone ?? 'America/Sao_Paulo').date;
+      for (const [position, l] of lines.entries()) {
+        const paymentId = newId();
+        await tx.insert(salePayments).values({
+          id: paymentId,
+          saleId: id,
+          position,
+          paymentMethodId: l.method.id,
+          methodName: l.method.name,
+          kind: l.method.kind,
+          amount: fromCents(l.cents),
+          installments: l.input.installments,
+          settlementDays: l.method.settlementDays,
+          feePercent: l.method.feePercent,
+          receivedAt: now,
+          receivedBy: auth.userId,
+        });
+        await tx.insert(saleReceivables).values(
+          splitInstallments(l.cents, l.input.installments).map((cents, i) => {
+            const fee = feeCents(cents, l.method.feePercent);
+            return {
+              id: newId(),
+              salePaymentId: paymentId,
+              number: i + 1,
+              dueDate: addDays(today, receivableOffsetDays(l.method.settlementDays, i + 1)),
+              amount: fromCents(cents),
+              feeAmount: fromCents(fee),
+              netAmount: fromCents(cents - fee),
+            };
+          }),
+        );
+      }
+      await tx
+        .update(sales)
+        .set({ status: 'closed', closedAt: now, closedBy: auth.userId, updatedAt: now })
+        .where(eq(sales.id, id));
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'sale',
+        entityId: id,
+        action: 'receive',
+        before: { code: current.code, status: saleStatusLabels[current.status] },
+        after: {
+          code: current.code,
+          status: saleStatusLabels.closed,
+          payments: lines
+            .map(
+              (l) =>
+                `${l.method.name} ${brl(fromCents(l.cents))}` +
+                (l.input.installments > 1 ? ` em ${String(l.input.installments)}×` : ''),
+            )
+            .join('; '),
+        },
+      });
+      return this.get(auth, id, tx);
+    });
+  }
+
+  private async paymentsOf(db: Executor, saleId: string): Promise<Sale['payments']> {
+    const rows = await db
+      .select()
+      .from(salePayments)
+      .where(eq(salePayments.saleId, saleId))
+      .orderBy(asc(salePayments.position));
+    if (rows.length === 0) return [];
+    const parts = await db
+      .select()
+      .from(saleReceivables)
+      .where(
+        inArray(
+          saleReceivables.salePaymentId,
+          rows.map((r) => r.id),
+        ),
+      )
+      .orderBy(asc(saleReceivables.number));
+    return rows.map((r) => ({
+      id: r.id,
+      methodName: r.methodName,
+      kind: r.kind as Sale['payments'][number]['kind'],
+      amount: r.amount,
+      installments: r.installments,
+      feePercent: r.feePercent,
+      receivables: parts
+        .filter((p) => p.salePaymentId === r.id)
+        .map((p) => ({
+          number: p.number,
+          dueDate: p.dueDate,
+          amount: p.amount,
+          feeAmount: p.feeAmount,
+          netAmount: p.netAmount,
+        })),
+    }));
   }
 
   private async lock(tx: Executor, auth: AuthContext, id: string): Promise<SaleRow> {
