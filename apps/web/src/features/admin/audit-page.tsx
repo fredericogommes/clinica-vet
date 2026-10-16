@@ -29,6 +29,8 @@ const entityLabels: Record<string, string> = {
   product: 'Produto ou serviço',
   product_group: 'Grupo de produtos',
   product_brand: 'Marca',
+  sale: 'Venda',
+  sales_settings: 'Configuração de vendas',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',
@@ -43,6 +45,8 @@ const actionLabels: Record<string, string> = {
   publish: 'Publicou',
   void: 'Invalidou',
   discard: 'Descartou rascunho',
+  convert: 'Converteu orçamento em venda',
+  cancel: 'Cancelou',
 };
 
 export interface AuditFilter {

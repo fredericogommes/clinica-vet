@@ -55,6 +55,15 @@ const PatientPage = lazy(() =>
 const PatientEditPage = lazy(() =>
   import('../features/patients/patient-edit-page').then((m) => ({ default: m.PatientEditPage })),
 );
+const PdvPage = lazy(() =>
+  import('../features/sales/sale-pages').then((m) => ({ default: m.PdvPage })),
+);
+const SalePage = lazy(() =>
+  import('../features/sales/sale-pages').then((m) => ({ default: m.SalePage })),
+);
+const SalesSettingsPage = lazy(() =>
+  import('../features/sales/settings-page').then((m) => ({ default: m.SalesSettingsPage })),
+);
 const SpeciesPage = lazy(() =>
   import('../features/catalogs/catalog-pages').then((m) => ({ default: m.SpeciesPage })),
 );
@@ -234,7 +243,7 @@ const auditRoute = createRoute({
   path: '/consultas/auditoria',
   validateSearch: z.object({
     entidade: z
-      .enum(['client', 'patient', 'clinical_event', 'product'])
+      .enum(['client', 'patient', 'clinical_event', 'product', 'sale'])
       .optional()
       .catch(undefined),
     id: z.uuid().optional().catch(undefined),
@@ -606,6 +615,39 @@ const productBrandsRoute = createRoute({
   ),
 });
 
+const pdvRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/pdv',
+  component: () => (
+    <RequirePermission permission="sales.manage">
+      <PdvPage />
+    </RequirePermission>
+  ),
+});
+
+const salesSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/configuracao',
+  component: () => (
+    <RequirePermission permission="sales.configure">
+      <SalesSettingsPage />
+    </RequirePermission>
+  ),
+});
+
+const saleRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/$saleId',
+  component: function SaleDetail() {
+    const { saleId } = saleRoute.useParams();
+    return (
+      <RequirePermission permission="sales.view">
+        <SalePage key={saleId} saleId={saleId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   printRoute.addChildren([printEventRoute]),
@@ -633,6 +675,9 @@ const routeTree = rootRoute.addChildren([
     productRoute,
     productGroupsRoute,
     productBrandsRoute,
+    pdvRoute,
+    salesSettingsRoute,
+    saleRoute,
     coatsRoute,
     originsRoute,
     usersRoute,

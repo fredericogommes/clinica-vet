@@ -22,13 +22,24 @@ import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
 import { useCan, useSession } from '../../lib/session';
+import { parseDecimal, percentInput } from '../products/format';
 import { rolesQuery, usersQuery } from './queries';
 
+/** Limite de desconto digitado como texto ("12,5"); vazio = usa o limite da clínica. */
+const discountField = z.string().refine((v) => {
+  const n = parseDecimal(v);
+  return n === null || (n >= 0 && n <= 100 && Math.round(n * 100) === n * 100);
+}, 'Percentual entre 0 e 100, com até duas casas');
+
 /** Um formulário para criar e editar; e-mail e senha só são validados na criação. */
-const createFormSchema = createUserRequestSchema.extend({ active: z.boolean() });
+const createFormSchema = createUserRequestSchema.extend({
+  active: z.boolean(),
+  discountLimitPercent: discountField,
+});
 const updateFormSchema = updateUserRequestSchema.extend({
   email: z.string(),
   password: z.string(),
+  discountLimitPercent: discountField,
 });
 type UserForm = z.infer<typeof createFormSchema>;
 
@@ -48,6 +59,7 @@ function UserDialog({ user, onClose }: { user: User | null | undefined; onClose:
           roleId: user.roleId,
           unitIds: user.unitIds,
           active: user.active,
+          discountLimitPercent: percentInput(user.discountLimitPercent),
         }
       : {
           name: '',
@@ -56,11 +68,13 @@ function UserDialog({ user, onClose }: { user: User | null | undefined; onClose:
           roleId: '',
           unitIds: [session.currentUnit.id],
           active: true,
+          discountLimitPercent: '',
         },
   });
 
   const save = useMutation({
     mutationFn: (values: UserForm) => {
+      const discountLimitPercent = parseDecimal(values.discountLimitPercent);
       if (isNew) {
         const body: CreateUserRequest = {
           name: values.name,
@@ -68,6 +82,7 @@ function UserDialog({ user, onClose }: { user: User | null | undefined; onClose:
           password: values.password,
           roleId: values.roleId,
           unitIds: values.unitIds,
+          discountLimitPercent,
         };
         return api('POST', '/admin/users', userSchema, body);
       }
@@ -76,6 +91,7 @@ function UserDialog({ user, onClose }: { user: User | null | undefined; onClose:
         active: values.active,
         roleId: values.roleId,
         unitIds: values.unitIds,
+        discountLimitPercent,
       });
     },
     onSuccess: async (saved) => {
@@ -159,6 +175,14 @@ function UserDialog({ user, onClose }: { user: User | null | undefined; onClose:
           options={(roles.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
           error={errors.roleId?.message}
           {...form.register('roleId')}
+        />
+        <TextField
+          label="Limite de desconto no PDV (%)"
+          inputMode="decimal"
+          autoComplete="off"
+          hint="Vazio usa o limite da clínica, definido nas configurações de venda."
+          error={errors.discountLimitPercent?.message}
+          {...form.register('discountLimitPercent')}
         />
         <Controller
           control={form.control}

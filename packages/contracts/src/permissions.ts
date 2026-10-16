@@ -63,6 +63,24 @@ export const permissionCatalog = {
     group: 'Estoque e serviços',
     label: 'Ver e alterar custo e markup dos produtos',
   },
+  'sales.view': { group: 'Vendas', label: 'Ver vendas e orçamentos' },
+  'sales.manage': {
+    group: 'Vendas',
+    label: 'Lançar e editar vendas e orçamentos em aberto',
+  },
+  'sales.discount': {
+    group: 'Vendas',
+    label: 'Conceder desconto, até o limite do item, do usuário ou da clínica',
+  },
+  'sales.change_price': {
+    group: 'Vendas',
+    label: 'Alterar o preço de itens que permitem preço livre na venda',
+  },
+  'sales.cancel': { group: 'Vendas', label: 'Cancelar vendas e orçamentos em aberto' },
+  'sales.configure': {
+    group: 'Vendas',
+    label: 'Configurar vendas: limite de desconto da clínica e tipo de venda padrão',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
     label:

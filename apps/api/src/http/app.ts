@@ -24,6 +24,8 @@ import { patientRoutes } from '../modules/patients/routes.js';
 import { PatientService } from '../modules/patients/service.js';
 import { productRoutes } from '../modules/products/routes.js';
 import { ProductService } from '../modules/products/service.js';
+import { saleRoutes } from '../modules/sales/routes.js';
+import { SaleService } from '../modules/sales/service.js';
 import { AppointmentService } from '../modules/scheduling/appointment-service.js';
 import { ScheduleConfigService } from '../modules/scheduling/config-service.js';
 import { appointmentRoutes, scheduleRoutes } from '../modules/scheduling/routes.js';
@@ -94,6 +96,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     clinical: new ClinicalService(db, patients, appointments),
   });
   await app.register(productRoutes, { prefix: '/api/products', products: new ProductService(db) });
+  await app.register(saleRoutes, { prefix: '/api/sales', sales: new SaleService(db) });
 
   return app;
 }
