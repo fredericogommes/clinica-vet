@@ -1,12 +1,13 @@
 import { formatAge, patientSchema } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Archive,
   History,
   ArchiveRestore,
   ArrowRightLeft,
   Pencil,
+  Stethoscope,
   TriangleAlert,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -21,6 +22,7 @@ import { useCan } from '../../lib/session';
 import { formatDate, formatPhone } from '../clients/format';
 import { patientSexLabels, sterilizedLabel } from './labels';
 import { patientQuery } from './queries';
+import { DeleteRecordButton } from '../shared/delete-record';
 import { TransferDialog } from './transfer-dialog';
 
 export function PatientPage({ patientId }: { patientId: string }) {
@@ -30,6 +32,7 @@ export function PatientPage({ patientId }: { patientId: string }) {
   const toast = useToast();
   const [transferOpen, setTransferOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const navigate = useNavigate();
 
   const archive = useMutation({
     mutationFn: (archived: boolean) =>
@@ -71,6 +74,16 @@ export function PatientPage({ patientId }: { patientId: string }) {
           <>
             {p.status === 'deceased' ? <Badge>Óbito</Badge> : null}
             {p.archived ? <Badge tone="amber">Arquivado</Badge> : null}
+            {can('clinical.view') ? (
+              <Link
+                to="/atendimento/$patientId"
+                params={{ patientId }}
+                className={buttonClasses('primary')}
+              >
+                <Stethoscope className="size-4" aria-hidden />
+                Ficha clínica
+              </Link>
+            ) : null}
             {can('patients.manage') && editable ? (
               <Link
                 to="/animais/$patientId/editar"
@@ -125,6 +138,20 @@ export function PatientPage({ patientId }: { patientId: string }) {
                   Arquivar
                 </Button>
               )
+            ) : null}
+            {can('patients.delete') ? (
+              <DeleteRecordButton
+                name={p.name}
+                path={`/patients/${patientId}`}
+                description="Para cadastros feitos por engano. Animal com prontuário ou agendamento não é excluído: arquive a ficha."
+                onDeleted={async () => {
+                  queryClient.removeQueries({ queryKey: patientQuery(patientId).queryKey });
+                  await queryClient.invalidateQueries({ queryKey: ['patients', 'list'] });
+                  await queryClient.invalidateQueries({ queryKey: ['clients'] });
+                  toast.success('Animal excluído.');
+                  await navigate({ to: '/clientes/$clientId', params: { clientId: p.owner.id } });
+                }}
+              />
             ) : null}
           </>
         }

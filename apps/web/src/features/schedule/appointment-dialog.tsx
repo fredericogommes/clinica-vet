@@ -31,7 +31,8 @@ export function AppointmentDialog({
 }: {
   appointment: Appointment;
   onClose: () => void;
-  onReschedule: (appointment: Appointment) => void;
+  /** Ausente quando o diálogo é aberto fora da agenda (ex. ficha clínica). */
+  onReschedule?: (appointment: Appointment) => void;
 }) {
   const can = useCan();
   const toast = useToast();
@@ -53,6 +54,7 @@ export function AppointmentDialog({
       setReason('');
       toast.success(`${statusLabel(saved)}: ${saved.patients.map((p) => p.name).join(', ')}.`);
       await queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      await queryClient.invalidateQueries({ queryKey: ['clinical', 'record'] });
     },
   });
 
@@ -93,7 +95,7 @@ export function AppointmentDialog({
           </>
         ) : (
           <>
-            {manage && current.editable ? (
+            {manage && current.editable && onReschedule ? (
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -157,6 +159,27 @@ export function AppointmentDialog({
         ) : null}
         <Facts
           items={[
+            ...(can('clinical.view')
+              ? [
+                  {
+                    label: current.patients.length > 1 ? 'Fichas clínicas' : 'Ficha clínica',
+                    value: (
+                      <span className="flex flex-wrap gap-x-3">
+                        {current.patients.map((p) => (
+                          <Link
+                            key={p.id}
+                            to="/atendimento/$patientId"
+                            params={{ patientId: p.id }}
+                            className="text-sage-700 hover:underline"
+                          >
+                            {p.name}
+                          </Link>
+                        ))}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
             { label: 'Tipo de atendimento', value: current.type.name },
             { label: 'Duração', value: `${current.durationMinutes} min` },
             {

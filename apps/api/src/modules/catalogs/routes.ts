@@ -5,6 +5,10 @@ import {
   catalogItemInputSchema,
   catalogItemSchema,
   catalogKinds,
+  clinicalTemplateInputSchema,
+  clinicalTemplateSchema,
+  pathologyInputSchema,
+  pathologySchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -53,6 +57,71 @@ export const catalogRoutes: FastifyPluginAsyncZod<{ catalogs: CatalogService }> 
     },
     async (request) =>
       catalogs.updateAppointmentType(requireAuth(request), request.params.id, request.body),
+  );
+
+  app.get(
+    '/pathologies',
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { response: { 200: z.array(pathologySchema) } },
+    },
+    async (request) => catalogs.listPathologies(requireAuth(request)),
+  );
+
+  app.post(
+    '/pathologies',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: { body: pathologyInputSchema, response: { 201: pathologySchema } },
+    },
+    async (request, reply) => {
+      const item = await catalogs.savePathology(requireAuth(request), null, request.body);
+      return reply.status(201).send(item);
+    },
+  );
+
+  app.put(
+    '/pathologies/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: { params: idParams, body: pathologyInputSchema, response: { 200: pathologySchema } },
+    },
+    async (request) =>
+      catalogs.savePathology(requireAuth(request), request.params.id, request.body),
+  );
+
+  app.get(
+    '/clinical-templates',
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { response: { 200: z.array(clinicalTemplateSchema) } },
+    },
+    async (request) => catalogs.listTemplates(requireAuth(request)),
+  );
+
+  app.post(
+    '/clinical-templates',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: { body: clinicalTemplateInputSchema, response: { 201: clinicalTemplateSchema } },
+    },
+    async (request, reply) => {
+      const item = await catalogs.saveTemplate(requireAuth(request), null, request.body);
+      return reply.status(201).send(item);
+    },
+  );
+
+  app.put(
+    '/clinical-templates/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: {
+        params: idParams,
+        body: clinicalTemplateInputSchema,
+        response: { 200: clinicalTemplateSchema },
+      },
+    },
+    async (request) => catalogs.saveTemplate(requireAuth(request), request.params.id, request.body),
   );
 
   // Os cadastros alimentam os formulários de clientes e animais, por isso a leitura só exige sessão.

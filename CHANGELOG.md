@@ -14,6 +14,11 @@
 - Agenda por profissional: visões Dia, Semana e Mês, faixas fora do horário sombreadas, agendamento em dois passos com horários livres já cruzados com o profissional, vários animais, recorrência, encaixe com permissão própria, ciclo Agendado → Confirmado → Em espera → Em atendimento → Animal pronto (mais Atrasado, Cancelado e Não compareceu) com médias de espera e atendimento.
 - Escala variável com turnos em rascunho e "Confirmar o mês inteiro"; configuração do horário de funcionamento e dos profissionais com horário fixo.
 - Tipos de atendimento com duração padrão.
+- Atendimento clínico: busca por responsável ou animal e ficha em três colunas com marcações, peso atual, agenda do animal, linha do tempo e evolução do peso.
+- Atendimento com sinais vitais estruturados, diagnóstico por patologia e prontuário pré-preenchido pelo modelo do tipo de atendimento; rascunho visível só ao autor até finalizar.
+- Eventos de peso, patologia, observação, foto, receita e documento; receitas e documentos por modelo com impressão em A4.
+- Linha do tempo com filtros por período, tipo e profissional, ordem e paginação; correção com histórico e invalidação com motivo.
+- Cadastros de patologias e de modelos de receita e documento; exclusão definitiva de cliente ou animal sem histórico.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Segurança

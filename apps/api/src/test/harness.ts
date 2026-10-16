@@ -93,6 +93,13 @@ export class TestClient {
     });
   }
 
+  /** Cookie e token CSRF, para requisições montadas à mão (ex. corpo binário). */
+  authHeaders(): Record<string, string> {
+    const headers = this.headers();
+    if (this.csrf) headers['x-csrf-token'] = this.csrf;
+    return headers;
+  }
+
   private headers(): Record<string, string> {
     return this.cookie ? { cookie: this.cookie } : {};
   }

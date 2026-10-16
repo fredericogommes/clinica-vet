@@ -1,19 +1,32 @@
-import type {
-  AppointmentType,
-  AppointmentTypeInput,
-  Breed,
-  CatalogItem,
-  CatalogItemInput,
-  CatalogKind,
+import type { clinicalTemplateInputSchema, pathologyInputSchema } from '@clinica/contracts';
+import {
+  type AppointmentType,
+  type AppointmentTypeInput,
+  type Breed,
+  type CatalogItem,
+  type CatalogItemInput,
+  type CatalogKind,
+  type ClinicalTemplate,
+  type ClinicalTemplateKind,
+  type Pathology,
 } from '@clinica/contracts';
+import type { z } from 'zod';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
 import { conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { Database, Executor } from '../../db/client.js';
-import { isUniqueViolation } from '../../db/errors.js';
-import { appointmentTypes, breeds, clientOrigins, coats, species } from '../../db/schema.js';
+import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
+import {
+  appointmentTypes,
+  breeds,
+  clientOrigins,
+  clinicalTemplates,
+  coats,
+  pathologies,
+  species,
+} from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 
 const tables = { species, coats, 'client-origins': clientOrigins } as const;
@@ -30,18 +43,51 @@ const toItem = (r: Row): CatalogItem => ({
   archived: r.archivedAt !== null,
 });
 
-type TypeRow = { id: string; name: string; durationMinutes: number; archivedAt: Date | null };
+type TypeRow = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  recordTemplate: string;
+  archivedAt: Date | null;
+};
 const toAppointmentType = (r: TypeRow): AppointmentType => ({
   id: r.id,
   name: r.name,
   durationMinutes: r.durationMinutes,
+  recordTemplate: r.recordTemplate,
   archived: r.archivedAt !== null,
 });
 const typeSnapshot = (r: TypeRow) => ({
   name: r.name,
   durationMinutes: r.durationMinutes,
+  recordTemplate: r.recordTemplate,
   archived: r.archivedAt !== null,
 });
+
+type PathologyRow = { id: string; code: string | null; name: string; archivedAt: Date | null };
+const toPathology = (r: PathologyRow): Pathology => ({
+  id: r.id,
+  code: r.code,
+  name: r.name,
+  archived: r.archivedAt !== null,
+});
+const pathologySnapshot = ({ id: _id, ...rest }: Pathology) => rest;
+
+type TemplateRow = {
+  id: string;
+  kind: ClinicalTemplateKind;
+  name: string;
+  body: string;
+  archivedAt: Date | null;
+};
+const toTemplate = (r: TemplateRow): ClinicalTemplate => ({
+  id: r.id,
+  kind: r.kind,
+  name: r.name,
+  body: r.body,
+  archived: r.archivedAt !== null,
+});
+const templateSnapshot = ({ id: _id, ...rest }: ClinicalTemplate) => rest;
 
 /** Cadastros de apoio: espécies, raças, pelagens e origens de cliente. */
 export class CatalogService {
@@ -190,6 +236,7 @@ export class CatalogService {
       organizationId: auth.organizationId,
       name: input.name,
       durationMinutes: input.durationMinutes,
+      recordTemplate: input.recordTemplate ?? '',
       archivedAt,
     };
     await this.write(async (tx) => {
@@ -225,6 +272,7 @@ export class CatalogService {
         ...current,
         name: input.name,
         durationMinutes: input.durationMinutes,
+        recordTemplate: input.recordTemplate ?? current.recordTemplate,
         archivedAt: input.archived ? (current.archivedAt ?? new Date()) : null,
       };
       await tx
@@ -232,6 +280,7 @@ export class CatalogService {
         .set({
           name: next.name,
           durationMinutes: next.durationMinutes,
+          recordTemplate: next.recordTemplate,
           archivedAt: next.archivedAt,
           updatedAt: new Date(),
         })
@@ -244,6 +293,112 @@ export class CatalogService {
         after: typeSnapshot(next),
       });
       return toAppointmentType(next);
+    });
+  }
+
+  async listPathologies(auth: AuthContext): Promise<Pathology[]> {
+    const rows = await this.db
+      .select()
+      .from(pathologies)
+      .where(eq(pathologies.organizationId, auth.organizationId))
+      .orderBy(asc(sql`lower(${pathologies.name})`));
+    return rows.map(toPathology);
+  }
+
+  async savePathology(
+    auth: AuthContext,
+    id: string | null,
+    input: z.output<typeof pathologyInputSchema>,
+  ): Promise<Pathology> {
+    return this.write(async (tx) => {
+      const [current] = id
+        ? await tx
+            .select()
+            .from(pathologies)
+            .where(and(eq(pathologies.id, id), eq(pathologies.organizationId, auth.organizationId)))
+            .for('update')
+        : [];
+      if (id && !current) throw notFound('Patologia');
+      const values = {
+        code: input.code,
+        name: input.name,
+        archivedAt: input.archived ? (current?.archivedAt ?? new Date()) : null,
+      };
+      const saved = toPathology({ id: id ?? newId(), ...values });
+      if (current) {
+        await tx
+          .update(pathologies)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(pathologies.id, current.id));
+      } else {
+        await tx
+          .insert(pathologies)
+          .values({ id: saved.id, organizationId: auth.organizationId, ...values });
+      }
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'pathology',
+        entityId: saved.id,
+        action: current ? 'update' : 'create',
+        ...(current ? { before: pathologySnapshot(toPathology(current)) } : {}),
+        after: pathologySnapshot(saved),
+      });
+      return saved;
+    });
+  }
+
+  async listTemplates(auth: AuthContext): Promise<ClinicalTemplate[]> {
+    const rows = await this.db
+      .select()
+      .from(clinicalTemplates)
+      .where(eq(clinicalTemplates.organizationId, auth.organizationId))
+      .orderBy(asc(clinicalTemplates.kind), asc(sql`lower(${clinicalTemplates.name})`));
+    return rows.map(toTemplate);
+  }
+
+  async saveTemplate(
+    auth: AuthContext,
+    id: string | null,
+    input: z.output<typeof clinicalTemplateInputSchema>,
+  ): Promise<ClinicalTemplate> {
+    return this.write(async (tx) => {
+      const [current] = id
+        ? await tx
+            .select()
+            .from(clinicalTemplates)
+            .where(
+              and(
+                eq(clinicalTemplates.id, id),
+                eq(clinicalTemplates.organizationId, auth.organizationId),
+              ),
+            )
+            .for('update')
+        : [];
+      if (id && !current) throw notFound('Modelo');
+      const values = {
+        kind: input.kind,
+        name: input.name,
+        body: input.body,
+        archivedAt: input.archived ? (current?.archivedAt ?? new Date()) : null,
+      };
+      const saved = toTemplate({ id: id ?? newId(), ...values });
+      if (current) {
+        await tx
+          .update(clinicalTemplates)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(clinicalTemplates.id, current.id));
+      } else {
+        await tx
+          .insert(clinicalTemplates)
+          .values({ id: saved.id, organizationId: auth.organizationId, ...values });
+      }
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'clinical_template',
+        entityId: saved.id,
+        action: current ? 'update' : 'create',
+        ...(current ? { before: templateSnapshot(toTemplate(current)) } : {}),
+        after: templateSnapshot(saved),
+      });
+      return saved;
     });
   }
 
@@ -260,7 +415,13 @@ export class CatalogService {
     try {
       return await this.db.transaction(work);
     } catch (error) {
-      if (isUniqueViolation(error)) throw conflict('Já existe um cadastro com este nome.');
+      if (isUniqueViolation(error)) {
+        throw conflict(
+          violatedConstraint(error) === 'pathologies_org_code_uq'
+            ? 'Já existe uma patologia com este código.'
+            : 'Já existe um cadastro com este nome.',
+        );
+      }
       throw error;
     }
   }

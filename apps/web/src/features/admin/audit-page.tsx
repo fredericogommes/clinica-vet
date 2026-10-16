@@ -21,6 +21,11 @@ const entityLabels: Record<string, string> = {
   breed: 'Raça',
   coat: 'Pelagem',
   client_origin: 'Origem de cliente',
+  appointment: 'Agendamento',
+  appointment_type: 'Tipo de atendimento',
+  clinical_event: 'Evento clínico',
+  pathology: 'Patologia',
+  clinical_template: 'Modelo de texto',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',
@@ -32,6 +37,9 @@ const actionLabels: Record<string, string> = {
   restore: 'Restaurou',
   consent: 'Registrou consentimento',
   transfer_owner: 'Trocou responsável',
+  publish: 'Publicou',
+  void: 'Invalidou',
+  discard: 'Descartou rascunho',
 };
 
 export interface AuditFilter {

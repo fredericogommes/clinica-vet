@@ -45,6 +45,19 @@ Fonte: `apps/api/src/db/schema.ts`; migrações SQL em `apps/api/drizzle`. Conve
 
 A disponibilidade é a interseção do funcionamento com o horário fixo ou os turnos confirmados; as horas são guardadas no fuso da unidade (`units.time_zone`). A migração 0002 cria a extensão `btree_gist` e semeia funcionamento Seg–Sáb 08:00–18:00 e tipos de atendimento comuns nas organizações existentes.
 
+## Atendimento clínico (Fase 1)
+
+| Tabela                       | Papel                          | Regras principais                                                                                                                              |
+| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pathologies`                | Catálogo de patologias         | Nome único sem diferenciar maiúsculas; código opcional, único em maiúsculas; arquivável                                                        |
+| `clinical_templates`         | Modelos de receita e documento | Texto com campos `{{animal}}`, `{{responsavel}}` etc., preenchidos no servidor                                                                 |
+| `clinical_events`            | Evento da ficha (polimórfico)  | `kind`, `status` (`draft`, `published`, `voided`), autor, `occurred_at`; `payload` JSONB só com texto livre; invalidação guarda motivo e autor |
+| `clinical_vitals`            | Sinais vitais e peso           | Um por evento; CHECK de faixa (FC 10–400, FR 4–200, T 30–45, TPC 0–10, peso 0,001–2000 kg, escore 1–9); `numeric`, nunca `float`               |
+| `clinical_event_pathologies` | Diagnóstico codificado         | Até 10 patologias por atendimento, ou uma no evento Patologia                                                                                  |
+| `clinical_files`             | Foto clínica                   | `bytea` com tipo conferido pelos bytes e até 8 MB; servida com CSP `sandbox` e cache privado                                                   |
+
+`appointment_types.record_template` guarda o modelo de prontuário do tipo. A migração 0003 preenche o modelo da Consulta e cria "Receita simples" e "Atestado de saúde" nas organizações existentes.
+
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.
 
 O modelo das fases seguintes está em [architecture.md](architecture.md#4-modelo-de-dados-inicial-fase-01).

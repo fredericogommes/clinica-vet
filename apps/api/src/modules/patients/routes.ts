@@ -103,4 +103,16 @@ export const patientRoutes: FastifyPluginAsyncZod<{ patients: PatientService }> 
     },
     async (request) => patients.setArchived(requireAuth(request), request.params.id, false),
   );
+
+  app.delete(
+    '/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'patients.delete' } },
+      schema: { params: idParams },
+    },
+    async (request, reply) => {
+      await patients.remove(requireAuth(request), request.params.id);
+      return reply.status(204).send();
+    },
+  );
 };

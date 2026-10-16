@@ -2,11 +2,13 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   date,
   foreignKey,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   smallint,
@@ -365,12 +367,13 @@ export const patientOwnerHistory = pgTable(
   ],
 );
 
-/** Tipos de atendimento [p.5]: alimentam a agenda e, depois, o modelo de prontuário. */
+/** Tipos de atendimento [p.5]: alimentam a agenda e o modelo de prontuário [RN-18]. */
 export const appointmentTypes = pgTable(
   'appointment_types',
   {
     ...catalogColumns,
     durationMinutes: integer('duration_minutes').notNull().default(60),
+    recordTemplate: text('record_template').notNull().default(''),
   },
   (t) => [
     uniqueIndex('appointment_types_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
@@ -524,4 +527,156 @@ export const appointmentPatients = pgTable(
     primaryKey({ columns: [t.appointmentId, t.patientId] }),
     index('appointment_patients_patient_idx').on(t.patientId),
   ],
+);
+
+/** Diagnóstico codificado [D1, L8]: catálogo próprio com código interno opcional. */
+export const pathologies = pgTable(
+  'pathologies',
+  { ...catalogColumns, code: text('code') },
+  (t) => [
+    uniqueIndex('pathologies_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    uniqueIndex('pathologies_org_code_uq')
+      .on(t.organizationId, sql`upper(${t.code})`)
+      .where(sql`${t.code} is not null`),
+  ],
+);
+
+/** Modelos de receita e de documento [p.13]. */
+export const clinicalTemplates = pgTable(
+  'clinical_templates',
+  {
+    ...catalogColumns,
+    kind: text('kind', { enum: ['prescription', 'document'] }).notNull(),
+    body: text('body').notNull(),
+  },
+  (t) => [
+    uniqueIndex('clinical_templates_org_kind_name_uq').on(
+      t.organizationId,
+      t.kind,
+      sql`lower(${t.name})`,
+    ),
+  ],
+);
+
+/**
+ * Evento clínico polimórfico [RN-17]: tipo + conteúdo JSONB validado pelo contrato do tipo.
+ * O que precisa ser consultado (sinais vitais, peso, diagnóstico) fica em tabelas tipadas.
+ */
+export const clinicalEvents = pgTable(
+  'clinical_events',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    kind: text('kind', {
+      enum: [
+        'encounter',
+        'weight',
+        'pathology',
+        'observation',
+        'photo',
+        'document',
+        'prescription',
+      ],
+    }).notNull(),
+    status: text('status', { enum: ['draft', 'published', 'voided'] }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id),
+    appointmentId: uuid('appointment_id').references(() => appointments.id),
+    appointmentTypeId: uuid('appointment_type_id').references(() => appointmentTypes.id),
+    templateId: uuid('template_id').references(() => clinicalTemplates.id),
+    payload: jsonb('payload').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    voidedBy: uuid('voided_by').references(() => users.id),
+    voidReason: text('void_reason'),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    index('clinical_events_patient_time_idx').on(t.patientId, t.occurredAt, t.id),
+    index('clinical_events_author_idx').on(t.authorId),
+    check(
+      'clinical_events_status_ck',
+      sql`(${t.status} = 'draft' and ${t.publishedAt} is null and ${t.voidedAt} is null)
+        or (${t.status} = 'published' and ${t.publishedAt} is not null and ${t.voidedAt} is null)
+        or (${t.status} = 'voided' and ${t.publishedAt} is not null and ${t.voidedAt} is not null
+            and ${t.voidReason} is not null)`,
+    ),
+  ],
+);
+
+/** Sinais vitais e peso, um registro por evento (atendimento ou pesagem). */
+export const clinicalVitals = pgTable(
+  'clinical_vitals',
+  {
+    eventId: uuid('event_id')
+      .primaryKey()
+      .references(() => clinicalEvents.id, { onDelete: 'cascade' }),
+    heartRate: smallint('heart_rate'),
+    respiratoryRate: smallint('respiratory_rate'),
+    temperature: numeric('temperature', { precision: 4, scale: 1, mode: 'number' }),
+    capillaryRefill: numeric('capillary_refill', { precision: 3, scale: 1, mode: 'number' }),
+    weightKg: numeric('weight_kg', { precision: 8, scale: 3, mode: 'number' }),
+    bodyScore: smallint('body_score'),
+  },
+  (t) => [
+    check(
+      'clinical_vitals_ranges_ck',
+      sql`(${t.heartRate} is null or ${t.heartRate} between 10 and 400)
+        and (${t.respiratoryRate} is null or ${t.respiratoryRate} between 4 and 200)
+        and (${t.temperature} is null or ${t.temperature} between 30 and 45)
+        and (${t.capillaryRefill} is null or ${t.capillaryRefill} between 0 and 10)
+        and (${t.weightKg} is null or ${t.weightKg} between 0.001 and 2000)
+        and (${t.bodyScore} is null or ${t.bodyScore} between 1 and 9)`,
+    ),
+  ],
+);
+
+export const clinicalEventPathologies = pgTable(
+  'clinical_event_pathologies',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => clinicalEvents.id, { onDelete: 'cascade' }),
+    pathologyId: uuid('pathology_id')
+      .notNull()
+      .references(() => pathologies.id),
+    position: integer('position').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.pathologyId] }),
+    index('clinical_event_pathologies_pathology_idx').on(t.pathologyId),
+  ],
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
+
+/** Imagens clínicas no próprio banco: entram no backup diário junto com o prontuário. */
+export const clinicalFiles = pgTable(
+  'clinical_files',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => clinicalEvents.id, { onDelete: 'cascade' }),
+    contentType: text('content_type').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    sha256: text('sha256').notNull(),
+    data: bytea('data').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('clinical_files_event_uq').on(t.eventId)],
 );

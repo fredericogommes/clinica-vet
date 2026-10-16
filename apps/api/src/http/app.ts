@@ -16,6 +16,8 @@ import { adminRoutes } from '../modules/admin/routes.js';
 import { AdminService } from '../modules/admin/service.js';
 import { catalogRoutes } from '../modules/catalogs/routes.js';
 import { CatalogService } from '../modules/catalogs/service.js';
+import { clinicalRoutes } from '../modules/clinical/routes.js';
+import { ClinicalService } from '../modules/clinical/service.js';
 import { clientRoutes } from '../modules/clients/routes.js';
 import { ClientService } from '../modules/clients/service.js';
 import { patientRoutes } from '../modules/patients/routes.js';
@@ -76,7 +78,8 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(adminRoutes, { prefix: '/api/admin', admin: new AdminService(db) });
   await app.register(catalogRoutes, { prefix: '/api/catalogs', catalogs: new CatalogService(db) });
   await app.register(clientRoutes, { prefix: '/api/clients', clients: new ClientService(db) });
-  await app.register(patientRoutes, { prefix: '/api/patients', patients: new PatientService(db) });
+  const patients = new PatientService(db);
+  await app.register(patientRoutes, { prefix: '/api/patients', patients });
   const appointments = new AppointmentService(db);
   await app.register(scheduleRoutes, {
     prefix: '/api/schedule',
@@ -84,6 +87,10 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     appointments,
   });
   await app.register(appointmentRoutes, { prefix: '/api/appointments', appointments });
+  await app.register(clinicalRoutes, {
+    prefix: '/api/clinical',
+    clinical: new ClinicalService(db, patients, appointments),
+  });
 
   return app;
 }
