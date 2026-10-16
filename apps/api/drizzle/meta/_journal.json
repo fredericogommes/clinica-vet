@@ -8,6 +8,13 @@
       "when": 1792120073681,
       "tag": "0000_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792148463440,
+      "tag": "0001_clients_and_patients",
+      "breakpoints": true
     }
   ]
 }

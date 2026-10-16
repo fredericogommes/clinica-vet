@@ -14,6 +14,12 @@ import type { Config } from '../core/config.js';
 import type { Database } from '../db/client.js';
 import { adminRoutes } from '../modules/admin/routes.js';
 import { AdminService } from '../modules/admin/service.js';
+import { catalogRoutes } from '../modules/catalogs/routes.js';
+import { CatalogService } from '../modules/catalogs/service.js';
+import { clientRoutes } from '../modules/clients/routes.js';
+import { ClientService } from '../modules/clients/service.js';
+import { patientRoutes } from '../modules/patients/routes.js';
+import { PatientService } from '../modules/patients/service.js';
 import { authRoutes } from '../modules/auth/routes.js';
 import { SessionService } from '../modules/auth/sessions.js';
 import { accessGuard } from './access-guard.js';
@@ -56,6 +62,9 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     secureCookies: config.NODE_ENV === 'production',
   });
   await app.register(adminRoutes, { prefix: '/api/admin', admin: new AdminService(db) });
+  await app.register(catalogRoutes, { prefix: '/api/catalogs', catalogs: new CatalogService(db) });
+  await app.register(clientRoutes, { prefix: '/api/clients', clients: new ClientService(db) });
+  await app.register(patientRoutes, { prefix: '/api/patients', patients: new PatientService(db) });
 
   return app;
 }

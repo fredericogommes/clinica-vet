@@ -24,8 +24,13 @@ export async function createHarness(): Promise<Harness> {
     LOG_LEVEL: 'silent',
   });
   const { db, pool } = createDatabase(config.DATABASE_URL);
-  await db.execute(sql`
-    truncate audit_log, sessions, user_units, users, role_permissions, roles, cost_centers, units, organizations cascade`);
+  // Limpa todas as tabelas da aplicação; as migrações ficam no schema `drizzle`.
+  const tables = await db.execute<{ name: string }>(
+    sql`select quote_ident(tablename) as name from pg_tables where schemaname = 'public'`,
+  );
+  await db.execute(
+    sql.raw(`truncate ${tables.rows.map((t) => t.name).join(', ')} restart identity cascade`),
+  );
   const org = await db.transaction((tx) =>
     provisionOrganization(tx, {
       organizationName: 'Clínica Teste',
@@ -91,4 +96,28 @@ export class TestClient {
   private headers(): Record<string, string> {
     return this.cookie ? { cookie: this.cookie } : {};
   }
+}
+
+/** Cria um usuário com um perfil-modelo e devolve um cliente HTTP já autenticado como ele. */
+export async function loginAs(
+  h: Harness,
+  admin: TestClient,
+  roleName: string,
+): Promise<TestClient> {
+  const roles = (await admin.get('/api/admin/roles')).json<{ id: string; name: string }[]>();
+  const role = roles.find((r) => r.name === roleName);
+  if (!role) throw new Error(`Perfil ${roleName} não existe.`);
+  const email = `${roleName.toLowerCase().replace(/[^a-z]/g, '')}@clinica.test`;
+  const password = 'senha-forte-456';
+  const res = await admin.send('POST', '/api/admin/users', {
+    name: roleName,
+    email,
+    password,
+    roleId: role.id,
+    unitIds: [h.org.unitId],
+  });
+  if (res.statusCode !== 201) throw new Error(`Falha ao criar usuário: ${res.body}`);
+  const user = new TestClient(h.app);
+  await user.login(email, password);
+  return user;
 }

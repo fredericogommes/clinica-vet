@@ -9,7 +9,8 @@ import type {
 } from '@clinica/contracts';
 import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { loadRolePermissions } from '../../core/access.js';
-import { recordAudit, type Actor } from '../../core/audit.js';
+import { actorOf } from '../../core/actor.js';
+import { recordAudit } from '../../core/audit.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import { hashPassword } from '../../core/passwords.js';
@@ -28,12 +29,6 @@ import type { AuthContext } from '../auth/sessions.js';
 
 /** Permissões que garantem que a organização continue administrável. */
 const ADMIN_PERMISSIONS: readonly Permission[] = ['admin.roles.manage', 'admin.users.manage'];
-
-const actorOf = (auth: AuthContext): Actor => ({
-  organizationId: auth.organizationId,
-  unitId: auth.unitId,
-  userId: auth.userId,
-});
 
 export class AdminService {
   constructor(private readonly db: Database) {}

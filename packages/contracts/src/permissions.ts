@@ -4,6 +4,23 @@
  * Novas telas acrescentam suas ações aqui, nunca checam por perfil ou por nome de tela.
  */
 export const permissionCatalog = {
+  'clients.view': { group: 'Clientes e animais', label: 'Ver clientes' },
+  'clients.manage': {
+    group: 'Clientes e animais',
+    label: 'Cadastrar e editar clientes e consentimentos',
+  },
+  'clients.archive': { group: 'Clientes e animais', label: 'Arquivar e restaurar clientes' },
+  'patients.view': { group: 'Clientes e animais', label: 'Ver animais' },
+  'patients.manage': { group: 'Clientes e animais', label: 'Cadastrar e editar animais' },
+  'patients.transfer_owner': {
+    group: 'Clientes e animais',
+    label: 'Trocar o responsável de um animal',
+  },
+  'patients.archive': { group: 'Clientes e animais', label: 'Arquivar e restaurar animais' },
+  'catalogs.manage': {
+    group: 'Cadastros',
+    label: 'Editar espécies, raças, pelagens e origem dos clientes',
+  },
   'admin.users.view': { group: 'Configuração', label: 'Ver usuários' },
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },
   'admin.roles.view': { group: 'Configuração', label: 'Ver perfis de acesso' },

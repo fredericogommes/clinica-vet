@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run test -w @clinica/api && npm run test -w @clinica/web",
+    "test": "npm run test -w @clinica/contracts && npm run test -w @clinica/api && npm run test -w @clinica/web",
     "test:e2e": "npm run test:e2e -w @clinica/web",
     "db:migrate": "npm run db:migrate -w @clinica/api",
     "db:seed": "npm run db:seed -w @clinica/api",
