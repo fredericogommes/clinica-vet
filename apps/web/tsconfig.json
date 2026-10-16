@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "@testing-library/jest-dom/vitest"]
+  },
+  "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts"],
+  "references": [{ "path": "../../packages/contracts" }]
+}

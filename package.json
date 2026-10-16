@@ -30,6 +30,7 @@
     "globals": "17.13.0",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.71.2"
+    "typescript-eslint": "8.71.2",
+    "wait-on": "9.5.1"
   }
 }

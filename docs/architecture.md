@@ -1,6 +1,6 @@
 # Arquitetura — proposta
 
-Status: proposta para aprovação. Versões serão confirmadas no registro npm e na documentação oficial no início da Fase B; nada abaixo foi instalado ainda.
+Status: aprovada; Fundação implementada. Versões fixadas em `package.json` foram conferidas no registro npm em 16/10/2026.
 
 ## 1. Visão geral
 
@@ -130,3 +130,13 @@ Adaptadores atrás de interfaces: WhatsApp Business (Cloud API), gateway fiscal 
 | D5 — Painel                        | F1-26                                                                                                                                   | KPIs conferidos contra dados semeados                            |
 | E/F — Integração e auditoria       | Revisão, segurança, regressão                                                                                                           | Relatório com evidências                                         |
 | Fases 2 e 3                        | Conforme matriz, após aceite do MVP                                                                                                     | —                                                                |
+
+## 11. Decisões registradas na Fundação
+
+- **TypeScript 6.0**, não 7.0: o `typescript-eslint` 8 ainda exige `<6.1`. Reavaliar quando houver suporte.
+- **Playwright 1.56** para casar com o Chromium disponível no ambiente de desenvolvimento; o CI instala o navegador próprio.
+- **Sessão no servidor, não JWT**: permite revogar na hora (usuário desativado perde o acesso na requisição seguinte).
+- **CSRF por token sincronizado** por sessão, enviado no cabeçalho `x-csrf-token`; cookie `SameSite=Lax`.
+- **Perfis-modelo somente leitura**, sincronizados a partir do código a cada `db:migrate`; personalização por clonagem.
+- **Invariante administrativa**: nenhuma alteração pode deixar a organização sem usuário ativo com `admin.roles.manage` e `admin.users.manage` (checada com bloqueio da organização na transação).
+- **Auditoria com retrato**: registros guardam ids e nomes vigentes, para que o histórico continue legível depois de renomeações.

@@ -1,19 +1,19 @@
 # Matriz de rastreabilidade
 
-Status: **pendente** (nada implementado ainda). Colunas de implementação e teste indicam o módulo e o tipo de teste planejados; serão substituídas por caminhos reais de código e testes à medida que cada fase avançar.
+Status por linha: **concluído e validado**, **parcial**, **pendente**. Nas linhas concluídas, as colunas apontam para o código e os testes reais; nas demais, indicam o planejado.
 
 Legenda de testes: U = unitário (domínio), I = integração (API + PostgreSQL real), E = ponta a ponta (Playwright), S = segurança/permissão.
 
 ## Fase 0 — Fundação
 
-| ID   | Requisito                                      | Fonte         | Implementação planejada                                    | Teste                                                       | Status   |
-| ---- | ---------------------------------------------- | ------------- | ---------------------------------------------------------- | ----------------------------------------------------------- | -------- |
-| F0-1 | Unidade e centro de custo em toda transação    | p.24 RN-01    | `core/organization`, FKs obrigatórias                      | I: transação sem unidade é rejeitada                        | pendente |
-| F0-2 | Autorização por ação, perfis-modelo clonáveis  | p.21–22 RN-02 | `core/access` catálogo de ações + guard por rota           | U, S: cada rota exige a chave; perfil clonado herda chaves  | pendente |
-| F0-3 | Trilha de auditoria (antes/depois)             | p.24 RN-03    | `core/audit` na mesma transação da escrita                 | I: alteração de preço gera registro com valor antigo e novo | pendente |
-| F0-4 | Modelo de eventos do animal polimórfico        | p.23 RN-17    | `clinical/events` tabela única + payload validado por tipo | U: payload inválido rejeitado; I                            | pendente |
-| F0-5 | Consentimento LGPD por canal com data e origem | p.6–7 RN-04   | `clients/consent`                                          | I, S                                                        | pendente |
-| F0-6 | Autenticação segura (sessão, senha)            | prompt §11    | `core/auth` argon2id, cookie httpOnly, CSRF, rate limit    | S: força bruta limitada, sessão expira                      | pendente |
+| ID   | Requisito                                      | Fonte         | Implementação planejada                                                                       | Teste                                                                 | Status                                                                                          |
+| ---- | ---------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| F0-1 | Unidade e centro de custo em toda transação    | p.24 RN-01    | `units`, `cost_centers` (`apps/api/src/db/schema.ts`); sessão sempre tem unidade corrente     | I: `auth.test.ts` (unidade sem vínculo negada)                        | parcial: entidades e unidade da sessão prontas; FKs entram com cada tabela transacional         |
+| F0-2 | Autorização por ação, perfis-modelo clonáveis  | p.21–22 RN-02 | `packages/contracts/src/permissions.ts`, `apps/api/src/http/access-guard.ts`, `modules/admin` | S: `access-guard.test.ts`; I: `admin.test.ts`; E: `e2e/admin.spec.ts` | concluído e validado (catálogo cresce por módulo)                                               |
+| F0-3 | Trilha de auditoria (antes/depois)             | p.24 RN-03    | `apps/api/src/core/audit.ts`, tela Auditoria                                                  | I: `admin.test.ts`; U: `audit-changes.test.tsx`; E                    | concluído e validado para usuários e perfis; preço, estoque e prontuário usam o mesmo mecanismo |
+| F0-4 | Modelo de eventos do animal polimórfico        | p.23 RN-17    | `clinical/events` tabela única + payload validado por tipo                                    | U: payload inválido rejeitado; I                                      | pendente                                                                                        |
+| F0-5 | Consentimento LGPD por canal com data e origem | p.6–7 RN-04   | `clients/consent`                                                                             | I, S                                                                  | pendente                                                                                        |
+| F0-6 | Autenticação segura (sessão, senha)            | prompt §11    | `modules/auth`, `core/passwords.ts`                                                           | S: `auth.test.ts`; E                                                  | concluído e validado                                                                            |
 
 ## Fase 1 — MVP operacional
 

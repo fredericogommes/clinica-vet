@@ -208,12 +208,7 @@ export class AdminService {
         entity: 'user',
         entityId: id,
         action: 'create',
-        after: {
-          name: input.name,
-          email: input.email,
-          roleId: input.roleId,
-          unitIds: input.unitIds,
-        },
+        after: await this.userSnapshot(tx, auth, id),
       });
     });
     return this.getUser(auth, id);
@@ -224,7 +219,7 @@ export class AdminService {
       throw conflict('Você não pode desativar o seu próprio usuário.');
     }
     await this.inTransaction(auth, async (tx) => {
-      const before = await this.getUser(auth, userId, tx);
+      const before = await this.userSnapshot(tx, auth, userId);
       await this.findRole(tx, auth, input.roleId);
       await this.assertUnits(tx, auth, input.unitIds);
       await tx
@@ -243,13 +238,8 @@ export class AdminService {
         entity: 'user',
         entityId: userId,
         action: 'update',
-        before: {
-          name: before.name,
-          active: before.active,
-          roleId: before.roleId,
-          unitIds: before.unitIds,
-        },
-        after: input,
+        before,
+        after: await this.userSnapshot(tx, auth, userId),
       });
     });
     return this.getUser(auth, userId);
@@ -314,6 +304,23 @@ export class AdminService {
       ...row,
       lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
       unitIds: links.map((l) => l.unitId),
+    };
+  }
+
+  /** Retrato do usuário para auditoria: guarda ids e os nomes vigentes no momento da alteração. */
+  private async userSnapshot(tx: Executor, auth: AuthContext, userId: string) {
+    const user = await this.getUser(auth, userId, tx);
+    const unitRows = await tx
+      .select({ id: units.id, name: units.name })
+      .from(units)
+      .where(inArray(units.id, user.unitIds))
+      .orderBy(asc(units.name));
+    return {
+      name: user.name,
+      email: user.email,
+      active: user.active,
+      role: { id: user.roleId, name: user.roleName },
+      units: unitRows,
     };
   }
 

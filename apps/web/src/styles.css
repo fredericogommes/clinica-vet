@@ -1,0 +1,69 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/public-sans';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
+ * Tokens do design system. Toda cor, fonte e raio da interface sai daqui.
+ * Sálvia: cor de marca e ação primária. Âmbar: alertas operacionais (marcações, pendências).
+ */
+@theme {
+  --font-display: 'Bricolage Grotesque Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Public Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-canvas: #f5f6f3;
+  --color-surface: #ffffff;
+  --color-sunken: #eef0ec;
+  --color-line: #e1e4de;
+  --color-line-strong: #c9cec5;
+
+  --color-ink: #19222b;
+  --color-ink-muted: #56606a;
+  --color-ink-faint: #7d868e;
+
+  --color-sage-50: #eef4f1;
+  --color-sage-100: #d9e7e0;
+  --color-sage-500: #3f7465;
+  --color-sage-600: #2f5d50;
+  --color-sage-700: #244a40;
+  --color-sage-900: #12291f;
+
+  --color-amber-50: #fdf5e6;
+  --color-amber-500: #c98a1b;
+  --color-amber-700: #8a5d0c;
+
+  --color-danger-50: #fdeceb;
+  --color-danger-600: #b42318;
+  --color-success-50: #e9f5ee;
+  --color-success-600: #2e7d4f;
+
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
+
+  --shadow-panel: 0 1px 2px rgb(25 34 43 / 0.05);
+  --shadow-overlay: 0 12px 32px -8px rgb(25 34 43 / 0.25), 0 2px 6px rgb(25 34 43 / 0.08);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    color: var(--color-ink);
+    background: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'tnum' 1;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-sage-500);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

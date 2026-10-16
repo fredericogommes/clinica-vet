@@ -1,0 +1,22 @@
+# Testes
+
+| Camada                        | Ferramenta                       | Onde                         | Como rodar                 |
+| ----------------------------- | -------------------------------- | ---------------------------- | -------------------------- |
+| Integração e segurança da API | Vitest + PostgreSQL real         | `apps/api/src/**/*.test.ts`  | `npm test -w @clinica/api` |
+| Componentes da interface      | Vitest + Testing Library (jsdom) | `apps/web/src/**/*.test.tsx` | `npm test -w @clinica/web` |
+| Ponta a ponta                 | Playwright (desktop e celular)   | `apps/web/e2e`               | `npm run test:e2e`         |
+
+## Banco de testes
+
+Cada execução da API cria um banco descartável (`clinica_test_<aleatório>`), aplica as migrações reais e o remove ao final. A conexão usada para criar o banco vem de `TEST_DATABASE_ADMIN_URL` e precisa de permissão `CREATE DATABASE`. Cada teste começa com a base limpa e uma organização provisionada.
+
+## Ponta a ponta
+
+Requer API e interface rodando e um administrador semeado. Variáveis: `E2E_BASE_URL` (padrão `http://localhost:5173`), `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`. Se o Chromium do Playwright não estiver instalado, aponte `PLAYWRIGHT_CHROMIUM_PATH` para um executável existente.
+
+## Cobertura atual
+
+- Login: credenciais inválidas sem revelar se o e-mail existe, validação por campo, limite de tentativas, cookie `HttpOnly`/`SameSite`, token de sessão guardado só como hash, logout no servidor.
+- Acesso: rota sem declaração impede a API de subir, requisição sem sessão é rejeitada antes da validação, ausência de chave nega, isolamento entre organizações, CSRF obrigatório em escrita.
+- Perfis e usuários: modelos imutáveis, clonagem, chave fora do catálogo rejeitada, nome e e-mail duplicados, a clínica nunca fica sem administrador, usuário desativado perde a sessão, auditoria com antes e depois.
+- Interface: fluxo completo de clonar perfil, criar usuário e verificar a restrição de acesso; logout; menu móvel.

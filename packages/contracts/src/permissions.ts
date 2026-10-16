@@ -8,7 +8,6 @@ export const permissionCatalog = {
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },
   'admin.roles.view': { group: 'Configuração', label: 'Ver perfis de acesso' },
   'admin.roles.manage': { group: 'Configuração', label: 'Criar, clonar e editar perfis de acesso' },
-  'admin.units.manage': { group: 'Configuração', label: 'Cadastrar unidades e centros de custo' },
   'admin.audit.view': { group: 'Consultas', label: 'Ver log de auditoria' },
 } as const satisfies Record<string, { group: string; label: string }>;
 
