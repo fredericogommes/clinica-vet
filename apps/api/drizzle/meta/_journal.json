@@ -29,6 +29,13 @@
       "when": 1792176836811,
       "tag": "0003_clinical",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792179417536,
+      "tag": "0004_products",
+      "breakpoints": true
     }
   ]
 }

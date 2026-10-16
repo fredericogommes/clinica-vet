@@ -51,10 +51,22 @@ export const permissionCatalog = {
     group: 'Agenda',
     label: 'Configurar horário de funcionamento, profissionais e escala',
   },
+  'products.view': {
+    group: 'Estoque e serviços',
+    label: 'Ver produtos, serviços e preços de venda',
+  },
+  'products.manage': {
+    group: 'Estoque e serviços',
+    label: 'Cadastrar, editar e arquivar produtos e serviços',
+  },
+  'products.view_cost': {
+    group: 'Estoque e serviços',
+    label: 'Ver e alterar custo e markup dos produtos',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
     label:
-      'Editar espécies, raças, pelagens, origens de clientes, tipos de atendimento, patologias e modelos de receita e documento',
+      'Editar espécies, raças, pelagens, origens de clientes, tipos de atendimento, patologias, modelos de receita e documento, grupos e marcas de produto',
   },
   'admin.users.view': { group: 'Configuração', label: 'Ver usuários' },
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },

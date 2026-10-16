@@ -40,6 +40,9 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'clinical.record',
       'clinical.edit_any',
       'clinical.change_datetime',
+      'products.view',
+      'products.manage',
+      'products.view_cost',
       'catalogs.manage',
     ],
   },
@@ -55,6 +58,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'clinical.view',
       'clinical.record',
       'clinical.change_datetime',
+      'products.view',
     ],
   },
   {
@@ -69,6 +73,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'schedule.manage',
       'schedule.fit_in',
       'clinical.view',
+      'products.view',
     ],
   },
   {
@@ -81,6 +86,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'schedule.manage',
       'clinical.view',
       'clinical.record',
+      'products.view',
     ],
   },
 ];

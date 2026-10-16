@@ -25,15 +25,25 @@ import {
   clinicalTemplates,
   coats,
   pathologies,
+  productBrands,
+  productGroups,
   species,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 
-const tables = { species, coats, 'client-origins': clientOrigins } as const;
+const tables = {
+  species,
+  coats,
+  'client-origins': clientOrigins,
+  'product-groups': productGroups,
+  'product-brands': productBrands,
+} as const;
 const entityNames: Record<CatalogKind, string> = {
   species: 'species',
   coats: 'coat',
   'client-origins': 'client_origin',
+  'product-groups': 'product_group',
+  'product-brands': 'product_brand',
 };
 
 type Row = { id: string; name: string; archivedAt: Date | null };

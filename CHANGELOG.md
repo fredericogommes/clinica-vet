@@ -19,6 +19,7 @@
 - Eventos de peso, patologia, observação, foto, receita e documento; receitas e documentos por modelo com impressão em A4.
 - Linha do tempo com filtros por período, tipo e profissional, ordem e paginação; correção com histórico e invalidação com motivo.
 - Cadastros de patologias e de modelos de receita e documento; exclusão definitiva de cliente ou animal sem histórico.
+- Produtos e serviços num cadastro só: tipo, classificação do serviço (consulta, vacina, exame, banho e tosa...), unidade, código de barras, grupo, marca, preço, custo, markup real e preço sugerido, limite de desconto, comissão padrão e por profissional, estoque mínimo e ideal e campos fiscais; grupos de produtos e marcas.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Segurança

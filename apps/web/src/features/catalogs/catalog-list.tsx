@@ -24,6 +24,8 @@ interface CatalogListProps {
   description?: string;
   /** Nome do item no singular, usado nos botões e diálogos (ex. "pelagem"). */
   noun: string;
+  /** Gênero do substantivo, para "Novo grupo" e "Nova marca". */
+  masculine?: boolean;
   items: CatalogItem[] | undefined;
   isPending: boolean;
   error: unknown;
@@ -35,8 +37,18 @@ interface CatalogListProps {
 
 /** Lista editável de um cadastro de apoio, com inclusão, renomeação e arquivamento. */
 export function CatalogList(props: CatalogListProps) {
-  const { title, description, noun, items, isPending, error, onRetry, selectedId, onSelect } =
-    props;
+  const {
+    title,
+    description,
+    noun,
+    masculine = false,
+    items,
+    isPending,
+    error,
+    onRetry,
+    selectedId,
+    onSelect,
+  } = props;
   const [editing, setEditing] = useState<CatalogItem | null | undefined>(undefined);
 
   return (
@@ -64,7 +76,7 @@ export function CatalogList(props: CatalogListProps) {
         <EmptyState
           icon={Tags}
           title="Nada cadastrado"
-          description={`Adicione a primeira ${noun}.`}
+          description={`Adicione ${masculine ? 'o primeiro' : 'a primeira'} ${noun}.`}
         />
       ) : (
         <ul className="-mx-2 divide-y divide-line">
@@ -109,6 +121,7 @@ export function CatalogList(props: CatalogListProps) {
         <CatalogDialog
           item={editing}
           noun={noun}
+          masculine={masculine}
           save={props.save}
           onClose={() => {
             setEditing(undefined);
@@ -122,11 +135,13 @@ export function CatalogList(props: CatalogListProps) {
 function CatalogDialog({
   item,
   noun,
+  masculine,
   save,
   onClose,
 }: {
   item: CatalogItem | null;
   noun: string;
+  masculine: boolean;
   save: CatalogListProps['save'];
   onClose: () => void;
 }) {
@@ -153,7 +168,7 @@ function CatalogDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={item ? `Editar ${noun}` : `Nova ${noun}`}
+      title={item ? `Editar ${noun}` : `${masculine ? 'Novo' : 'Nova'} ${noun}`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

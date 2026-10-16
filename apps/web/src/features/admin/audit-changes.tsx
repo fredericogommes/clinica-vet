@@ -62,6 +62,29 @@ const fieldLabels: Record<string, string> = {
   voidReason: 'Motivo da invalidação',
   durationMinutes: 'Duração (min)',
   recordTemplate: 'Modelo de prontuário',
+  serviceKind: 'Classificação do serviço',
+  unit: 'Unidade de venda',
+  barcode: 'Código de barras',
+  brand: 'Marca',
+  group: 'Grupo',
+  ncm: 'NCM',
+  acquisition: 'Forma de aquisição',
+  cfop: 'CFOP',
+  taxSituation: 'CST/CSOSN',
+  municipalServiceCode: 'Código do serviço',
+  taxProfile: 'Perfil tributário',
+  salePrice: 'Preço de venda (R$)',
+  cost: 'Custo (R$)',
+  purpose: 'Finalidade',
+  desiredMarkup: 'Markup desejado (%)',
+  allowPriceChange: 'Permite alterar preço',
+  showInPriceList: 'Na lista de preços',
+  discountLimitPercent: 'Limite de desconto (%)',
+  defaultCommissionPercent: 'Comissão padrão (%)',
+  commissions: 'Comissões por profissional',
+  tracksStock: 'Controla estoque',
+  minStock: 'Estoque mínimo',
+  idealStock: 'Estoque ideal',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */
@@ -83,7 +106,22 @@ const valueLabels: Record<string, string> = {
   photo: 'Foto',
   document: 'Documento',
   prescription: 'Receita',
+  product: 'Produto',
+  service: 'Serviço',
+  consultation: 'Consulta',
+  vaccine: 'Vacina',
+  surgery: 'Cirurgia',
+  grooming: 'Banho e tosa',
+  hospitalization: 'Internação',
+  resale: 'Revenda',
+  own_production: 'Produção própria',
+  internal: 'Consumo interno',
 };
+
+const numberFormat = new Intl.NumberFormat('pt-BR', {
+  maximumFractionDigits: 3,
+  useGrouping: false,
+});
 
 const addressOrder = ['street', 'number', 'complement', 'district', 'city', 'state', 'cep'];
 
@@ -101,7 +139,7 @@ function display(value: unknown): string {
     if (isPermission(value)) return permissionCatalog[value].label;
     return valueLabels[value] ?? value;
   }
-  if (typeof value === 'number') return String(value);
+  if (typeof value === 'number') return numberFormat.format(value);
   const record = asRecord(value);
   if (typeof record.name === 'string') return record.name;
   // Contato: mostra o número ou e-mail; endereço e afins: junta as partes preenchidas.

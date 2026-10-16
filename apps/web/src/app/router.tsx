@@ -1,4 +1,4 @@
-import type { Permission } from '@clinica/contracts';
+import { productKinds, type Permission } from '@clinica/contracts';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   createRootRouteWithContext,
@@ -93,6 +93,15 @@ const AppointmentTypesPage = lazy(() =>
   import('../features/catalogs/appointment-types-page').then((m) => ({
     default: m.AppointmentTypesPage,
   })),
+);
+const ProductsPage = lazy(() =>
+  import('../features/products/products-page').then((m) => ({ default: m.ProductsPage })),
+);
+const ProductNewPage = lazy(() =>
+  import('../features/products/product-pages').then((m) => ({ default: m.ProductNewPage })),
+);
+const ProductPage = lazy(() =>
+  import('../features/products/product-pages').then((m) => ({ default: m.ProductPage })),
 );
 
 /** Busca, página e filtro de arquivados ficam na URL para que a lista sobreviva ao voltar. */
@@ -224,7 +233,10 @@ const auditRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/consultas/auditoria',
   validateSearch: z.object({
-    entidade: z.enum(['client', 'patient', 'clinical_event']).optional().catch(undefined),
+    entidade: z
+      .enum(['client', 'patient', 'clinical_event', 'product'])
+      .optional()
+      .catch(undefined),
     id: z.uuid().optional().catch(undefined),
     nome: z.string().max(160).optional().catch(undefined),
   }),
@@ -506,6 +518,94 @@ const appointmentTypesRoute = createRoute({
   ),
 });
 
+/** Busca e filtros da lista ficam na URL, em português, como nas demais listas. */
+const productsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/produtos',
+  validateSearch: z.object({
+    q: z.string().max(100).optional().catch(undefined),
+    tipo: z.enum(productKinds).optional().catch(undefined),
+    grupo: z.uuid().optional().catch(undefined),
+    lista: z.boolean().optional().catch(undefined),
+    arquivados: z.boolean().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function Products() {
+    const s = productsRoute.useSearch();
+    return (
+      <RequirePermission permission="products.view">
+        <ProductsPage
+          search={{
+            q: s.q ?? '',
+            kind: s.tipo,
+            serviceKind: undefined,
+            groupId: s.grupo,
+            priceList: s.lista ?? false,
+            archived: s.arquivados ?? false,
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const productNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/produtos/novo',
+  component: () => (
+    <RequirePermission permission="products.manage">
+      <ProductNewPage />
+    </RequirePermission>
+  ),
+});
+
+const productRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/produtos/$productId',
+  component: function Product() {
+    const { productId } = productRoute.useParams();
+    return (
+      <RequirePermission permission="products.view">
+        <ProductPage key={productId} productId={productId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const productGroupsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/grupos',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <SimpleCatalogPage
+        kind="product-groups"
+        area="Estoque e serviços"
+        title="Grupos de produtos"
+        noun="grupo"
+        masculine
+        description="Organizam o catálogo e os relatórios, ex. Medicamentos, Vacinas, Rações."
+      />
+    </RequirePermission>
+  ),
+});
+
+const productBrandsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/marcas',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <SimpleCatalogPage
+        kind="product-brands"
+        area="Estoque e serviços"
+        title="Marcas"
+        noun="marca"
+        description="Fabricantes dos produtos vendidos e usados na clínica."
+      />
+    </RequirePermission>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   printRoute.addChildren([printEventRoute]),
@@ -528,6 +628,11 @@ const routeTree = rootRoute.addChildren([
     appointmentTypesRoute,
     pathologiesRoute,
     clinicalTemplatesRoute,
+    productsRoute,
+    productNewRoute,
+    productRoute,
+    productGroupsRoute,
+    productBrandsRoute,
     coatsRoute,
     originsRoute,
     usersRoute,

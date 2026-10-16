@@ -58,6 +58,15 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 
 `appointment_types.record_template` guarda o modelo de prontuário do tipo. A migração 0003 preenche o modelo da Consulta e cria "Receita simples" e "Atestado de saúde" nas organizações existentes.
 
+## Produtos e serviços (Fase 1)
+
+| Tabela                | Papel                      | Regras principais                                                                                                                                                        |
+| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `product_groups`      | Grupo de produtos          | Nome único por organização sem diferenciar maiúsculas; arquivável                                                                                                        |
+| `product_brands`      | Marca                      | Idem                                                                                                                                                                     |
+| `products`            | Produto ou serviço [RN-22] | `kind` + `service_kind` (CHECK: serviço sempre classificado, sem código de barras, NCM nem estoque); dinheiro em `numeric(14,2)`; código de barras único por organização |
+| `product_commissions` | Comissão por profissional  | Sobrepõe a comissão padrão do item para aquele usuário; 0 a 100%                                                                                                         |
+
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.
 
 O modelo das fases seguintes está em [architecture.md](architecture.md#4-modelo-de-dados-inicial-fase-01).

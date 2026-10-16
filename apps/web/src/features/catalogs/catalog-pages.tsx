@@ -28,8 +28,12 @@ export function SimpleCatalogPage({
   title,
   description,
   noun,
+  masculine = false,
+  area = 'Cadastros',
 }: {
   kind: Exclude<CatalogKind, 'species'>;
+  area?: string;
+  masculine?: boolean;
   title: string;
   description: string;
   noun: string;
@@ -38,11 +42,12 @@ export function SimpleCatalogPage({
   const save = useCatalogSave(kind);
   return (
     <>
-      <PageHeader area="Cadastros" title={title} description={description} />
+      <PageHeader area={area} title={title} description={description} />
       <div className="max-w-2xl">
         <CatalogList
           title={title}
           noun={noun}
+          masculine={masculine}
           items={items.data}
           isPending={items.isPending}
           error={items.error}
