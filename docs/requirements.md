@@ -1,6 +1,6 @@
 # Requisitos — sistema de gestão para clínica veterinária
 
-Fonte única: *Simples Vet — Especificação funcional completa* (PDF de 25 páginas, 15/10/2026, Frederico Gomes).
+Fonte única: _Simples Vet — Especificação funcional completa_ (PDF de 25 páginas, 15/10/2026, Frederico Gomes).
 Referências entre colchetes indicam a página do PDF, por exemplo [p.5].
 
 > Nome do produto: provisório. O documento descreve o SimplesVet como **referência**; o sistema novo não usa marca, textos, logotipo nem layout literal do fornecedor.
@@ -20,25 +20,27 @@ Usuários externos: tutor no Portal [p.20].
 
 ## 3. Defeitos da referência que o sistema deve corrigir [p.25]
 
-| # | Defeito | Regra no sistema novo |
-|---|---------|-----------------------|
-| D1 | Prontuário só texto livre | Sinais vitais (FC, FR, T°, TPC, peso, escore corporal) e diagnóstico codificado estruturados; texto livre só para narrativa |
-| D2 | Autosave cria registro vazio | Rascunho não publicado até o primeiro salvamento explícito |
-| D3 | Convênio como item duplicado | Um item, N tabelas de preço por convênio |
-| D4 | Estoque negativo permitido | Reserva na venda + bloqueio configurável por grupo |
-| D5 | Dose em texto | Dose calculada pelo peso atual, com volume final na tela |
+| #   | Defeito                      | Regra no sistema novo                                                                                                       |
+| --- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Prontuário só texto livre    | Sinais vitais (FC, FR, T°, TPC, peso, escore corporal) e diagnóstico codificado estruturados; texto livre só para narrativa |
+| D2  | Autosave cria registro vazio | Rascunho não publicado até o primeiro salvamento explícito                                                                  |
+| D3  | Convênio como item duplicado | Um item, N tabelas de preço por convênio                                                                                    |
+| D4  | Estoque negativo permitido   | Reserva na venda + bloqueio configurável por grupo                                                                          |
+| D5  | Dose em texto                | Dose calculada pelo peso atual, com volume final na tela                                                                    |
 
 Além disso, a classificação de serviço deve ser por **tipo** (consulta, cirurgia, vacina, exame, banho), nunca por texto no nome [p.3].
 
 ## 4. Regras de negócio extraídas
 
 Fundação
+
 - RN-01 Toda transação pertence a uma unidade e a um centro de custo [p.24].
 - RN-02 Autorização verificada no servidor por chave de ação; perfis-modelo clonáveis [p.22].
 - RN-03 Auditoria (quem, quando, valor anterior e novo) em prontuário, preço, estoque e financeiro [p.24].
 - RN-04 Consentimento por canal (e-mail, SMS, campanha SMS, WhatsApp) com data e origem [p.6–7].
 
 Clientes e animais
+
 - RN-05 Responsável 1:N Animal; trocar o responsável preserva o histórico do animal [p.6, p.23].
 - RN-06 Cadastro mínimo rápido: CPF e nascimento opcionais, completados depois [p.7].
 - RN-07 Animal tem status Vivo/Óbito; raça depende da espécie; idade derivada do nascimento [p.7].
@@ -47,6 +49,7 @@ Clientes e animais
 - RN-10 Ranking ABC do cliente por valor vendido [p.6, p.10].
 
 Agenda
+
 - RN-11 Agenda por profissional; disponibilidade vem de horário fixo **ou** escala variável [p.8].
 - RN-12 Horários oferecidos como slots livres já cruzados com profissional, calculados por escala + duração (padrão 60 min) [p.7].
 - RN-13 Ciclo: Agendado → Confirmado → Em espera → Em atendimento → Animal pronto, mais Atrasado; marcos de tempo alimentam média de espera e de atendimento [p.3, p.8].
@@ -54,6 +57,7 @@ Agenda
 - RN-15 Recursos agendáveis (sala, aparelho, box) ao lado do profissional [p.8, p.25 — Fase 3].
 
 Atendimento clínico
+
 - RN-16 Ficha em três colunas: venda/orçamento, linha do tempo, ações [p.4–5].
 - RN-17 Evento clínico polimórfico: atendimento, peso, patologia, documento, exame, foto, vacina, receita, observação, vídeo, internação — uma tabela de eventos com tipo e payload [p.4–5, p.23].
 - RN-18 Cada tipo de atendimento tem modelo de prontuário [p.5].
@@ -62,6 +66,7 @@ Atendimento clínico
 - RN-21 Ações da ficha: trocar responsável, arquivar, excluir, log de alterações [p.5].
 
 Vendas, caixa e estoque
+
 - RN-22 Produto e serviço são a mesma entidade com campo tipo [p.16, p.23].
 - RN-23 Venda e orçamento são a mesma entidade com status; orçamento vira venda sem redigitação [p.8].
 - RN-24 Cada item de venda tem profissional responsável; a comissão sai do item [p.9].
@@ -75,6 +80,7 @@ Vendas, caixa e estoque
 - RN-32 Lote e validade por entrada, com rastreio até o paciente [p.18 — modelar na Fase 0/1, usar na Fase 2].
 
 Receita e diferenciação (Fases 2 e 3)
+
 - RN-33 Exame com atributos tipados por seção e referência por espécie × faixa etária em meses; resultado fora da faixa é marcado [p.13–14].
 - RN-34 Lembrete de vacina ligado ao protocolo, ativo por padrão, via WhatsApp [p.21].
 - RN-35 Lançamentos financeiros gerados automaticamente por venda, compra e comissão [p.18].
@@ -93,9 +99,11 @@ Receita e diferenciação (Fases 2 e 3)
 ## 5. Lacunas e ambiguidades
 
 Bloqueante para começar
+
 - **L1 Destino do código.** O repositório configurado no projeto (`fredericogommes/rea`) é uma ferramenta de engenharia reversa, com regras próprias de arquitetura e CI. O sistema da clínica precisa de um repositório próprio. Decisão pedida ao Fred.
 
 Não bloqueantes (premissa adotada, reversível)
+
 - L2 Uso: sistema da própria clínica (não SaaS revendido). Premissa: uma organização com várias unidades; o modelo guarda `organization_id` para não fechar a porta a multi-inquilino.
 - L3 Implantação: não informada. Premissa: Docker Compose (app + PostgreSQL) em servidor próprio ou VPS.
 - L4 Migração de dados do SimplesVet: não mencionada. Premissa: fora do MVP; o modelo permite importação posterior por CSV.

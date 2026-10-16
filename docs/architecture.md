@@ -17,19 +17,19 @@ Dependências apontam para dentro: `domain` (regras puras, sem I/O) ← `applica
 
 ## 2. Stack e justificativa
 
-| Camada | Escolha | Por quê |
-|--------|---------|---------|
-| Linguagem | TypeScript estrito | Tipos ponta a ponta, um só idioma para front e back |
-| Runtime | Node.js LTS | Maduro, já disponível no ambiente |
-| API | Fastify + Zod | Rápido, plugins oficiais de cookie, CSRF, rate limit e helmet; validação por schema; OpenAPI gerado a partir dos schemas |
-| Banco | PostgreSQL 16 | Transações, `numeric` para dinheiro, JSONB para payload de eventos, `SELECT … FOR UPDATE` para reserva de estoque e slots, exclusion constraints para impedir sobreposição de agenda |
-| Acesso a dados | Drizzle ORM + drizzle-kit | SQL explícito e tipado, migrações versionadas em SQL revisável |
-| Frontend | React + Vite + TanStack Router + TanStack Query | SPA de uso interno (sem necessidade de SEO), rotas tipadas, cache e estados de carregamento/erro padronizados |
-| UI | Tailwind CSS + componentes próprios sobre Radix UI; ícones Lucide; gráficos Recharts | Tokens centralizados, acessibilidade (foco, teclado, ARIA) dos primitivos Radix, sem visual de template |
-| Formulários | React Hook Form + o mesmo schema Zod da API | Uma regra de validação, mensagens consistentes |
-| Testes | Vitest (unidade e integração com PostgreSQL real), Playwright (E2E, Chromium disponível) | Rodam no CI e localmente |
-| Qualidade | ESLint, Prettier, `tsc --noEmit`, `npm audit` | Gate obrigatório antes de cada push |
-| Implantação | Docker Compose (api, web estático via Caddy, postgres) | Simples de operar em VPS ou servidor da clínica, HTTPS automático |
+| Camada         | Escolha                                                                                  | Por quê                                                                                                                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Linguagem      | TypeScript estrito                                                                       | Tipos ponta a ponta, um só idioma para front e back                                                                                                                                  |
+| Runtime        | Node.js LTS                                                                              | Maduro, já disponível no ambiente                                                                                                                                                    |
+| API            | Fastify + Zod                                                                            | Rápido, plugins oficiais de cookie, CSRF, rate limit e helmet; validação por schema; OpenAPI gerado a partir dos schemas                                                             |
+| Banco          | PostgreSQL 16                                                                            | Transações, `numeric` para dinheiro, JSONB para payload de eventos, `SELECT … FOR UPDATE` para reserva de estoque e slots, exclusion constraints para impedir sobreposição de agenda |
+| Acesso a dados | Drizzle ORM + drizzle-kit                                                                | SQL explícito e tipado, migrações versionadas em SQL revisável                                                                                                                       |
+| Frontend       | React + Vite + TanStack Router + TanStack Query                                          | SPA de uso interno (sem necessidade de SEO), rotas tipadas, cache e estados de carregamento/erro padronizados                                                                        |
+| UI             | Tailwind CSS + componentes próprios sobre Radix UI; ícones Lucide; gráficos Recharts     | Tokens centralizados, acessibilidade (foco, teclado, ARIA) dos primitivos Radix, sem visual de template                                                                              |
+| Formulários    | React Hook Form + o mesmo schema Zod da API                                              | Uma regra de validação, mensagens consistentes                                                                                                                                       |
+| Testes         | Vitest (unidade e integração com PostgreSQL real), Playwright (E2E, Chromium disponível) | Rodam no CI e localmente                                                                                                                                                             |
+| Qualidade      | ESLint, Prettier, `tsc --noEmit`, `npm audit`                                            | Gate obrigatório antes de cada push                                                                                                                                                  |
+| Implantação    | Docker Compose (api, web estático via Caddy, postgres)                                   | Simples de operar em VPS ou servidor da clínica, HTTPS automático                                                                                                                    |
 
 Alternativa considerada: Next.js full stack. Descartada porque mistura regra de negócio com renderização e o Portal do tutor e integrações futuras se beneficiam de uma API com contrato próprio.
 
@@ -109,24 +109,24 @@ Adaptadores atrás de interfaces: WhatsApp Business (Cloud API), gateway fiscal 
 
 ## 9. Riscos e decisões pendentes
 
-| Risco | Mitigação |
-|-------|-----------|
-| Escopo total (111 telas) | Entregas por fase, cada uma utilizável sozinha |
-| Concorrência em agenda e estoque | Constraints no banco + bloqueio de linha + testes de corrida |
-| Permissões tardias | Guard por ação desde a Fase 0, deny by default |
-| Integrações dependem de contratos do Fred | Interfaces prontas; ativação quando houver conta |
-| Prontuário com texto rico (XSS) | Sanitização no servidor com lista branca |
+| Risco                                     | Mitigação                                                    |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| Escopo total (111 telas)                  | Entregas por fase, cada uma utilizável sozinha               |
+| Concorrência em agenda e estoque          | Constraints no banco + bloqueio de linha + testes de corrida |
+| Permissões tardias                        | Guard por ação desde a Fase 0, deny by default               |
+| Integrações dependem de contratos do Fred | Interfaces prontas; ativação quando houver conta             |
+| Prontuário com texto rico (XSS)           | Sanitização no servidor com lista branca                     |
 
 ## 10. Plano por etapas
 
-| Etapa | Entrega | Critério de pronto |
-|-------|---------|--------------------|
-| B — Fundação | Repositório, toolchain, lint/tipos, Docker Compose, migrações, auth, catálogo de ações, auditoria, CI | Build, lint, tipos e testes verdes no CI; login funcionando |
-| C — Sistema visual | Tokens, tipografia, componentes (botão, campo, tabela paginada, modal, menu, toast, estados vazio/erro/carregando), shell com navegação | Página de componentes inspecionada em 3 larguras |
-| D1 — Clientes e animais | F1-1 a F1-5 | Testes I/E verdes, telas inspecionadas |
-| D2 — Agenda | F1-6 a F1-10 (motor de slots) | Teste de concorrência verde |
-| D3 — Atendimento | F1-11 a F1-16 | Fluxo E2E do atendimento |
-| D4 — Catálogo, PDV, caixa, estoque | F1-17 a F1-25 | Fluxo E2E venda → recebimento → caixa; estoque não fica negativo |
-| D5 — Painel | F1-26 | KPIs conferidos contra dados semeados |
-| E/F — Integração e auditoria | Revisão, segurança, regressão | Relatório com evidências |
-| Fases 2 e 3 | Conforme matriz, após aceite do MVP | — |
+| Etapa                              | Entrega                                                                                                                                 | Critério de pronto                                               |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| B — Fundação                       | Repositório, toolchain, lint/tipos, Docker Compose, migrações, auth, catálogo de ações, auditoria, CI                                   | Build, lint, tipos e testes verdes no CI; login funcionando      |
+| C — Sistema visual                 | Tokens, tipografia, componentes (botão, campo, tabela paginada, modal, menu, toast, estados vazio/erro/carregando), shell com navegação | Página de componentes inspecionada em 3 larguras                 |
+| D1 — Clientes e animais            | F1-1 a F1-5                                                                                                                             | Testes I/E verdes, telas inspecionadas                           |
+| D2 — Agenda                        | F1-6 a F1-10 (motor de slots)                                                                                                           | Teste de concorrência verde                                      |
+| D3 — Atendimento                   | F1-11 a F1-16                                                                                                                           | Fluxo E2E do atendimento                                         |
+| D4 — Catálogo, PDV, caixa, estoque | F1-17 a F1-25                                                                                                                           | Fluxo E2E venda → recebimento → caixa; estoque não fica negativo |
+| D5 — Painel                        | F1-26                                                                                                                                   | KPIs conferidos contra dados semeados                            |
+| E/F — Integração e auditoria       | Revisão, segurança, regressão                                                                                                           | Relatório com evidências                                         |
+| Fases 2 e 3                        | Conforme matriz, após aceite do MVP                                                                                                     | —                                                                |

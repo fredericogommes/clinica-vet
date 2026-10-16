@@ -1,0 +1,92 @@
+import { and, eq } from 'drizzle-orm';
+import type { Executor } from '../../db/client.js';
+import {
+  costCenters,
+  organizations,
+  rolePermissions,
+  roles,
+  units,
+  userUnits,
+  users,
+} from '../../db/schema.js';
+import { newId } from '../../core/ids.js';
+import { hashPassword } from '../../core/passwords.js';
+import { roleTemplates } from './role-templates.js';
+
+/** Cria ou atualiza os perfis-modelo de uma organização a partir do código. Idempotente. */
+export async function syncTemplateRoles(tx: Executor, organizationId: string): Promise<void> {
+  for (const template of roleTemplates) {
+    const [existing] = await tx
+      .select({ id: roles.id })
+      .from(roles)
+      .where(and(eq(roles.organizationId, organizationId), eq(roles.name, template.name)));
+    const roleId = existing?.id ?? newId();
+    if (existing) {
+      await tx
+        .update(roles)
+        .set({ description: template.description, isTemplate: true, updatedAt: new Date() })
+        .where(eq(roles.id, roleId));
+      await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+    } else {
+      await tx.insert(roles).values({
+        id: roleId,
+        organizationId,
+        name: template.name,
+        description: template.description,
+        isTemplate: true,
+      });
+    }
+    if (template.permissions.length > 0) {
+      await tx
+        .insert(rolePermissions)
+        .values(template.permissions.map((permission) => ({ roleId, permission })));
+    }
+  }
+}
+
+export interface ProvisionInput {
+  organizationName: string;
+  unitName: string;
+  admin: { name: string; email: string; password: string };
+}
+
+export interface Provisioned {
+  organizationId: string;
+  unitId: string;
+  adminUserId: string;
+}
+
+/** Cria uma organização com uma unidade, centro de custo padrão, perfis-modelo e um administrador. */
+export async function provisionOrganization(
+  tx: Executor,
+  input: ProvisionInput,
+): Promise<Provisioned> {
+  const organizationId = newId();
+  const unitId = newId();
+  await tx.insert(organizations).values({ id: organizationId, name: input.organizationName });
+  await tx.insert(units).values({ id: unitId, organizationId, name: input.unitName });
+  await tx
+    .insert(costCenters)
+    .values({ id: newId(), organizationId, unitId, name: 'Geral', isDefault: true });
+  await syncTemplateRoles(tx, organizationId);
+
+  const [adminRole] = await tx
+    .select({ id: roles.id })
+    .from(roles)
+    .where(
+      and(eq(roles.organizationId, organizationId), eq(roles.name, 'Administrador do sistema')),
+    );
+  if (!adminRole) throw new Error('Perfil de administrador não foi criado.');
+
+  const adminUserId = newId();
+  await tx.insert(users).values({
+    id: adminUserId,
+    organizationId,
+    roleId: adminRole.id,
+    name: input.admin.name,
+    email: input.admin.email.toLowerCase(),
+    passwordHash: await hashPassword(input.admin.password),
+  });
+  await tx.insert(userUnits).values({ userId: adminUserId, unitId });
+  return { organizationId, unitId, adminUserId };
+}
