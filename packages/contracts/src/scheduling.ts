@@ -142,6 +142,8 @@ export const appointmentTypeSchema = z.object({
   durationMinutes: z.number().int(),
   /** Modelo do prontuário [RN-18]: texto que abre preenchido no atendimento deste tipo. */
   recordTemplate: z.string(),
+  /** Serviço lançado na venda aberta do animal quando o atendimento deste tipo é finalizado [RN-19]. */
+  service: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   archived: z.boolean(),
 });
 export type AppointmentType = z.infer<typeof appointmentTypeSchema>;
@@ -157,6 +159,7 @@ export const appointmentTypeInputSchema = z.object({
   name: z.string().trim().min(2, 'Mínimo de 2 caracteres').max(80, 'Máximo de 80 caracteres'),
   durationMinutes: durationSchema,
   recordTemplate: z.string().max(20_000, 'Máximo de 20.000 caracteres').default(''),
+  serviceId: z.uuid().nullable().default(null),
   archived: z.boolean().default(false),
 });
 export type AppointmentTypeInput = z.input<typeof appointmentTypeInputSchema>;

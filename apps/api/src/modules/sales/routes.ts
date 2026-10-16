@@ -1,6 +1,8 @@
 import {
   cancelSaleSchema,
   pageSchema,
+  patientSaleItemInputSchema,
+  patientSalesSchema,
   saleContextSchema,
   saleInputSchema,
   saleListItemSchema,
@@ -16,6 +18,7 @@ import { requireAuth } from '../../http/access-guard.js';
 import type { SaleService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
+const patientParams = z.object({ patientId: z.uuid() });
 
 export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (app, { sales }) => {
   app.get(
@@ -68,6 +71,29 @@ export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (
       schema: { body: salesSettingsSchema, response: { 200: salesSettingsSchema } },
     },
     async (request) => sales.updateSettings(requireAuth(request), request.body),
+  );
+
+  app.get(
+    '/patient/:patientId',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.view' } },
+      schema: { params: patientParams, response: { 200: patientSalesSchema } },
+    },
+    async (request) => sales.forPatient(requireAuth(request), request.params.patientId),
+  );
+
+  app.post(
+    '/patient/:patientId/items',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.manage' } },
+      schema: {
+        params: patientParams,
+        body: patientSaleItemInputSchema,
+        response: { 200: saleSchema },
+      },
+    },
+    async (request) =>
+      sales.addToPatient(requireAuth(request), request.params.patientId, request.body),
   );
 
   app.post(

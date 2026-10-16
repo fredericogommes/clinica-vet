@@ -55,12 +55,15 @@ import {
   clinicalVitals,
   pathologies,
   patients,
+  products,
+  saleItems,
   species,
   units,
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 import type { PatientService } from '../patients/service.js';
+import type { SaleService } from '../sales/service.js';
 import type { AppointmentService } from '../scheduling/appointment-service.js';
 import { unitTimeZone } from '../scheduling/availability.js';
 import { renderTemplate } from './render.js';
@@ -86,6 +89,7 @@ export class ClinicalService {
     private readonly db: Database,
     private readonly patients: PatientService,
     private readonly appointments: AppointmentService,
+    private readonly sales: SaleService,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -324,6 +328,7 @@ export class ClinicalService {
         updatedAt: now,
       });
       await this.writeDetails(tx, id, input, refs.pathologyIds);
+      if (publish) await this.charge(tx, auth, id, patientId, input.kind, refs.typeId, auth.userId);
       const after = await this.get(auth, id, tx);
       await recordAudit(tx, actorOf(auth), {
         entity: 'clinical_event',
@@ -363,6 +368,9 @@ export class ClinicalService {
         })
         .where(eq(clinicalEvents.id, id));
       await this.writeDetails(tx, id, input, refs.pathologyIds);
+      if (row.status === 'draft' && publish) {
+        await this.charge(tx, auth, id, row.patientId, row.kind, refs.typeId, row.authorId);
+      }
       const after = await this.get(auth, id, tx);
       await recordAudit(tx, actorOf(auth), {
         entity: 'clinical_event',
@@ -373,6 +381,49 @@ export class ClinicalService {
       });
       return after;
     });
+  }
+
+  /**
+   * Atendimento finalizado lança o serviço do seu tipo na venda aberta do animal, com o autor
+   * como profissional [RN-19]. Uma vez só por evento; serviço arquivado, de consumo interno ou
+   * autor inativo não bloqueiam o prontuário: o lançamento é que não acontece.
+   */
+  private async charge(
+    tx: Executor,
+    auth: AuthContext,
+    eventId: string,
+    patientId: string,
+    kind: string,
+    typeId: string | null,
+    authorId: string,
+  ): Promise<void> {
+    if (kind !== 'encounter' || !typeId) return;
+    const [type] = await tx
+      .select({
+        serviceId: appointmentTypes.serviceId,
+        archivedAt: products.archivedAt,
+        purpose: products.purpose,
+      })
+      .from(appointmentTypes)
+      .innerJoin(products, eq(products.id, appointmentTypes.serviceId))
+      .where(eq(appointmentTypes.id, typeId));
+    if (!type?.serviceId || type.archivedAt || type.purpose === 'internal') return;
+    const [author] = await tx
+      .select({ active: users.active })
+      .from(users)
+      .where(eq(users.id, authorId));
+    if (!author?.active) return;
+    const [already] = await tx
+      .select({ id: saleItems.id })
+      .from(saleItems)
+      .where(eq(saleItems.clinicalEventId, eventId));
+    if (already) return;
+    await this.sales.addToPatient(
+      auth,
+      patientId,
+      { productId: type.serviceId, professionalId: authorId, quantity: 1 },
+      { tx, clinicalEventId: eventId },
+    );
   }
 
   /** Rascunho nunca publicado pode ser descartado pelo autor. */

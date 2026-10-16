@@ -25,10 +25,11 @@ import { formatKg, kindIcons, kindLabel, kindOrder, zoned } from './labels';
 import { clinicalRecordQuery } from './queries';
 import { TimelinePanel } from './timeline';
 import { WeightChart } from './weight-chart';
+import { PatientSalePanel } from '../sales/patient-sale-panel';
 
 /**
- * Ficha clínica em três colunas [RN-16]: agenda do animal, linha do tempo e ações.
- * A coluna de venda do atendimento entra com o PDV (F1-19/F1-20); até lá a esquerda mostra a agenda.
+ * Ficha clínica em três colunas [RN-16]: venda aberta e agenda do animal, linha do tempo e ações.
+ * O que se lança na ficha cai na venda aberta do animal [RN-19].
  */
 export function ClinicalRecordPage({ patientId }: { patientId: string }) {
   const can = useCan();
@@ -85,7 +86,14 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
           </Panel>
         ) : null}
 
-        <div className="order-3 lg:order-2 xl:order-1">
+        <div className="order-3 space-y-5 lg:order-2 xl:order-1">
+          {can('sales.view') ? (
+            <PatientSalePanel
+              patientId={patientId}
+              patientName={r.patient.name}
+              writable={!r.patient.archived}
+            />
+          ) : null}
           <AppointmentsColumn
             record={r}
             onStartEncounter={

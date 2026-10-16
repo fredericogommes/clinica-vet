@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
   check,
   customType,
@@ -393,6 +394,7 @@ export const appointmentTypes = pgTable(
     ...catalogColumns,
     durationMinutes: integer('duration_minutes').notNull().default(60),
     recordTemplate: text('record_template').notNull().default(''),
+    serviceId: uuid('service_id').references((): AnyPgColumn => products.id),
   },
   (t) => [
     uniqueIndex('appointment_types_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
@@ -880,9 +882,14 @@ export const saleItems = pgTable(
       scale: 2,
       mode: 'number',
     }).notNull(),
+    clinicalEventId: uuid('clinical_event_id').references(() => clinicalEvents.id),
   },
   (t) => [
     uniqueIndex('sale_items_sale_position_uq').on(t.saleId, t.position),
+    // Um evento clínico lança no máximo um item: publicar de novo não duplica a cobrança.
+    uniqueIndex('sale_items_clinical_event_uq')
+      .on(t.clinicalEventId)
+      .where(sql`${t.clinicalEventId} is not null`),
     index('sale_items_product_idx').on(t.productId),
     index('sale_items_professional_idx').on(t.professionalId),
     check(

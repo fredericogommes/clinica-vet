@@ -35,7 +35,7 @@ Fonte: `apps/api/src/db/schema.ts`; migrações SQL em `apps/api/drizzle`. Conve
 
 | Tabela                 | Papel                              | Regras principais                                                                                                                                           |
 | ---------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `appointment_types`    | Tipo de atendimento                | Nome único por organização; duração padrão entre 15 e 720 min; arquivável                                                                                   |
+| `appointment_types`    | Tipo de atendimento                | Nome único por organização; duração padrão entre 15 e 720 min; arquivável; `service_id` opcional aponta o serviço cobrado ao finalizar [RN-19]              |
 | `unit_opening_hours`   | Funcionamento da unidade           | Uma faixa por dia da semana, em minutos desde a meia-noite; dia sem linha = fechado                                                                         |
 | `schedule_members`     | Profissional com agenda na unidade | Modo `fixed` (horário semanal) ou `variable` (turnos da Escala)                                                                                             |
 | `schedule_fixed_hours` | Horário fixo semanal               | Uma faixa por dia; apagada junto com o profissional                                                                                                         |
@@ -74,6 +74,8 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `sales`          | Venda ou orçamento [RN-23]    | `status` (orçamento, em aberto, baixada, cancelada); unidade e centro de custo padrão; código sequencial por organização; CHECK: animal exige cliente, líquido = bruto − desconto, cancelada tem motivo |
 | `sale_items`     | Item com profissional [RN-24] | Cópia de nome, preço de tabela, preço praticado e comissão do momento da venda; desconto rateado; CHECK de valores                                                                                      |
 | `sales_settings` | Parâmetros de venda           | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
+
+`sale_items.clinical_event_id` liga o item ao atendimento que o lançou (migração 0006); o índice único parcial impede cobrar o mesmo atendimento duas vezes [RN-19].
 
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.
 

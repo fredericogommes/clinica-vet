@@ -5,7 +5,7 @@ import { ADMIN_STATE, run, sidebar, toasts } from './helpers';
 test.use({ storageState: ADMIN_STATE });
 
 /** Cliente com animal e dois itens à venda, via API: o cadastro não é o objeto deste teste. */
-async function seed(page: Page) {
+async function seed(page: Page, tag = '') {
   await page.goto('/');
   return page.evaluate(async (suffix) => {
     const session = (await (await fetch('/api/auth/session')).json()) as Session;
@@ -97,7 +97,7 @@ async function seed(page: Page) {
     );
     await send<unknown>('/products', item({ name: product, salePrice: 40 }));
     return { tutor, pet, service, product };
-  }, run);
+  }, run + tag);
 }
 
 test('PDV: venda com profissional por item, limite de desconto, orçamento e cancelamento', async ({
@@ -186,4 +186,56 @@ test('PDV no celular: formulário em uma coluna, sem rolagem lateral', async ({ 
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(
     0,
   );
+});
+
+test('ficha clínica: atendimento finalizado e item lançado caem na venda aberta do animal', async ({
+  page,
+}) => {
+  // Sufixo próprio: os outros testes deste arquivo semeiam animais com o mesmo nome.
+  const { tutor, pet, service, product } = await seed(page, 'f');
+  const type = `Consulta cobrada ${run}`;
+
+  // Tipo de atendimento ligado ao serviço cobrado [RN-19].
+  await sidebar(page).getByRole('link', { name: 'Tipos de atendimento' }).click();
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  const typeDialog = page.getByRole('dialog', { name: 'Novo tipo de atendimento' });
+  await typeDialog.getByLabel('Nome').fill(type);
+  await typeDialog.getByLabel('Serviço cobrado').selectOption({ label: service });
+  await typeDialog.getByRole('button', { name: 'Salvar' }).click();
+  await expect(toasts(page).getByText('Tipo de atendimento incluído.')).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: type })).toContainText(
+    `Cobra ${service}`,
+  );
+
+  // Sem venda aberta, a coluna avisa; finalizar o atendimento abre a venda com o serviço.
+  await page.goto(`/atendimento?animal=${encodeURIComponent(pet)}`);
+  await page.getByRole('link', { name: new RegExp(pet) }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(pet);
+  const panel = page.getByRole('region', { name: /^Venda/ });
+  await expect(panel.getByText(`Nenhuma venda aberta para ${pet}.`)).toBeVisible();
+  await page.getByLabel('Adicionar').getByRole('button', { name: 'Atendimento' }).click();
+  const encounter = page.getByRole('dialog', { name: 'Novo atendimento' });
+  await encounter.getByLabel('Tipo de atendimento').selectOption({ label: type });
+  await encounter.getByLabel('Resumo').fill('Check-up anual');
+  await encounter.getByRole('button', { name: 'Finalizar atendimento' }).click();
+  await expect(toasts(page).getByText('Atendimento registrado na ficha.')).toBeVisible();
+  const items = panel.getByRole('list', { name: 'Itens da venda aberta' });
+  await expect(items).toContainText(service);
+  await expect(panel.getByRole('heading', { name: /^Venda \d+$/ })).toBeVisible();
+
+  // Item lançado direto da ficha entra na mesma venda.
+  const search = panel.getByLabel('Lançar na venda');
+  await search.fill(product);
+  await expect(page.getByRole('list', { name: 'Itens encontrados' })).toContainText(product);
+  await search.press('Enter');
+  await expect(
+    toasts(page).getByText(new RegExp(`${product} lançado na venda \\d+\\.`)),
+  ).toBeVisible();
+  await expect(items.getByRole('listitem')).toHaveCount(2);
+  await expect(panel).toContainText(/Total\s*R\$\s190,00/);
+
+  // A venda segue para o PDV com a origem de cada item.
+  await panel.getByRole('link', { name: 'Abrir no PDV' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(tutor);
+  await expect(page.getByText('Lançado pela ficha clínica')).toHaveCount(1);
 });

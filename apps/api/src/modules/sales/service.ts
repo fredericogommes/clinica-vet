@@ -6,6 +6,8 @@ import {
   toCents,
   type Sale,
   type SaleContext,
+  type PatientSaleItemInput,
+  type PatientSales,
   type SaleData,
   type SaleListItem,
   type SaleListQuery,
@@ -289,6 +291,7 @@ export class SaleService {
           allowPriceChange,
           discountLimitPercent,
           professional: { id: i.professionalId, name: professionalName },
+          clinicalEventId: i.clinicalEventId,
           grossTotal: i.grossTotal,
           discountAmount: i.discountAmount,
           netTotal: i.netTotal,
@@ -312,39 +315,194 @@ export class SaleService {
   }
 
   async create(auth: AuthContext, input: SaleData): Promise<Sale> {
-    const id = newId();
     return this.db.transaction(async (tx) => {
-      const prepared = await this.prepare(tx, auth, input, null);
-      const code = await nextCounter(tx, auth.organizationId, 'sale');
-      const [costCenter] = await tx
-        .select({ id: costCenters.id })
-        .from(costCenters)
-        .where(
-          and(
-            eq(costCenters.unitId, auth.unitId),
-            eq(costCenters.isDefault, true),
-            isNull(costCenters.archivedAt),
-          ),
-        );
-      await tx.insert(sales).values({
-        id,
-        organizationId: auth.organizationId,
-        unitId: auth.unitId,
-        costCenterId: costCenter?.id ?? null,
-        code,
-        status: input.kind === 'quote' ? 'quote' : 'open',
-        createdBy: auth.userId,
-        ...prepared.sale,
-      });
-      await this.insertItems(tx, id, prepared.items);
-      await recordAudit(tx, actorOf(auth), {
-        entity: 'sale',
-        entityId: id,
-        action: 'create',
-        after: await this.auditSnapshot(tx, id),
-      });
+      const id = await this.insertSale(tx, auth, input);
       return this.get(auth, id, tx);
     });
+  }
+
+  private async insertSale(tx: Executor, auth: AuthContext, input: SaleData): Promise<string> {
+    const id = newId();
+    const prepared = await this.prepare(tx, auth, input, null);
+    const code = await nextCounter(tx, auth.organizationId, 'sale');
+    const [costCenter] = await tx
+      .select({ id: costCenters.id })
+      .from(costCenters)
+      .where(
+        and(
+          eq(costCenters.unitId, auth.unitId),
+          eq(costCenters.isDefault, true),
+          isNull(costCenters.archivedAt),
+        ),
+      );
+    await tx.insert(sales).values({
+      id,
+      organizationId: auth.organizationId,
+      unitId: auth.unitId,
+      costCenterId: costCenter?.id ?? null,
+      code,
+      status: input.kind === 'quote' ? 'quote' : 'open',
+      createdBy: auth.userId,
+      ...prepared.sale,
+    });
+    await this.insertItems(tx, id, prepared.items);
+    await recordAudit(tx, actorOf(auth), {
+      entity: 'sale',
+      entityId: id,
+      action: 'create',
+      after: await this.auditSnapshot(tx, id),
+    });
+    return id;
+  }
+
+  /** Coluna de vendas da ficha [p.4]: venda aberta do animal nesta unidade e as recentes. */
+  async forPatient(auth: AuthContext, patientId: string): Promise<PatientSales> {
+    await this.patientOf(this.db, auth, patientId);
+    const open = await this.openSaleOf(this.db, auth, patientId, false);
+    const recent = await this.db
+      .select({
+        id: sales.id,
+        code: sales.code,
+        status: sales.status,
+        clientName: clients.name,
+        patientName: patients.name,
+        netTotal: sales.netTotal,
+        createdAt: sales.createdAt,
+      })
+      .from(sales)
+      .leftJoin(clients, eq(clients.id, sales.clientId))
+      .leftJoin(patients, eq(patients.id, sales.patientId))
+      .where(and(eq(sales.organizationId, auth.organizationId), eq(sales.patientId, patientId)))
+      .orderBy(desc(sales.createdAt), desc(sales.code))
+      .limit(10);
+    return {
+      open: open ? await this.get(auth, open.id) : null,
+      recent: recent.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    };
+  }
+
+  /**
+   * Lança um item na venda aberta do animal nesta unidade, abrindo uma se não houver [RN-19].
+   * O desconto e os preços já gravados na venda são mantidos; o total é recalculado.
+   */
+  async addToPatient(
+    auth: AuthContext,
+    patientId: string,
+    item: PatientSaleItemInput,
+    origin?: { tx: Executor; clinicalEventId: string },
+  ): Promise<Sale> {
+    const work = async (tx: Executor) => {
+      const patient = await this.patientOf(tx, auth, patientId, true);
+      const current = await this.openSaleOf(tx, auth, patientId, true);
+      const newLine = { id: null, ...item, unitPrice: null };
+      if (!current) {
+        const settings = await this.settings(auth, tx);
+        const id = await this.insertSale(tx, auth, {
+          kind: 'sale',
+          saleType: settings.defaultSaleType,
+          clientId: patient.clientId,
+          patientId,
+          items: [newLine],
+          discount: { mode: 'amount', value: 0 },
+          notes: '',
+        });
+        if (origin) await this.markOrigin(tx, id, origin.clinicalEventId);
+        return id;
+      }
+      const previousItems = await tx
+        .select()
+        .from(saleItems)
+        .where(eq(saleItems.saleId, current.id))
+        .orderBy(asc(saleItems.position));
+      const input: SaleData = {
+        kind: 'sale',
+        saleType: current.saleType as SaleData['saleType'],
+        clientId: current.clientId,
+        patientId: current.patientId,
+        items: [
+          ...previousItems.map((p) => ({
+            id: p.id,
+            productId: p.productId,
+            professionalId: p.professionalId,
+            quantity: p.quantity,
+            unitPrice: p.unitPrice,
+          })),
+          newLine,
+        ],
+        discount: { mode: current.discountMode, value: current.discountValue },
+        notes: current.notes,
+      };
+      const prepared = await this.prepare(tx, auth, input, {
+        sale: current,
+        items: previousItems,
+      });
+      const before = await this.auditSnapshot(tx, current.id);
+      await tx
+        .update(sales)
+        .set({ ...prepared.sale, updatedAt: new Date() })
+        .where(eq(sales.id, current.id));
+      await tx.delete(saleItems).where(eq(saleItems.saleId, current.id));
+      await this.insertItems(tx, current.id, prepared.items);
+      if (origin) await this.markOrigin(tx, current.id, origin.clinicalEventId);
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'sale',
+        entityId: current.id,
+        action: 'add_item',
+        before,
+        after: await this.auditSnapshot(tx, current.id),
+      });
+      return current.id;
+    };
+    const id = origin ? await work(origin.tx) : await this.db.transaction(work);
+    return this.get(auth, id, origin?.tx);
+  }
+
+  /** O último item lançado na venda veio deste evento clínico. */
+  private async markOrigin(tx: Executor, saleId: string, clinicalEventId: string) {
+    const [last] = await tx
+      .select({ id: saleItems.id })
+      .from(saleItems)
+      .where(eq(saleItems.saleId, saleId))
+      .orderBy(desc(saleItems.position))
+      .limit(1);
+    if (last) {
+      await tx.update(saleItems).set({ clinicalEventId }).where(eq(saleItems.id, last.id));
+    }
+  }
+
+  /** Com `lock`, serializa lançamentos simultâneos no mesmo animal: só uma venda é aberta. */
+  private async patientOf(tx: Executor, auth: AuthContext, patientId: string, lock = false) {
+    const query = tx
+      .select({ clientId: patients.clientId })
+      .from(patients)
+      .where(and(eq(patients.id, patientId), eq(patients.organizationId, auth.organizationId)));
+    const [patient] = lock ? await query.for('update') : await query;
+    if (!patient) throw notFound('Animal');
+    return patient;
+  }
+
+  /** Venda em aberto mais recente do animal nesta unidade. */
+  private async openSaleOf(
+    tx: Executor,
+    auth: AuthContext,
+    patientId: string,
+    forUpdate: boolean,
+  ): Promise<SaleRow | null> {
+    const query = tx
+      .select()
+      .from(sales)
+      .where(
+        and(
+          eq(sales.organizationId, auth.organizationId),
+          eq(sales.unitId, auth.unitId),
+          eq(sales.patientId, patientId),
+          eq(sales.status, 'open'),
+        ),
+      )
+      .orderBy(desc(sales.createdAt))
+      .limit(1);
+    const [row] = forUpdate ? await query.for('update') : await query;
+    return row ?? null;
   }
 
   /** Edita orçamento ou venda em aberto; orçamento salvo como venda vira venda [RN-23]. */
@@ -489,7 +647,9 @@ export class SaleService {
       const commission =
         commissions.find((c) => c.productId === product.id && c.userId === item.professionalId)
           ?.percent ?? product.defaultCommissionPercent;
-      return { item, product, unitPrice, commission };
+      // Item que já estava na venda mantém id, nome, preço de tabela e origem da cópia original.
+      const kept = item.id ? previous?.items.find((p) => p.id === item.id) : undefined;
+      return { item, product, unitPrice, commission, kept };
     });
 
     const totals = saleTotals(
@@ -516,19 +676,21 @@ export class SaleService {
       items: lines.map((l, i) => {
         const t = totals.items[i] ?? { grossCents: 0, discountCents: 0 };
         return {
+          id: l.kept?.id ?? newId(),
           productId: l.product.id,
           professionalId: l.item.professionalId,
-          name: l.product.name,
+          name: l.kept?.productId === l.product.id ? l.kept.name : l.product.name,
           kind: l.product.kind,
           serviceKind: l.product.serviceKind,
           unit: l.product.unit,
           quantity: l.item.quantity,
-          listPrice: l.product.salePrice,
+          listPrice: l.kept?.productId === l.product.id ? l.kept.listPrice : l.product.salePrice,
           unitPrice: l.unitPrice,
           grossTotal: fromCents(t.grossCents),
           discountAmount: fromCents(t.discountCents),
           netTotal: fromCents(t.grossCents - t.discountCents),
           commissionPercent: l.commission,
+          clinicalEventId: l.kept?.productId === l.product.id ? l.kept.clinicalEventId : null,
         };
       }),
     };
@@ -617,11 +779,11 @@ export class SaleService {
   private async insertItems(
     tx: Executor,
     saleId: string,
-    items: Omit<ItemRow, 'id' | 'saleId' | 'position'>[],
+    items: Omit<ItemRow, 'saleId' | 'position'>[],
   ) {
     await tx
       .insert(saleItems)
-      .values(items.map((item, position) => ({ id: newId(), saleId, position, ...item })));
+      .values(items.map((item, position) => ({ saleId, position, ...item })));
   }
 
   private async auditSnapshot(tx: Executor, id: string) {

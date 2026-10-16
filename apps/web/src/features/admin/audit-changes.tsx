@@ -94,6 +94,7 @@ const fieldLabels: Record<string, string> = {
   discountTotal: 'Desconto (R$)',
   netTotal: 'Total (R$)',
   defaultSaleType: 'Tipo de venda padrão',
+  service: 'Serviço cobrado',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */
