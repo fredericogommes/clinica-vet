@@ -6,7 +6,9 @@ import {
   ClipboardList,
   Dna,
   FileText,
+  FolderTree,
   House,
+  Package,
   Palette,
   PawPrint,
   ScrollText,
@@ -14,6 +16,7 @@ import {
   ShieldCheck,
   Signpost,
   Stethoscope,
+  Tag,
   Users,
   UsersRound,
   type LucideIcon,
@@ -58,6 +61,24 @@ export const navigation: NavSection[] = [
         icon: Settings2,
         permission: 'schedule.configure',
       },
+    ],
+  },
+  {
+    label: 'Estoque e serviços',
+    items: [
+      {
+        label: 'Produtos e serviços',
+        to: '/estoque/produtos',
+        icon: Package,
+        permission: 'products.view',
+      },
+      {
+        label: 'Grupos de produtos',
+        to: '/estoque/grupos',
+        icon: FolderTree,
+        permission: 'catalogs.manage',
+      },
+      { label: 'Marcas', to: '/estoque/marcas', icon: Tag, permission: 'catalogs.manage' },
     ],
   },
   {

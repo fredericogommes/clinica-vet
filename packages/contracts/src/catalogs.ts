@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-export const catalogKinds = ['species', 'coats', 'client-origins'] as const;
+export const catalogKinds = [
+  'species',
+  'coats',
+  'client-origins',
+  'product-groups',
+  'product-brands',
+] as const;
 export type CatalogKind = (typeof catalogKinds)[number];
 
 export const catalogItemSchema = z.object({

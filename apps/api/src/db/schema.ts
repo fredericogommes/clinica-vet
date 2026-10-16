@@ -218,6 +218,14 @@ export const clientOrigins = pgTable('client_origins', catalogColumns, (t) => [
   uniqueIndex('client_origins_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
 ]);
 
+export const productGroups = pgTable('product_groups', catalogColumns, (t) => [
+  uniqueIndex('product_groups_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+]);
+
+export const productBrands = pgTable('product_brands', catalogColumns, (t) => [
+  uniqueIndex('product_brands_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+]);
+
 export const clients = pgTable(
   'clients',
   {
@@ -679,4 +687,96 @@ export const clinicalFiles = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('clinical_files_event_uq').on(t.eventId)],
+);
+
+/**
+ * Produto e serviço na mesma tabela [RN-22]. Campos fiscais desde o início [RN-45]; os de
+ * mercadoria ficam nulos em serviço e o código de serviço municipal, nulo em produto.
+ */
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    code: integer('code').notNull(),
+    kind: text('kind', { enum: ['product', 'service'] }).notNull(),
+    serviceKind: text('service_kind'),
+    name: text('name').notNull(),
+    unit: text('unit').notNull(),
+    barcode: text('barcode'),
+    brandId: uuid('brand_id').references(() => productBrands.id),
+    groupId: uuid('group_id').references(() => productGroups.id),
+    ncm: text('ncm'),
+    origin: text('origin').notNull().default('0'),
+    acquisition: text('acquisition').notNull().default('resale'),
+    cfop: text('cfop'),
+    taxSituation: text('tax_situation'),
+    municipalServiceCode: text('municipal_service_code'),
+    taxProfile: text('tax_profile').notNull().default(''),
+    salePrice: numeric('sale_price', { precision: 14, scale: 2, mode: 'number' }).notNull(),
+    cost: numeric('cost', { precision: 14, scale: 2, mode: 'number' }),
+    purpose: text('purpose').notNull().default('sale'),
+    desiredMarkup: numeric('desired_markup', { precision: 7, scale: 2, mode: 'number' }),
+    allowPriceChange: boolean('allow_price_change').notNull().default(false),
+    showInPriceList: boolean('show_in_price_list').notNull().default(true),
+    discountLimitPercent: numeric('discount_limit_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
+    defaultCommissionPercent: numeric('default_commission_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    })
+      .notNull()
+      .default(0),
+    tracksStock: boolean('tracks_stock').notNull().default(false),
+    minStock: numeric('min_stock', { precision: 14, scale: 3, mode: 'number' }),
+    idealStock: numeric('ideal_stock', { precision: 14, scale: 3, mode: 'number' }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('products_org_code_uq').on(t.organizationId, t.code),
+    uniqueIndex('products_org_barcode_uq')
+      .on(t.organizationId, t.barcode)
+      .where(sql`${t.barcode} is not null`),
+    index('products_org_name_idx').on(t.organizationId, sql`lower(${t.name})`),
+    check(
+      'products_kind_ck',
+      sql`(${t.kind} = 'product' and ${t.serviceKind} is null and ${t.municipalServiceCode} is null)
+        or (${t.kind} = 'service' and ${t.serviceKind} is not null and ${t.ncm} is null
+          and ${t.barcode} is null and not ${t.tracksStock})`,
+    ),
+    check(
+      'products_values_ck',
+      sql`${t.salePrice} >= 0 and (${t.cost} is null or ${t.cost} >= 0)
+        and (${t.desiredMarkup} is null or ${t.desiredMarkup} >= 0)
+        and (${t.discountLimitPercent} is null or ${t.discountLimitPercent} between 0 and 100)
+        and ${t.defaultCommissionPercent} between 0 and 100
+        and (${t.minStock} is null or ${t.minStock} >= 0)
+        and (${t.idealStock} is null or ${t.idealStock} >= 0)`,
+    ),
+  ],
+);
+
+/** Comissão diferenciada por profissional; sem linha, vale a comissão padrão do item [p.16]. */
+export const productCommissions = pgTable(
+  'product_commissions',
+  {
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    percent: numeric('percent', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.userId] }),
+    check('product_commissions_percent_ck', sql`${t.percent} between 0 and 100`),
+  ],
 );

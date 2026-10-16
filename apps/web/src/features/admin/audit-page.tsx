@@ -26,6 +26,9 @@ const entityLabels: Record<string, string> = {
   clinical_event: 'Evento clínico',
   pathology: 'Patologia',
   clinical_template: 'Modelo de texto',
+  product: 'Produto ou serviço',
+  product_group: 'Grupo de produtos',
+  product_brand: 'Marca',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',

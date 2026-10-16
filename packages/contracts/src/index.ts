@@ -8,3 +8,4 @@ export * from './clients.js';
 export * from './patients.js';
 export * from './scheduling.js';
 export * from './clinical.js';
+export * from './products.js';
