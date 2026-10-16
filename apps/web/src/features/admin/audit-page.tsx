@@ -47,6 +47,7 @@ const actionLabels: Record<string, string> = {
   discard: 'Descartou rascunho',
   convert: 'Converteu orçamento em venda',
   cancel: 'Cancelou',
+  add_item: 'Lançou item pela ficha',
 };
 
 export interface AuditFilter {

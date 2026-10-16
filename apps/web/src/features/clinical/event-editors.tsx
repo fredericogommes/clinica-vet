@@ -89,6 +89,8 @@ function useSaveEvent(record: ClinicalRecord, event: ClinicalEvent | null, onClo
         queryKey: ['clinical', 'timeline', record.patient.id],
       });
       await queryClient.invalidateQueries({ queryKey: ['clinical', 'record', record.patient.id] });
+      // Atendimento finalizado pode ter lançado o serviço na venda aberta [RN-19].
+      await queryClient.invalidateQueries({ queryKey: ['sales', 'patient', record.patient.id] });
       toast.success(
         saved.status === 'draft'
           ? 'Rascunho salvo. Só você o vê até finalizar.'

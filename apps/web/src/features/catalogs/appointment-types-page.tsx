@@ -1,11 +1,13 @@
 import {
   appointmentTypeInputSchema,
   appointmentTypeSchema,
+  pageSchema,
+  productListItemSchema,
   type AppointmentType,
   type AppointmentTypeInput,
 } from '@clinica/contracts';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Stethoscope } from 'lucide-react';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
@@ -20,6 +22,14 @@ import { api, errorMessage } from '../../lib/api';
 import { applyFieldErrors } from '../../lib/forms';
 import { appointmentTypesQuery } from '../schedule/queries';
 import { PlaceholderHelp } from './clinical-catalog-pages';
+
+/** Serviços ativos, para ligar ao tipo de atendimento [RN-19]. */
+const servicesQuery = queryOptions({
+  queryKey: ['products', 'list', 'services-for-types'],
+  queryFn: () =>
+    api('GET', '/products?kind=service&pageSize=100', pageSchema(productListItemSchema)),
+  retry: false,
+});
 
 const durations = Array.from({ length: 16 }, (_, i) => (i + 1) * 15);
 
@@ -63,7 +73,14 @@ export function AppointmentTypesPage() {
           <ul className="-mx-2 divide-y divide-line">
             {types.data.map((t) => (
               <li key={t.id} className="flex items-center gap-3 px-2 py-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.name}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{t.name}</span>
+                  {t.service ? (
+                    <span className="block truncate text-xs text-ink-muted">
+                      Cobra {t.service.name}
+                    </span>
+                  ) : null}
+                </span>
                 {t.recordTemplate ? <Badge tone="sage">Com modelo</Badge> : null}
                 <span className="font-mono text-xs text-ink-muted">{t.durationMinutes} min</span>
                 {t.archived ? <Badge>Arquivado</Badge> : null}
@@ -97,12 +114,14 @@ export function AppointmentTypesPage() {
 function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: () => void }) {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const services = useQuery(servicesQuery);
   const form = useForm<AppointmentTypeInput>({
     resolver: zodResolver(appointmentTypeInputSchema),
     defaultValues: {
       name: type?.name ?? '',
       durationMinutes: type?.durationMinutes ?? 60,
       recordTemplate: type?.recordTemplate ?? '',
+      serviceId: type?.service?.id ?? null,
       archived: type?.archived ?? false,
     },
   });
@@ -176,6 +195,40 @@ function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: 
               }}
             />
           )}
+        />
+        <Controller
+          control={form.control}
+          name="serviceId"
+          render={({ field }) => {
+            const options = (services.data?.items ?? []).map((p) => ({
+              value: p.id,
+              label: p.name,
+            }));
+            // Serviço arquivado depois continua visível enquanto estiver ligado ao tipo.
+            if (type?.service && !options.some((o) => o.value === type.service?.id)) {
+              options.unshift({ value: type.service.id, label: type.service.name });
+            }
+            return (
+              <SelectField
+                label="Serviço cobrado"
+                placeholder={
+                  services.isPending ? 'Carregando serviços…' : 'Nenhum (não lança na venda)'
+                }
+                value={field.value ?? ''}
+                options={options}
+                disabled={services.isError}
+                hint={
+                  services.isError
+                    ? 'Seu perfil não vê o cadastro de produtos e serviços.'
+                    : 'Ao finalizar um atendimento deste tipo, o serviço entra na venda aberta do animal.'
+                }
+                error={form.formState.errors.serviceId?.message}
+                onChange={(e) => {
+                  field.onChange(e.target.value || null);
+                }}
+              />
+            );
+          }}
         />
         <TextareaField
           label="Modelo de prontuário"

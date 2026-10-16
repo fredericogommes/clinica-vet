@@ -46,6 +46,8 @@ export const quantitySchema = z
   .refine((v) => Math.abs(Math.round(v * 1000) - v * 1000) < 1e-6, 'Use no máximo três casas');
 
 export const saleItemInputSchema = z.object({
+  /** Item já gravado na venda; preserva a origem (ex. lançado pela ficha clínica). */
+  id: z.uuid().nullable().default(null),
   productId: z.uuid({ message: 'Escolha o item' }),
   professionalId: z.uuid({ message: 'Escolha o profissional' }),
   quantity: quantitySchema,
@@ -109,6 +111,8 @@ export const saleItemSchema = z.object({
   allowPriceChange: z.boolean(),
   discountLimitPercent: z.number().nullable(),
   professional: ref,
+  /** Evento da ficha clínica que lançou o item [RN-19]. */
+  clinicalEventId: z.uuid().nullable(),
   grossTotal: z.number(),
   discountAmount: z.number(),
   netTotal: z.number(),
@@ -246,3 +250,18 @@ export type SaleContext = z.infer<typeof saleContextSchema>;
 export const sellableQuerySchema = z.object({
   q: z.string().trim().max(100).default(''),
 });
+
+/** Item lançado pela ficha clínica na venda aberta do animal [RN-19]. */
+export const patientSaleItemInputSchema = z.object({
+  productId: z.uuid({ message: 'Escolha o item' }),
+  professionalId: z.uuid({ message: 'Escolha o profissional' }),
+  quantity: quantitySchema,
+});
+export type PatientSaleItemInput = z.infer<typeof patientSaleItemInputSchema>;
+
+/** Coluna de vendas da ficha: a venda aberta do animal nesta unidade e as vendas recentes. */
+export const patientSalesSchema = z.object({
+  open: saleSchema.nullable(),
+  recent: z.array(saleListItemSchema),
+});
+export type PatientSales = z.infer<typeof patientSalesSchema>;

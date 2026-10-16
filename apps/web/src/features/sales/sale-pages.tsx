@@ -1,6 +1,5 @@
 import {
   saleSchema,
-  saleStatusLabels,
   saleTypeLabels,
   saleUnitLabels,
   type Sale,
@@ -16,7 +15,7 @@ import { useState, type ReactNode } from 'react';
 import { Button, buttonClasses } from '../../design-system/button';
 import { Dialog } from '../../design-system/dialog';
 import { SearchField, TextareaField } from '../../design-system/field';
-import { Badge, FormActions, PageHeader, Panel, Section } from '../../design-system/layout';
+import { FormActions, PageHeader, Panel, Section } from '../../design-system/layout';
 import { ErrorState, SkeletonRows } from '../../design-system/states';
 import { DataTable } from '../../design-system/table';
 import { useToast } from '../../design-system/toast';
@@ -26,6 +25,7 @@ import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { formatMoney, formatPercent, quantityInput } from '../products/format';
 import { saleContextQuery, saleQuery, salesListQuery } from './queries';
+import { StatusBadge } from './status-badge';
 import {
   emptySale,
   SaleForm,
@@ -34,17 +34,6 @@ import {
   type FieldErrors,
   type SaleFormState,
 } from './sale-form';
-
-const statusTone: Record<SaleStatus, 'neutral' | 'sage' | 'amber' | 'danger'> = {
-  quote: 'neutral',
-  open: 'amber',
-  closed: 'sage',
-  cancelled: 'danger',
-};
-
-export function StatusBadge({ status }: { status: SaleStatus }) {
-  return <Badge tone={statusTone[status]}>{saleStatusLabels[status]}</Badge>;
-}
 
 /** Formulário com estado local, validação pelo contrato e erros do servidor por campo. */
 function useSaleEditor(initial: SaleFormState) {
@@ -119,7 +108,7 @@ function NewSale({ context }: { context: SaleContext }) {
     mutationFn: (data: SaleData) => api('POST', '/sales', saleSchema, data),
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
-      await queryClient.invalidateQueries({ queryKey: ['sales', 'list'] });
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success(
         `${saved.status === 'quote' ? 'Orçamento' : 'Venda'} ${String(saved.code)} gravad${saved.status === 'quote' ? 'o' : 'a'}: ${formatMoney(saved.netTotal)}.`,
       );
@@ -251,7 +240,7 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
     mutationFn: (data: SaleData) => api('PUT', `/sales/${sale.id}`, saleSchema, data),
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
-      await queryClient.invalidateQueries({ queryKey: ['sales', 'list'] });
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
       editor.reset(saleToForm(saved));
       toast.success(
         sale.status === 'quote' && saved.status === 'open'
@@ -446,7 +435,7 @@ function CancelDialog({ sale, open, onClose }: { sale: Sale; open: boolean; onCl
     mutationFn: () => api('POST', `/sales/${sale.id}/cancel`, saleSchema, { reason }),
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
-      await queryClient.invalidateQueries({ queryKey: ['sales', 'list'] });
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success(
         `${sale.status === 'quote' ? 'Orçamento' : 'Venda'} ${String(sale.code)} cancelad${sale.status === 'quote' ? 'o' : 'a'}.`,
       );

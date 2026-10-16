@@ -1,5 +1,6 @@
 import {
   pageSchema,
+  patientSalesSchema,
   saleContextSchema,
   saleListItemSchema,
   saleSchema,
@@ -53,3 +54,9 @@ export const salesSettingsQuery = queryOptions({
   queryKey: ['sales', 'settings'],
   queryFn: () => api('GET', '/sales/settings', salesSettingsSchema),
 });
+
+export const patientSalesQuery = (patientId: string) =>
+  queryOptions({
+    queryKey: ['sales', 'patient', patientId],
+    queryFn: () => api('GET', `/sales/patient/${patientId}`, patientSalesSchema),
+  });

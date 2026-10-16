@@ -43,6 +43,13 @@
       "when": 1792180837913,
       "tag": "0005_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792182345940,
+      "tag": "0006_sale_from_record",
+      "breakpoints": true
     }
   ]
 }

@@ -39,6 +39,9 @@ import { sellableQuery } from './queries';
 
 interface Row {
   key: string;
+  /** Id do item já gravado; preserva a origem dele (ex. lançado pela ficha clínica). */
+  itemId: string | null;
+  fromRecord: boolean;
   productId: string;
   code: number;
   name: string;
@@ -88,6 +91,8 @@ export function saleToForm(sale: Sale): SaleFormState {
     patientId: sale.patient?.id ?? '',
     rows: sale.items.map((i) => ({
       key: nextKey(),
+      itemId: i.id,
+      fromRecord: i.clinicalEventId !== null,
       productId: i.productId,
       code: i.code,
       name: i.name,
@@ -118,6 +123,7 @@ function toInput(state: SaleFormState): unknown {
     items: state.rows.map((r) => {
       const price = num(r.unitPrice);
       return {
+        id: r.itemId,
         productId: r.productId,
         professionalId: r.professionalId,
         quantity: num(r.quantity),
@@ -191,6 +197,8 @@ export function SaleForm({
         ...state.rows,
         {
           key: nextKey(),
+          itemId: null,
+          fromRecord: false,
           productId: item.id,
           code: item.code,
           name: item.name,
@@ -397,6 +405,7 @@ function ItemRow({
           <p className="text-xs text-ink-muted">
             <span className="font-mono">#{row.code}</span> · {saleUnitLabels[row.unit]}
             {row.kind === 'service' ? ' · Serviço' : ''}
+            {row.fromRecord ? ' · Lançado pela ficha clínica' : ''}
           </p>
           {err('productId') ? (
             <p role="alert" className="mt-1 text-xs font-medium text-danger-600">
@@ -497,7 +506,15 @@ function ReadValue({
 }
 
 /** Busca de item; Enter adiciona o primeiro resultado, como faz o leitor de código de barras. */
-function ItemSearch({ onPick }: { onPick: (item: SellableItem) => void }) {
+export function ItemSearch({
+  onPick,
+  label = 'Adicionar item',
+  placeholder = 'Nome, código ou código de barras',
+}: {
+  onPick: (item: SellableItem) => void;
+  label?: string;
+  placeholder?: string;
+}) {
   const [term, setTerm] = useState('');
   const q = useDebounced(term.trim(), 200);
   const results = useQuery({ ...sellableQuery(q), enabled: q.length >= 1 });
@@ -511,8 +528,8 @@ function ItemSearch({ onPick }: { onPick: (item: SellableItem) => void }) {
   return (
     <div className="relative">
       <SearchField
-        label="Adicionar item"
-        placeholder="Nome, código ou código de barras"
+        label={label}
+        placeholder={placeholder}
         icon={<Search className="size-4" aria-hidden />}
         value={term}
         aria-controls={listId}

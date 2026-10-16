@@ -91,12 +91,13 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     appointments,
   });
   await app.register(appointmentRoutes, { prefix: '/api/appointments', appointments });
+  const sales = new SaleService(db);
   await app.register(clinicalRoutes, {
     prefix: '/api/clinical',
-    clinical: new ClinicalService(db, patients, appointments),
+    clinical: new ClinicalService(db, patients, appointments, sales),
   });
   await app.register(productRoutes, { prefix: '/api/products', products: new ProductService(db) });
-  await app.register(saleRoutes, { prefix: '/api/sales', sales: new SaleService(db) });
+  await app.register(saleRoutes, { prefix: '/api/sales', sales });
 
   return app;
 }

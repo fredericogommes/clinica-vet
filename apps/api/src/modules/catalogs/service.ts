@@ -14,7 +14,7 @@ import type { z } from 'zod';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
-import { conflict, notFound } from '../../core/errors.js';
+import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
@@ -28,6 +28,7 @@ import {
   productBrands,
   productGroups,
   species,
+  products,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 
@@ -58,19 +59,22 @@ type TypeRow = {
   name: string;
   durationMinutes: number;
   recordTemplate: string;
+  serviceId: string | null;
   archivedAt: Date | null;
 };
-const toAppointmentType = (r: TypeRow): AppointmentType => ({
+const toAppointmentType = (r: TypeRow, serviceName: string | null): AppointmentType => ({
   id: r.id,
   name: r.name,
   durationMinutes: r.durationMinutes,
   recordTemplate: r.recordTemplate,
+  service: r.serviceId && serviceName ? { id: r.serviceId, name: serviceName } : null,
   archived: r.archivedAt !== null,
 });
-const typeSnapshot = (r: TypeRow) => ({
+const typeSnapshot = (r: TypeRow, serviceName: string | null) => ({
   name: r.name,
   durationMinutes: r.durationMinutes,
   recordTemplate: r.recordTemplate,
+  service: serviceName,
   archived: r.archivedAt !== null,
 });
 
@@ -228,11 +232,35 @@ export class CatalogService {
 
   async listAppointmentTypes(auth: AuthContext): Promise<AppointmentType[]> {
     const rows = await this.db
-      .select()
+      .select({ type: appointmentTypes, serviceName: products.name })
       .from(appointmentTypes)
+      .leftJoin(products, eq(products.id, appointmentTypes.serviceId))
       .where(eq(appointmentTypes.organizationId, auth.organizationId))
       .orderBy(asc(sql`lower(${appointmentTypes.name})`));
-    return rows.map(toAppointmentType);
+    return rows.map((r) => toAppointmentType(r.type, r.serviceName));
+  }
+
+  /**
+   * Serviço cobrado pelo tipo: precisa ser um serviço ativo da organização; o que o tipo já
+   * tinha antes de ser arquivado continua aceito. Devolve o nome, para resposta e auditoria.
+   */
+  private async serviceName(
+    tx: Executor,
+    auth: AuthContext,
+    serviceId: string | null,
+    previous: string | null,
+  ): Promise<string | null> {
+    if (!serviceId) return null;
+    const [row] = await tx
+      .select({ name: products.name, kind: products.kind, archivedAt: products.archivedAt })
+      .from(products)
+      .where(and(eq(products.id, serviceId), eq(products.organizationId, auth.organizationId)));
+    if (!row || row.kind !== 'service' || (row.archivedAt && serviceId !== previous)) {
+      throw new AppError('validation_failed', 'Dados inválidos.', [
+        { path: 'serviceId', message: 'Escolha um serviço ativo' },
+      ]);
+    }
+    return row.name;
   }
 
   async createAppointmentType(
@@ -247,18 +275,20 @@ export class CatalogService {
       name: input.name,
       durationMinutes: input.durationMinutes,
       recordTemplate: input.recordTemplate ?? '',
+      serviceId: input.serviceId ?? null,
       archivedAt,
     };
-    await this.write(async (tx) => {
+    return this.write(async (tx) => {
+      const serviceName = await this.serviceName(tx, auth, values.serviceId, null);
       await tx.insert(appointmentTypes).values(values);
       await recordAudit(tx, actorOf(auth), {
         entity: 'appointment_type',
         entityId: id,
         action: 'create',
-        after: typeSnapshot(values),
+        after: typeSnapshot(values, serviceName),
       });
+      return toAppointmentType(values, serviceName);
     });
-    return toAppointmentType(values);
   }
 
   async updateAppointmentType(
@@ -283,14 +313,24 @@ export class CatalogService {
         name: input.name,
         durationMinutes: input.durationMinutes,
         recordTemplate: input.recordTemplate ?? current.recordTemplate,
+        serviceId: input.serviceId ?? null,
         archivedAt: input.archived ? (current.archivedAt ?? new Date()) : null,
       };
+      const [previous] = current.serviceId
+        ? await tx
+            .select({ name: products.name })
+            .from(products)
+            .where(eq(products.id, current.serviceId))
+        : [];
+      const previousName = previous?.name ?? null;
+      const serviceName = await this.serviceName(tx, auth, next.serviceId, current.serviceId);
       await tx
         .update(appointmentTypes)
         .set({
           name: next.name,
           durationMinutes: next.durationMinutes,
           recordTemplate: next.recordTemplate,
+          serviceId: next.serviceId,
           archivedAt: next.archivedAt,
           updatedAt: new Date(),
         })
@@ -299,10 +339,10 @@ export class CatalogService {
         entity: 'appointment_type',
         entityId: id,
         action: 'update',
-        before: typeSnapshot(current),
-        after: typeSnapshot(next),
+        before: typeSnapshot(current, previousName),
+        after: typeSnapshot(next, serviceName),
       });
-      return toAppointmentType(next);
+      return toAppointmentType(next, serviceName);
     });
   }
 
