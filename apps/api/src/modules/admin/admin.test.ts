@@ -128,6 +128,14 @@ describe('usuários', () => {
     expect(res.json<User>()).toMatchObject({ roleName: 'Recepcionista', active: true });
     expect(JSON.stringify(res.json())).not.toContain('senha');
 
+    const audit = (await client.get('/api/admin/audit')).json<{ items: AuditEntry[] }>();
+    expect(
+      audit.items.find((a) => a.entity === 'user' && a.action === 'create')?.after,
+    ).toMatchObject({
+      role: { id: recep.id, name: 'Recepcionista' },
+      units: [{ id: h.org.unitId, name: 'Matriz' }],
+    });
+
     const dup = await client.send('POST', '/api/admin/users', {
       ...payload,
       email: 'RITA@clinica.test',
