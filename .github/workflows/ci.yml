@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clinica
+          POSTGRES_PASSWORD: clinica_ci
+          POSTGRES_DB: clinica
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clinica" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://clinica:clinica_ci@127.0.0.1:5432/postgres
+      DATABASE_URL: postgres://clinica:clinica_ci@127.0.0.1:5432/clinica
+      WEB_ORIGIN: http://localhost:4173
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @clinica/contracts
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Prepare database for end-to-end tests
+        env:
+          SEED_ORGANIZATION_NAME: Clínica CI
+          SEED_UNIT_NAME: Matriz
+          SEED_ADMIN_NAME: Admin CI
+          SEED_ADMIN_EMAIL: admin@ci.local
+          SEED_ADMIN_PASSWORD: senha-ci-123456
+        run: npm run db:migrate && npm run db:seed
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - name: End-to-end tests
+        env:
+          E2E_BASE_URL: http://localhost:4173
+          E2E_ADMIN_EMAIL: admin@ci.local
+          E2E_ADMIN_PASSWORD: senha-ci-123456
+          LOG_LEVEL: warn
+        run: |
+          (cd apps/api && node dist/main.js &) 
+          (cd apps/web && npx vite preview --strictPort &)
+          npx wait-on -t 60000 http://127.0.0.1:3000/api/health http://localhost:4173
+          cd apps/web && npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
