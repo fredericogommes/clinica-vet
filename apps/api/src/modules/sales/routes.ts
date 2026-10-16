@@ -4,6 +4,7 @@ import {
   patientSaleItemInputSchema,
   patientSalesSchema,
   receiveSaleSchema,
+  reverseSaleSchema,
   saleContextSchema,
   saleInputSchema,
   saleListItemSchema,
@@ -143,5 +144,14 @@ export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (
       schema: { params: idParams, body: receiveSaleSchema, response: { 200: saleSchema } },
     },
     async (request) => sales.receive(requireAuth(request), request.params.id, request.body),
+  );
+
+  app.post(
+    '/:id/reverse',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.reverse' } },
+      schema: { params: idParams, body: reverseSaleSchema, response: { 200: saleSchema } },
+    },
+    async (request) => sales.reverse(requireAuth(request), request.params.id, request.body.reason),
   );
 };

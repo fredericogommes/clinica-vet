@@ -146,6 +146,8 @@ export const saleSchema = z.object({
   editable: z.boolean(),
   cancellable: z.boolean(),
   receivable: z.boolean(),
+  /** Venda baixada que o usuário pode estornar pelo caixa [RN-29]. */
+  reversible: z.boolean(),
 });
 export type Sale = z.infer<typeof saleSchema>;
 

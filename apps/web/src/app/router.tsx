@@ -61,6 +61,12 @@ const PdvPage = lazy(() =>
 const SalePage = lazy(() =>
   import('../features/sales/sale-pages').then((m) => ({ default: m.SalePage })),
 );
+const CashListPage = lazy(() =>
+  import('../features/cash/cash-pages').then((m) => ({ default: m.CashListPage })),
+);
+const CashPage = lazy(() =>
+  import('../features/cash/cash-pages').then((m) => ({ default: m.CashPage })),
+);
 const PaymentMethodsPage = lazy(() =>
   import('../features/sales/payment-methods-page').then((m) => ({
     default: m.PaymentMethodsPage,
@@ -650,6 +656,29 @@ const paymentMethodsRoute = createRoute({
   ),
 });
 
+const cashListRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/caixas',
+  component: () => (
+    <RequirePermission permission="cash.operate">
+      <CashListPage />
+    </RequirePermission>
+  ),
+});
+
+const cashRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/caixas/$cashId',
+  component: function CashDetail() {
+    const { cashId } = cashRoute.useParams();
+    return (
+      <RequirePermission permission="cash.operate">
+        <CashPage key={cashId} cashId={cashId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const saleRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vendas/$saleId',
@@ -693,6 +722,8 @@ const routeTree = rootRoute.addChildren([
     pdvRoute,
     salesSettingsRoute,
     paymentMethodsRoute,
+    cashListRoute,
+    cashRoute,
     saleRoute,
     coatsRoute,
     originsRoute,

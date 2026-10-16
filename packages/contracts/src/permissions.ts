@@ -81,6 +81,18 @@ export const permissionCatalog = {
     group: 'Vendas',
     label: 'Registrar recebimento e baixar vendas, com pagamento dividido',
   },
+  'sales.reverse': {
+    group: 'Vendas',
+    label: 'Estornar vendas baixadas, devolvendo pelo caixa',
+  },
+  'cash.operate': {
+    group: 'Caixa',
+    label: 'Abrir e fechar o próprio caixa, lançar sangria e suprimento',
+  },
+  'cash.supervise': {
+    group: 'Caixa',
+    label: 'Ver os caixas de todos os operadores e fechar caixa de outro operador',
+  },
   'sales.configure': {
     group: 'Vendas',
     label:

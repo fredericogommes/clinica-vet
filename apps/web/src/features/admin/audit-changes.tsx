@@ -101,6 +101,11 @@ const fieldLabels: Record<string, string> = {
   maxInstallments: 'Parcelamento máximo',
   feePercent: 'Taxa (%)',
   payments: 'Formas de recebimento',
+  openingAmount: 'Troco inicial (R$)',
+  expectedCash: 'Dinheiro esperado (R$)',
+  countedCash: 'Dinheiro contado (R$)',
+  difference: 'Diferença (R$)',
+  amount: 'Valor (R$)',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */

@@ -57,6 +57,13 @@
       "when": 1792183867528,
       "tag": "0007_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792185135053,
+      "tag": "0008_cash",
+      "breakpoints": true
     }
   ]
 }

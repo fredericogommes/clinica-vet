@@ -107,6 +107,8 @@ export const salePaymentSchema = z.object({
   installments: z.number().int(),
   feePercent: z.number(),
   receivables: z.array(receivableSchema),
+  /** Devolvida no estorno da venda; as parcelas deixam de valer. */
+  reversed: z.boolean(),
 });
 export type SalePayment = z.infer<typeof salePaymentSchema>;
 

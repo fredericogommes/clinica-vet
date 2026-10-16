@@ -23,6 +23,7 @@ import {
   Users,
   UsersRound,
   type LucideIcon,
+  Wallet,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -74,6 +75,12 @@ export const navigation: NavSection[] = [
         to: '/vendas/pdv',
         icon: ShoppingCart,
         permission: 'sales.manage',
+      },
+      {
+        label: 'Movimentos de caixa',
+        to: '/vendas/caixas',
+        icon: Wallet,
+        permission: 'cash.operate',
       },
       {
         label: 'Formas de recebimento',
