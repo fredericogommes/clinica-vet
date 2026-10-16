@@ -108,10 +108,21 @@ export const users = pgTable(
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     active: boolean('active').notNull().default(true),
+    discountLimitPercent: numeric('discount_limit_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('users_email_uq').on(sql`lower(${t.email})`)],
+  (t) => [
+    uniqueIndex('users_email_uq').on(sql`lower(${t.email})`),
+    check(
+      'users_discount_limit_ck',
+      sql`${t.discountLimitPercent} is null or ${t.discountLimitPercent} between 0 and 100`,
+    ),
+  ],
 );
 
 export const userUnits = pgTable(
@@ -779,4 +790,127 @@ export const productCommissions = pgTable(
     primaryKey({ columns: [t.productId, t.userId] }),
     check('product_commissions_percent_ck', sql`${t.percent} between 0 and 100`),
   ],
+);
+
+const money = (name: string) => numeric(name, { precision: 14, scale: 2, mode: 'number' });
+
+/**
+ * Venda e orçamento na mesma tabela, com status [RN-23]. Totais gravados são sempre os que o
+ * servidor calculou [RN-28]; o código é sequencial por organização.
+ */
+export const sales = pgTable(
+  'sales',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    costCenterId: uuid('cost_center_id').references(() => costCenters.id),
+    code: integer('code').notNull(),
+    status: text('status', { enum: ['quote', 'open', 'closed', 'cancelled'] }).notNull(),
+    saleType: text('sale_type').notNull(),
+    clientId: uuid('client_id').references(() => clients.id),
+    patientId: uuid('patient_id').references(() => patients.id),
+    discountMode: text('discount_mode', { enum: ['amount', 'percent'] }).notNull(),
+    discountValue: money('discount_value').notNull().default(0),
+    grossTotal: money('gross_total').notNull(),
+    discountTotal: money('discount_total').notNull(),
+    netTotal: money('net_total').notNull(),
+    notes: text('notes').notNull().default(''),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancelReason: text('cancel_reason'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('sales_org_code_uq').on(t.organizationId, t.code),
+    index('sales_org_created_idx').on(t.organizationId, t.createdAt),
+    index('sales_patient_idx').on(t.patientId),
+    index('sales_client_idx').on(t.clientId),
+    check('sales_patient_client_ck', sql`${t.patientId} is null or ${t.clientId} is not null`),
+    check(
+      'sales_totals_ck',
+      sql`${t.grossTotal} >= 0 and ${t.discountTotal} >= 0 and ${t.discountTotal} <= ${t.grossTotal}
+        and ${t.netTotal} = ${t.grossTotal} - ${t.discountTotal} and ${t.discountValue} >= 0`,
+    ),
+    check(
+      'sales_cancel_ck',
+      sql`(${t.status} = 'cancelled') = (${t.cancelledAt} is not null and ${t.cancelReason} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * Item da venda com profissional responsável [RN-24]. Nome, preço e comissão são copiados do
+ * cadastro no momento da venda: mudar o produto depois não reescreve vendas passadas.
+ */
+export const saleItems = pgTable(
+  'sale_items',
+  {
+    id: uuid('id').primaryKey(),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => sales.id, { onDelete: 'cascade' }),
+    position: smallint('position').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    professionalId: uuid('professional_id')
+      .notNull()
+      .references(() => users.id),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: ['product', 'service'] }).notNull(),
+    serviceKind: text('service_kind'),
+    unit: text('unit').notNull(),
+    quantity: numeric('quantity', { precision: 14, scale: 3, mode: 'number' }).notNull(),
+    listPrice: money('list_price').notNull(),
+    unitPrice: money('unit_price').notNull(),
+    grossTotal: money('gross_total').notNull(),
+    discountAmount: money('discount_amount').notNull(),
+    netTotal: money('net_total').notNull(),
+    commissionPercent: numeric('commission_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('sale_items_sale_position_uq').on(t.saleId, t.position),
+    index('sale_items_product_idx').on(t.productId),
+    index('sale_items_professional_idx').on(t.professionalId),
+    check(
+      'sale_items_values_ck',
+      sql`${t.quantity} > 0 and ${t.unitPrice} >= 0 and ${t.listPrice} >= 0
+        and ${t.discountAmount} >= 0 and ${t.discountAmount} <= ${t.grossTotal}
+        and ${t.netTotal} = ${t.grossTotal} - ${t.discountAmount}
+        and ${t.commissionPercent} between 0 and 100`,
+    ),
+  ],
+);
+
+/** Parâmetros de venda da organização [p.10, Configuração]. */
+export const salesSettings = pgTable(
+  'sales_settings',
+  {
+    organizationId: uuid('organization_id')
+      .primaryKey()
+      .references(() => organizations.id),
+    discountLimitPercent: numeric('discount_limit_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    })
+      .notNull()
+      .default(10),
+    defaultSaleType: text('default_sale_type').notNull().default('in_person_consumer'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('sales_settings_discount_ck', sql`${t.discountLimitPercent} between 0 and 100`)],
 );

@@ -14,6 +14,8 @@ import {
   ScrollText,
   Settings2,
   ShieldCheck,
+  ShoppingCart,
+  SlidersHorizontal,
   Signpost,
   Stethoscope,
   Tag,
@@ -60,6 +62,23 @@ export const navigation: NavSection[] = [
         to: '/agenda/configuracao',
         icon: Settings2,
         permission: 'schedule.configure',
+      },
+    ],
+  },
+  {
+    label: 'Vendas',
+    items: [
+      {
+        label: 'Ponto de venda',
+        to: '/vendas/pdv',
+        icon: ShoppingCart,
+        permission: 'sales.manage',
+      },
+      {
+        label: 'Configuração de vendas',
+        to: '/vendas/configuracao',
+        icon: SlidersHorizontal,
+        permission: 'sales.configure',
       },
     ],
   },

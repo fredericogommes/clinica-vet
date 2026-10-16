@@ -20,6 +20,8 @@
 - Linha do tempo com filtros por período, tipo e profissional, ordem e paginação; correção com histórico e invalidação com motivo.
 - Cadastros de patologias e de modelos de receita e documento; exclusão definitiva de cliente ou animal sem histórico.
 - Produtos e serviços num cadastro só: tipo, classificação do serviço (consulta, vacina, exame, banho e tosa...), unidade, código de barras, grupo, marca, preço, custo, markup real e preço sugerido, limite de desconto, comissão padrão e por profissional, estoque mínimo e ideal e campos fiscais; grupos de produtos e marcas.
+- Ponto de venda: venda ou orçamento no mesmo formulário, cliente localizado pelo animal, tipo de venda fiscal, profissional responsável por item, busca de item por nome, código ou código de barras (Enter adiciona), desconto em R$ ou % limitado pelo item, pelo usuário ou pela clínica, preço livre só com permissão, totais recalculados no servidor, orçamento que vira venda, cancelamento com motivo e painel das vendas das últimas 24 horas.
+- Configuração de vendas (limite de desconto da clínica e tipo de venda padrão) e limite de desconto por usuário.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Segurança

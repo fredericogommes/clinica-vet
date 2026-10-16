@@ -156,6 +156,7 @@ export class AdminService {
         roleId: users.roleId,
         roleName: roles.name,
         lastLoginAt: users.lastLoginAt,
+        discountLimitPercent: users.discountLimitPercent,
       })
       .from(users)
       .innerJoin(roles, eq(roles.id, users.roleId))
@@ -193,6 +194,7 @@ export class AdminService {
           name: input.name,
           email: input.email,
           passwordHash,
+          discountLimitPercent: input.discountLimitPercent,
         });
       } catch (error) {
         if (isUniqueViolation(error)) throw conflict('Já existe um usuário com este e-mail.');
@@ -223,6 +225,7 @@ export class AdminService {
           name: input.name,
           active: input.active,
           roleId: input.roleId,
+          discountLimitPercent: input.discountLimitPercent,
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
@@ -294,6 +297,7 @@ export class AdminService {
         roleId: users.roleId,
         roleName: roles.name,
         lastLoginAt: users.lastLoginAt,
+        discountLimitPercent: users.discountLimitPercent,
       })
       .from(users)
       .innerJoin(roles, eq(roles.id, users.roleId))
@@ -321,6 +325,7 @@ export class AdminService {
       active: user.active,
       role: { id: user.roleId, name: user.roleName },
       units: unitRows,
+      discountLimitPercent: user.discountLimitPercent,
     };
   }
 

@@ -67,6 +67,14 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `products`            | Produto ou serviço [RN-22] | `kind` + `service_kind` (CHECK: serviço sempre classificado, sem código de barras, NCM nem estoque); dinheiro em `numeric(14,2)`; código de barras único por organização |
 | `product_commissions` | Comissão por profissional  | Sobrepõe a comissão padrão do item para aquele usuário; 0 a 100%                                                                                                         |
 
+## Vendas (Fase 1)
+
+| Tabela           | Papel                         | Regras principais                                                                                                                                                                                       |
+| ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sales`          | Venda ou orçamento [RN-23]    | `status` (orçamento, em aberto, baixada, cancelada); unidade e centro de custo padrão; código sequencial por organização; CHECK: animal exige cliente, líquido = bruto − desconto, cancelada tem motivo |
+| `sale_items`     | Item com profissional [RN-24] | Cópia de nome, preço de tabela, preço praticado e comissão do momento da venda; desconto rateado; CHECK de valores                                                                                      |
+| `sales_settings` | Parâmetros de venda           | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
+
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.
 
 O modelo das fases seguintes está em [architecture.md](architecture.md#4-modelo-de-dados-inicial-fase-01).

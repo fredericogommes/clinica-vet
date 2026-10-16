@@ -85,6 +85,15 @@ const fieldLabels: Record<string, string> = {
   tracksStock: 'Controla estoque',
   minStock: 'Estoque mínimo',
   idealStock: 'Estoque ideal',
+  saleType: 'Tipo de venda',
+  client: 'Cliente',
+  patient: 'Animal',
+  items: 'Itens',
+  discount: 'Desconto',
+  grossTotal: 'Bruto (R$)',
+  discountTotal: 'Desconto (R$)',
+  netTotal: 'Total (R$)',
+  defaultSaleType: 'Tipo de venda padrão',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */

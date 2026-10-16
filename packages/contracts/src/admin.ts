@@ -33,6 +33,7 @@ export const userSchema = z.object({
   roleName: z.string(),
   unitIds: z.array(z.uuid()),
   lastLoginAt: z.string().nullable(),
+  discountLimitPercent: z.number().nullable(),
 });
 export type User = z.infer<typeof userSchema>;
 
@@ -47,6 +48,13 @@ export const createUserRequestSchema = z.object({
   password: passwordSchema,
   roleId: z.uuid('Selecione um perfil'),
   unitIds: z.array(z.uuid()).min(1, 'Selecione ao menos uma unidade'),
+  /** Limite de desconto do usuário no PDV; vazio usa o limite da clínica [RN-26]. */
+  discountLimitPercent: z
+    .number({ message: 'Informe um percentual' })
+    .min(0, 'Não pode ser negativo')
+    .max(100, 'Máximo de 100%')
+    .nullable()
+    .default(null),
 });
 export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
 
@@ -55,6 +63,13 @@ export const updateUserRequestSchema = z.object({
   active: z.boolean(),
   roleId: z.uuid('Selecione um perfil'),
   unitIds: z.array(z.uuid()).min(1, 'Selecione ao menos uma unidade'),
+  /** Limite de desconto do usuário no PDV; vazio usa o limite da clínica [RN-26]. */
+  discountLimitPercent: z
+    .number({ message: 'Informe um percentual' })
+    .min(0, 'Não pode ser negativo')
+    .max(100, 'Máximo de 100%')
+    .nullable()
+    .default(null),
 });
 export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
 
