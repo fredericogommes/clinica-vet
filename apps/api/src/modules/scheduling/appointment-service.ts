@@ -142,6 +142,27 @@ export class AppointmentService {
     );
   }
 
+  /** Agendamentos ativos do animal nesta unidade, de hoje em diante, para a ficha clínica. */
+  async forPatient(auth: AuthContext, patientId: string): Promise<Appointment[]> {
+    const timeZone = await unitTimeZone(this.db, auth.unitId);
+    const today = instantToZoned(this.now(), timeZone).date;
+    const ofPatient = this.db
+      .select({ id: appointmentPatients.appointmentId })
+      .from(appointmentPatients)
+      .where(eq(appointmentPatients.patientId, patientId));
+    const items = await this.load(
+      this.db,
+      timeZone,
+      and(
+        eq(appointments.unitId, auth.unitId),
+        inArray(appointments.id, ofPatient),
+        gte(appointments.startsAt, zonedToInstant(today, 0, timeZone)),
+        notInArray(appointments.status, inactiveStatuses),
+      ),
+    );
+    return items.slice(0, 10);
+  }
+
   async get(auth: AuthContext, id: string, executor?: Executor): Promise<Appointment> {
     const db = executor ?? this.db;
     const timeZone = await unitTimeZone(db, auth.unitId);

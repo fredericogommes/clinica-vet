@@ -17,6 +17,30 @@ export const permissionCatalog = {
     label: 'Trocar o responsável de um animal',
   },
   'patients.archive': { group: 'Clientes e animais', label: 'Arquivar e restaurar animais' },
+  'clients.delete': {
+    group: 'Clientes e animais',
+    label: 'Excluir definitivamente clientes sem animais nem agendamentos',
+  },
+  'patients.delete': {
+    group: 'Clientes e animais',
+    label: 'Excluir definitivamente animais sem histórico clínico nem agendamentos',
+  },
+  'clinical.view': {
+    group: 'Atendimento clínico',
+    label: 'Ver a ficha clínica e a linha do tempo',
+  },
+  'clinical.record': {
+    group: 'Atendimento clínico',
+    label: 'Registrar atendimentos e eventos clínicos e corrigir os próprios',
+  },
+  'clinical.edit_any': {
+    group: 'Atendimento clínico',
+    label: 'Corrigir e invalidar eventos clínicos de outros profissionais',
+  },
+  'clinical.change_datetime': {
+    group: 'Atendimento clínico',
+    label: 'Registrar evento clínico com data e hora retroativas',
+  },
   'schedule.view': { group: 'Agenda', label: 'Ver agenda e escala' },
   'schedule.manage': {
     group: 'Agenda',
@@ -29,7 +53,8 @@ export const permissionCatalog = {
   },
   'catalogs.manage': {
     group: 'Cadastros',
-    label: 'Editar espécies, raças, pelagens, origens de clientes e tipos de atendimento',
+    label:
+      'Editar espécies, raças, pelagens, origens de clientes, tipos de atendimento, patologias e modelos de receita e documento',
   },
   'admin.users.view': { group: 'Configuração', label: 'Ver usuários' },
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },

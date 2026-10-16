@@ -27,10 +27,12 @@ import { containsText, likeEscape } from '../../core/search.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
 import {
+  appointments,
   clientConsents,
   clientContacts,
   clientOrigins,
   clients,
+  patientOwnerHistory,
   patients,
   species,
   users,
@@ -324,6 +326,36 @@ export class ClientService {
       .where(eq(clientConsents.clientId, clientId))
       .orderBy(desc(clientConsents.recordedAt), desc(clientConsents.id));
     return rows.map((r) => ({ ...r, recordedAt: r.recordedAt.toISOString() }));
+  }
+
+  /**
+   * Exclusão definitiva [RN-21] só para quem nunca teve animal nem agendamento (cadastro por
+   * engano). Contatos e consentimentos saem junto; o log guarda só código e nome.
+   */
+  async remove(auth: AuthContext, id: string): Promise<void> {
+    await this.write(async (tx) => {
+      const before = await this.lockAndGet(tx, auth, id);
+      const [owned] = await tx
+        .select({ n: count() })
+        .from(patientOwnerHistory)
+        .where(eq(patientOwnerHistory.clientId, id));
+      const [booked] = await tx
+        .select({ n: count() })
+        .from(appointments)
+        .where(eq(appointments.clientId, id));
+      if ((owned?.n ?? 0) > 0 || (booked?.n ?? 0) > 0) {
+        throw conflict(
+          'Este cliente tem ou teve animais ou agendamentos e não pode ser excluído. Arquive a ficha.',
+        );
+      }
+      await tx.delete(clients).where(eq(clients.id, id));
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'client',
+        entityId: id,
+        action: 'delete',
+        before: { code: before.code, name: before.name },
+      });
+    });
   }
 
   private async lockAndGet(tx: Executor, auth: AuthContext, id: string): Promise<Client> {

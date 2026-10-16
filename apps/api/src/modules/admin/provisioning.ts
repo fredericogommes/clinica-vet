@@ -3,6 +3,7 @@ import type { Executor } from '../../db/client.js';
 import {
   appointmentTypes,
   breeds,
+  clinicalTemplates,
   costCenters,
   organizations,
   rolePermissions,
@@ -15,6 +16,10 @@ import {
 } from '../../db/schema.js';
 import { newId } from '../../core/ids.js';
 import { hashPassword } from '../../core/passwords.js';
+import {
+  consultationRecordTemplate,
+  starterClinicalTemplates,
+} from '../clinical/starter-templates.js';
 import { roleTemplates } from './role-templates.js';
 
 /** Cria ou atualiza os perfis-modelo de uma organização a partir do código. Idempotente. */
@@ -109,8 +114,9 @@ async function seedSpecies(tx: Executor, organizationId: string): Promise<void> 
 }
 
 /**
- * Ponto de partida da agenda: Seg–Sáb 08:00–18:00 e alguns tipos de atendimento comuns. A clínica
- * ajusta tudo em Configuração da agenda e em Tipos de atendimento.
+ * Ponto de partida da agenda e do prontuário: Seg–Sáb 08:00–18:00, tipos de atendimento comuns
+ * (a Consulta já com modelo de prontuário) e um modelo de receita e um de documento. A clínica
+ * ajusta tudo em Configuração da agenda e em Cadastros.
  */
 async function seedSchedule(tx: Executor, organizationId: string, unitId: string): Promise<void> {
   await tx
@@ -132,6 +138,10 @@ async function seedSchedule(tx: Executor, organizationId: string, unitId: string
       organizationId,
       name,
       durationMinutes,
+      recordTemplate: name === 'Consulta' ? consultationRecordTemplate : '',
     })),
   );
+  await tx
+    .insert(clinicalTemplates)
+    .values(starterClinicalTemplates.map((t) => ({ id: newId(), organizationId, ...t })));
 }

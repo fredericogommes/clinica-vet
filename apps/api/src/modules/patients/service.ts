@@ -9,9 +9,11 @@ import { containsText } from '../../core/search.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
 import {
+  appointmentPatients,
   breeds,
   clientContacts,
   clients,
+  clinicalEvents,
   coats,
   patientOwnerHistory,
   patients,
@@ -268,6 +270,36 @@ export class PatientService {
         after: { name: before.name, archived },
       });
       return this.get(auth, id, tx);
+    });
+  }
+
+  /**
+   * Exclusão definitiva [RN-21] só para ficha sem histórico (cadastro feito por engano). Com
+   * prontuário ou agendamento, o caminho é arquivar: o histórico clínico não é apagado.
+   */
+  async remove(auth: AuthContext, id: string): Promise<void> {
+    await this.write(async (tx) => {
+      const before = await this.lockAndGet(tx, auth, id);
+      const [events] = await tx
+        .select({ n: count() })
+        .from(clinicalEvents)
+        .where(eq(clinicalEvents.patientId, id));
+      const [bookings] = await tx
+        .select({ n: count() })
+        .from(appointmentPatients)
+        .where(eq(appointmentPatients.patientId, id));
+      if ((events?.n ?? 0) > 0 || (bookings?.n ?? 0) > 0) {
+        throw conflict(
+          'Este animal tem prontuário ou agendamentos e não pode ser excluído. Arquive a ficha.',
+        );
+      }
+      await tx.delete(patients).where(eq(patients.id, id));
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'patient',
+        entityId: id,
+        action: 'delete',
+        before: { code: before.code, name: before.name, owner: before.owner.name },
+      });
     });
   }
 

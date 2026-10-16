@@ -90,4 +90,16 @@ export const clientRoutes: FastifyPluginAsyncZod<{ clients: ClientService }> = a
     },
     async (request) => clients.setArchived(requireAuth(request), request.params.id, false),
   );
+
+  app.delete(
+    '/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'clients.delete' } },
+      schema: { params: idParams },
+    },
+    async (request, reply) => {
+      await clients.remove(requireAuth(request), request.params.id);
+      return reply.status(204).send();
+    },
+  );
 };

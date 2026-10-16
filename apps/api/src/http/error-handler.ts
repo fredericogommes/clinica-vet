@@ -39,6 +39,18 @@ export function registerErrorHandling(app: FastifyInstance): void {
       };
       return reply.status(429).send(body);
     }
+    if (error.statusCode === 413) {
+      const body: ApiError = {
+        error: { code: 'validation_failed', message: 'O arquivo passa do tamanho máximo de 8 MB.' },
+      };
+      return reply.status(413).send(body);
+    }
+    if (error.statusCode === 415) {
+      const body: ApiError = {
+        error: { code: 'validation_failed', message: 'Formato de arquivo não aceito.' },
+      };
+      return reply.status(415).send(body);
+    }
     if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
       const body: ApiError = {
         error: { code: 'validation_failed', message: 'Requisição inválida.' },
