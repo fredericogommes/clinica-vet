@@ -47,13 +47,31 @@ describe('login e sessão', () => {
     );
   });
 
-  it('limita tentativas de login por minuto', async () => {
+  it('limita tentativas de login por minuto e por IP', async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 11; i++) {
-      statuses.push((await new TestClient(h.app).login(ADMIN.email, 'errada-errada')).statusCode);
+      const email = `tentativa${i}@clinica.test`;
+      statuses.push((await new TestClient(h.app).login(email, 'errada-errada')).statusCode);
     }
     expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
     expect(statuses[10]).toBe(429);
+  });
+
+  it('bloqueia o e-mail após 5 falhas, mesmo com a senha certa, sem revelar se a conta existe', async () => {
+    for (const email of [ADMIN.email, 'ninguem@clinica.test']) {
+      for (let i = 0; i < 5; i++) {
+        expect((await new TestClient(h.app).login(email, 'errada-errada')).statusCode).toBe(401);
+      }
+    }
+    const blocked = await new TestClient(h.app).login(ADMIN.email, ADMIN.password);
+    const unknown = await new TestClient(h.app).login('ninguem@clinica.test', 'errada-errada');
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json()).toEqual(unknown.json());
+  });
+
+  it('cookie de sessão não tem data de expiração; a validade fica no servidor', async () => {
+    const res = await new TestClient(h.app).login(ADMIN.email, ADMIN.password);
+    expect(String(res.headers['set-cookie'])).not.toMatch(/Expires=|Max-Age=/i);
   });
 
   it('logout invalida a sessão no servidor', async () => {

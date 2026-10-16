@@ -1,21 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-
-const admin = {
-  email: process.env.E2E_ADMIN_EMAIL ?? 'admin@clinica.local',
-  password: process.env.E2E_ADMIN_PASSWORD ?? 'senha-local-123',
-};
-const run = Date.now().toString(36);
-
-const toasts = (page: Page) => page.getByRole('region', { name: /Avisos/ });
-const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Principal' });
-
-async function login(page: Page, email: string, password: string) {
-  await page.goto('/');
-  await expect(page).toHaveURL(/\/entrar/);
-  await page.getByLabel('E-mail').fill(email);
-  await page.getByLabel('Senha').fill(password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-}
+import { expect, test } from '@playwright/test';
+import { admin, login, run, sidebar, toasts } from './helpers';
 
 test('mostra erro claro com senha errada', async ({ page }) => {
   await login(page, admin.email, 'senha-incorreta');

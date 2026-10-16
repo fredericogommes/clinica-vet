@@ -2,7 +2,7 @@ import {
   auditEntrySchema,
   cloneRoleRequestSchema,
   createUserRequestSchema,
-  pageQuerySchema,
+  auditQuerySchema,
   pageSchema,
   roleSchema,
   updateRoleRequestSchema,
@@ -100,11 +100,14 @@ export const adminRoutes: FastifyPluginAsyncZod<{ admin: AdminService }> = async
     '/audit',
     {
       config: { access: { kind: 'permission', permission: 'admin.audit.view' } },
-      schema: { querystring: pageQuerySchema, response: { 200: pageSchema(auditEntrySchema) } },
+      schema: { querystring: auditQuerySchema, response: { 200: pageSchema(auditEntrySchema) } },
     },
     async (request) => {
-      const { page, pageSize } = request.query;
-      const result = await admin.listAudit(requireAuth(request), page, pageSize);
+      const { page, pageSize, entity, entityId } = request.query;
+      const result = await admin.listAudit(requireAuth(request), page, pageSize, {
+        entity,
+        entityId,
+      });
       return { ...result, page, pageSize };
     },
   );

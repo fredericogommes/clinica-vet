@@ -1,10 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import type { Executor } from '../../db/client.js';
 import {
+  breeds,
   costCenters,
   organizations,
   rolePermissions,
   roles,
+  species,
   units,
   userUnits,
   users,
@@ -69,6 +71,7 @@ export async function provisionOrganization(
     .insert(costCenters)
     .values({ id: newId(), organizationId, unitId, name: 'Geral', isDefault: true });
   await syncTemplateRoles(tx, organizationId);
+  await seedSpecies(tx, organizationId);
 
   const [adminRole] = await tx
     .select({ id: roles.id })
@@ -89,4 +92,15 @@ export async function provisionOrganization(
   });
   await tx.insert(userUnits).values({ userId: adminUserId, unitId });
   return { organizationId, unitId, adminUserId };
+}
+
+/** Espécies iniciais, cada uma com "Sem raça definida". A clínica cadastra as demais. */
+async function seedSpecies(tx: Executor, organizationId: string): Promise<void> {
+  for (const name of ['Canina', 'Felina']) {
+    const speciesId = newId();
+    await tx.insert(species).values({ id: speciesId, organizationId, name });
+    await tx
+      .insert(breeds)
+      .values({ id: newId(), organizationId, speciesId, name: 'Sem raça definida (SRD)' });
+  }
 }

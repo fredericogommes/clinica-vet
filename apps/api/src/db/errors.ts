@@ -4,3 +4,12 @@ export function isUniqueViolation(error: unknown): boolean {
   if ('code' in error && error.code === '23505') return true;
   return 'cause' in error && isUniqueViolation(error.cause);
 }
+
+/** Nome da constraint UNIQUE violada, para traduzir o conflito em mensagem específica. */
+export function violatedConstraint(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null;
+  if ('code' in error && error.code === '23505') {
+    return 'constraint' in error && typeof error.constraint === 'string' ? error.constraint : null;
+  }
+  return 'cause' in error ? violatedConstraint(error.cause) : null;
+}

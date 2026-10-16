@@ -18,6 +18,15 @@ const sizes: Record<Size, string> = {
   md: 'h-10 px-4 text-sm gap-2',
 };
 
+/** Classes do botão, para links de navegação com aparência de botão (ex. "Novo cliente"). */
+export function buttonClasses(variant: Variant = 'primary', size: Size = 'md'): string {
+  return clsx(
+    'inline-flex shrink-0 items-center justify-center rounded-control font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed',
+    variants[variant],
+    sizes[size],
+  );
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
@@ -42,12 +51,7 @@ export function Button({
       type={type}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={clsx(
-        'inline-flex shrink-0 items-center justify-center rounded-control font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed',
-        variants[variant],
-        sizes[size],
-        className,
-      )}
+      className={clsx(buttonClasses(variant, size), className)}
       {...rest}
     >
       {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : icon}

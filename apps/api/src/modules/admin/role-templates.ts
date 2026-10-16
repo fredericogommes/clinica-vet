@@ -19,9 +19,33 @@ export const roleTemplates: readonly RoleTemplate[] = [
   {
     name: 'Gestor da Clínica',
     description: 'Gestão operacional e financeira da clínica.',
-    permissions: ['admin.users.view', 'admin.roles.view', 'admin.audit.view'],
+    permissions: [
+      'admin.users.view',
+      'admin.roles.view',
+      'admin.audit.view',
+      'clients.view',
+      'clients.manage',
+      'clients.archive',
+      'patients.view',
+      'patients.manage',
+      'patients.transfer_owner',
+      'patients.archive',
+      'catalogs.manage',
+    ],
   },
-  { name: 'Veterinário', description: 'Atendimento clínico.', permissions: [] },
-  { name: 'Recepcionista', description: 'Cadastro, agenda e balcão.', permissions: [] },
-  { name: 'Esteticista', description: 'Banho, tosa e estética.', permissions: [] },
+  {
+    name: 'Veterinário',
+    description: 'Atendimento clínico.',
+    permissions: ['clients.view', 'patients.view', 'patients.manage'],
+  },
+  {
+    name: 'Recepcionista',
+    description: 'Cadastro, agenda e balcão.',
+    permissions: ['clients.view', 'clients.manage', 'patients.view', 'patients.manage'],
+  },
+  {
+    name: 'Esteticista',
+    description: 'Banho, tosa e estética.',
+    permissions: ['clients.view', 'patients.view'],
+  },
 ];

@@ -2,3 +2,7 @@ export * from './permissions.js';
 export * from './errors.js';
 export * from './auth.js';
 export * from './admin.js';
+export * from './documents.js';
+export * from './catalogs.js';
+export * from './clients.js';
+export * from './patients.js';

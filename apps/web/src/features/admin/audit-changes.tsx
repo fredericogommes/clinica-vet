@@ -9,7 +9,51 @@ const fieldLabels: Record<string, string> = {
   units: 'Unidades',
   active: 'Ativo',
   clonedFrom: 'Clonado de',
+  archived: 'Arquivado',
+  code: 'Código',
+  personType: 'Tipo de pessoa',
+  nationality: 'Nacionalidade',
+  sex: 'Sexo',
+  cpf: 'CPF',
+  cnpj: 'CNPJ',
+  rg: 'RG',
+  birthDate: 'Nascimento',
+  origin: 'Origem',
+  profession: 'Profissão',
+  municipalRegistration: 'Inscrição municipal',
+  notes: 'Observações',
+  contacts: 'Contatos',
+  address: 'Endereço',
+  status: 'Situação',
+  deceasedOn: 'Óbito',
+  sterilized: 'Castrado',
+  species: 'Espécie',
+  breed: 'Raça',
+  coat: 'Pelagem',
+  microchip: 'Microchip',
+  hasPedigree: 'Pedigree',
+  pedigreeNumber: 'Nº do pedigree',
+  markings: 'Marcações',
+  owner: 'Responsável',
+  reason: 'Motivo',
+  source: 'Origem do consentimento',
+  sms: 'SMS',
+  sms_campaign: 'Campanhas por SMS',
+  whatsapp: 'WhatsApp',
 };
+
+/** Códigos gravados pela API traduzidos para o texto exibido. */
+const valueLabels: Record<string, string> = {
+  individual: 'Pessoa física',
+  company: 'Pessoa jurídica',
+  female: 'Feminino',
+  male: 'Masculino',
+  unknown: 'Não informado',
+  alive: 'Vivo',
+  deceased: 'Óbito',
+};
+
+const addressOrder = ['street', 'number', 'complement', 'district', 'city', 'state', 'cep'];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -21,12 +65,21 @@ function display(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
   if (Array.isArray(value)) return value.length === 0 ? 'nenhuma' : value.map(display).join(', ');
-  if (typeof value === 'string')
-    return isPermission(value) ? permissionCatalog[value].label : value;
+  if (typeof value === 'string') {
+    if (isPermission(value)) return permissionCatalog[value].label;
+    return valueLabels[value] ?? value;
+  }
   if (typeof value === 'number') return String(value);
-  const named = asRecord(value).name;
-  if (typeof named === 'string') return named;
-  return JSON.stringify(value);
+  const record = asRecord(value);
+  if (typeof record.name === 'string') return record.name;
+  // Contato: mostra o número ou e-mail; endereço e afins: junta as partes preenchidas.
+  if (typeof record.value === 'string') return record.value;
+  // O banco (jsonb) reordena as chaves; endereço volta à ordem de leitura.
+  const ordered = 'street' in record ? addressOrder.map((k) => record[k]) : Object.values(record);
+  const parts = ordered.filter(
+    (v): v is string | number => (typeof v === 'string' && v !== '') || typeof v === 'number',
+  );
+  return parts.length > 0 ? parts.join(', ') : '—';
 }
 
 /** Lista só os campos que mudaram, no formato "campo: antes → depois". */

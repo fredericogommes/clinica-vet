@@ -32,3 +32,7 @@ Alvo recomendado: um servidor Linux com Docker. A pilha tem três contêineres: 
 - Cookies de sessão são `Secure` quando `NODE_ENV=production`; mantenha o acesso só por HTTPS.
 - O Caddy envia HSTS, CSP restritiva e `frame-ancestors 'none'`.
 - Nunca versione o `.env`.
+- Login limitado a 10 tentativas por minuto por IP e a 5 falhas em 15 minutos por e-mail (inclusive e-mails inexistentes, para não revelar contas). O limite por e-mail fica em memória: com mais de uma instância da API, vale por instância.
+- O cookie de sessão não tem data de expiração (fecha com o navegador); a validade de verdade é a do servidor (`SESSION_TTL_HOURS`, renovada a cada uso).
+- Em produção a API confia só no primeiro proxy (o Caddy) para descobrir o IP do cliente; não exponha a porta 3000 diretamente.
+- A descrição OpenAPI (`/api/docs/openapi.json`) só é publicada fora de produção.

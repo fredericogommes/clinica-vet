@@ -33,4 +33,24 @@ describe('AuditChanges', () => {
     render(<AuditChanges before={null} after={null} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
+
+  it('resume contatos e endereço em texto legível', () => {
+    render(
+      <AuditChanges
+        before={{
+          contacts: [],
+          address: { city: null, state: null, street: null },
+          personType: 'individual',
+        }}
+        after={{
+          contacts: [{ kind: 'mobile', value: '11987654321', isWhatsapp: true }],
+          address: { state: 'SP', city: 'São Paulo', street: 'Rua A' },
+          personType: 'company',
+        }}
+      />,
+    );
+    expect(screen.getByText('11987654321')).toBeInTheDocument();
+    expect(screen.getByText('Rua A, São Paulo, SP')).toBeInTheDocument();
+    expect(screen.getByText('Pessoa jurídica')).toBeInTheDocument();
+  });
 });

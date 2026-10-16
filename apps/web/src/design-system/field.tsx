@@ -5,6 +5,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from 'react';
 
 const controlClass =
@@ -110,5 +111,102 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
         </select>
       )}
     </FieldShell>
+  );
+});
+
+interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label: string;
+  hint?: string | undefined;
+  error?: string | undefined;
+}
+
+export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaFieldProps>(
+  function TextareaField({ label, hint, error, className, rows = 3, ...rest }, ref) {
+    return (
+      <FieldShell label={label} hint={hint} error={error}>
+        {({ id, describedBy, invalid }) => (
+          <textarea
+            ref={ref}
+            id={id}
+            rows={rows}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            className={clsx(
+              controlClass,
+              'h-auto py-2 leading-relaxed',
+              invalid ? 'border-danger-600' : 'border-line-strong',
+              className,
+            )}
+            {...rest}
+          />
+        )}
+      </FieldShell>
+    );
+  },
+);
+
+interface SegmentedProps<T extends string> {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}
+
+/** Escolha exclusiva entre poucas opções, com rádios nativos para teclado e leitor de tela. */
+export function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: SegmentedProps<T>) {
+  const name = useId();
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-[13px] font-medium text-ink">{label}</legend>
+      <div className="inline-flex rounded-control border border-line-strong bg-sunken p-0.5">
+        {options.map((o) => (
+          <label
+            key={o.value}
+            className={clsx(
+              'cursor-pointer rounded-[6px] px-3 py-1.5 text-sm transition-colors has-focus-visible:ring-2 has-focus-visible:ring-sage-500/40',
+              value === o.value ? 'bg-surface font-medium text-ink shadow-panel' : 'text-ink-muted',
+            )}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={o.value}
+              checked={value === o.value}
+              onChange={() => {
+                onChange(o.value);
+              }}
+              className="sr-only"
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Campo de busca com ícone; o valor é controlado pela página (normalmente pela URL). */
+export const SearchField = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement> & { label: string; icon: ReactNode }
+>(function SearchField({ label, icon, className, ...rest }, ref) {
+  return (
+    <div className={clsx('relative', className)}>
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink-faint">
+        {icon}
+      </span>
+      <input
+        ref={ref}
+        type="search"
+        aria-label={label}
+        className={clsx(controlClass, 'border-line-strong pl-9')}
+        {...rest}
+      />
+    </div>
   );
 });

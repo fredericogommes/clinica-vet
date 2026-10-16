@@ -9,7 +9,8 @@ import type {
 } from '@clinica/contracts';
 import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { loadRolePermissions } from '../../core/access.js';
-import { recordAudit, type Actor } from '../../core/audit.js';
+import { actorOf } from '../../core/actor.js';
+import { recordAudit } from '../../core/audit.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import { hashPassword } from '../../core/passwords.js';
@@ -28,12 +29,6 @@ import type { AuthContext } from '../auth/sessions.js';
 
 /** Permissões que garantem que a organização continue administrável. */
 const ADMIN_PERMISSIONS: readonly Permission[] = ['admin.roles.manage', 'admin.users.manage'];
-
-const actorOf = (auth: AuthContext): Actor => ({
-  organizationId: auth.organizationId,
-  unitId: auth.unitId,
-  userId: auth.userId,
-});
 
 export class AdminService {
   constructor(private readonly db: Database) {}
@@ -249,8 +244,13 @@ export class AdminService {
     auth: AuthContext,
     page: number,
     pageSize: number,
+    filter: { entity?: string | undefined; entityId?: string | undefined } = {},
   ): Promise<{ items: AuditEntry[]; total: number }> {
-    const where = eq(auditLog.organizationId, auth.organizationId);
+    const where = and(
+      eq(auditLog.organizationId, auth.organizationId),
+      filter.entity ? eq(auditLog.entity, filter.entity) : undefined,
+      filter.entityId ? eq(auditLog.entityId, filter.entityId) : undefined,
+    );
     const [rows, totals] = await Promise.all([
       this.db
         .select({

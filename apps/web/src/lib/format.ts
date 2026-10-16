@@ -7,3 +7,6 @@ const dateTime = new Intl.DateTimeFormat('pt-BR', {
 });
 
 export const formatDateTime = (iso: string): string => dateTime.format(new Date(iso));
+
+const day = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+export const formatDay = (iso: string): string => day.format(new Date(iso));
