@@ -1,4 +1,11 @@
-import type { Breed, CatalogItem, CatalogItemInput, CatalogKind } from '@clinica/contracts';
+import type {
+  AppointmentType,
+  AppointmentTypeInput,
+  Breed,
+  CatalogItem,
+  CatalogItemInput,
+  CatalogKind,
+} from '@clinica/contracts';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
@@ -6,7 +13,7 @@ import { conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation } from '../../db/errors.js';
-import { breeds, clientOrigins, coats, species } from '../../db/schema.js';
+import { appointmentTypes, breeds, clientOrigins, coats, species } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 
 const tables = { species, coats, 'client-origins': clientOrigins } as const;
@@ -20,6 +27,19 @@ type Row = { id: string; name: string; archivedAt: Date | null };
 const toItem = (r: Row): CatalogItem => ({
   id: r.id,
   name: r.name,
+  archived: r.archivedAt !== null,
+});
+
+type TypeRow = { id: string; name: string; durationMinutes: number; archivedAt: Date | null };
+const toAppointmentType = (r: TypeRow): AppointmentType => ({
+  id: r.id,
+  name: r.name,
+  durationMinutes: r.durationMinutes,
+  archived: r.archivedAt !== null,
+});
+const typeSnapshot = (r: TypeRow) => ({
+  name: r.name,
+  durationMinutes: r.durationMinutes,
   archived: r.archivedAt !== null,
 });
 
@@ -147,6 +167,83 @@ export class CatalogService {
         after: { name: input.name, archived: archivedAt !== null },
       });
       return { id, name: input.name, archived: archivedAt !== null, speciesId: current.speciesId };
+    });
+  }
+
+  async listAppointmentTypes(auth: AuthContext): Promise<AppointmentType[]> {
+    const rows = await this.db
+      .select()
+      .from(appointmentTypes)
+      .where(eq(appointmentTypes.organizationId, auth.organizationId))
+      .orderBy(asc(sql`lower(${appointmentTypes.name})`));
+    return rows.map(toAppointmentType);
+  }
+
+  async createAppointmentType(
+    auth: AuthContext,
+    input: AppointmentTypeInput,
+  ): Promise<AppointmentType> {
+    const id = newId();
+    const archivedAt = input.archived ? new Date() : null;
+    const values = {
+      id,
+      organizationId: auth.organizationId,
+      name: input.name,
+      durationMinutes: input.durationMinutes,
+      archivedAt,
+    };
+    await this.write(async (tx) => {
+      await tx.insert(appointmentTypes).values(values);
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'appointment_type',
+        entityId: id,
+        action: 'create',
+        after: typeSnapshot(values),
+      });
+    });
+    return toAppointmentType(values);
+  }
+
+  async updateAppointmentType(
+    auth: AuthContext,
+    id: string,
+    input: AppointmentTypeInput,
+  ): Promise<AppointmentType> {
+    return this.write(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(appointmentTypes)
+        .where(
+          and(
+            eq(appointmentTypes.id, id),
+            eq(appointmentTypes.organizationId, auth.organizationId),
+          ),
+        )
+        .for('update');
+      if (!current) throw notFound('Tipo de atendimento');
+      const next = {
+        ...current,
+        name: input.name,
+        durationMinutes: input.durationMinutes,
+        archivedAt: input.archived ? (current.archivedAt ?? new Date()) : null,
+      };
+      await tx
+        .update(appointmentTypes)
+        .set({
+          name: next.name,
+          durationMinutes: next.durationMinutes,
+          archivedAt: next.archivedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(appointmentTypes.id, id));
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'appointment_type',
+        entityId: id,
+        action: 'update',
+        before: typeSnapshot(current),
+        after: typeSnapshot(next),
+      });
+      return toAppointmentType(next);
     });
   }
 

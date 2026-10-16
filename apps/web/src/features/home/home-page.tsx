@@ -41,7 +41,7 @@ export function HomePage() {
           <EmptyState
             icon={Hourglass}
             title="Seu perfil ainda não tem módulos liberados"
-            description="Os módulos de atendimento, agenda e vendas estão em construção. Quando um deles for liberado para o seu perfil, ele aparece no menu."
+            description="Os módulos de atendimento e vendas estão em construção. Quando um deles for liberado para o seu perfil, ele aparece no menu."
           />
         </Panel>
       )}
