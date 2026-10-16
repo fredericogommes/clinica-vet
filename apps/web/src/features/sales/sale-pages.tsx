@@ -10,7 +10,7 @@ import {
 } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Ban, History, Plus, Receipt, Search } from 'lucide-react';
+import { Ban, History, Plus, Receipt, Search, Wallet } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Button, buttonClasses } from '../../design-system/button';
 import { Dialog } from '../../design-system/dialog';
@@ -21,10 +21,12 @@ import { DataTable } from '../../design-system/table';
 import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
+import { formatBrDate } from '../schedule/dates';
 import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { formatMoney, formatPercent, quantityInput } from '../products/format';
 import { saleContextQuery, saleQuery, salesListQuery } from './queries';
+import { ReceiveDialog } from './receive-dialog';
 import { StatusBadge } from './status-badge';
 import {
   emptySale,
@@ -103,23 +105,33 @@ function NewSale({ context }: { context: SaleContext }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const can = useCan();
   const editor = useSaleEditor(emptySale(context));
+  // "Registrar recebimento" grava a venda e abre o recebimento em seguida [p.9].
+  const [receiving, setReceiving] = useState<Sale | null>(null);
+  const open = (saleId: string) => navigate({ to: '/vendas/$saleId', params: { saleId } });
   const save = useMutation({
-    mutationFn: (data: SaleData) => api('POST', '/sales', saleSchema, data),
-    onSuccess: async (saved) => {
+    mutationFn: (args: { data: SaleData; receive: boolean }) =>
+      api('POST', '/sales', saleSchema, args.data),
+    onSuccess: async (saved, { receive }) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
+      if (receive && saved.receivable) {
+        setReceiving(saved);
+        return;
+      }
       toast.success(
         `${saved.status === 'quote' ? 'Orçamento' : 'Venda'} ${String(saved.code)} gravad${saved.status === 'quote' ? 'o' : 'a'}: ${formatMoney(saved.netTotal)}.`,
       );
-      await navigate({ to: '/vendas/$saleId', params: { saleId: saved.id } });
+      await open(saved.id);
     },
     onError: editor.serverErrors,
   });
-  const submit = () => {
+  const submit = (receive: boolean) => {
     const data = editor.validate();
-    if (data) save.mutate(data);
+    if (data) save.mutate({ data, receive });
   };
+  const canReceive = can('sales.receive') && editor.state.kind === 'sale';
 
   return (
     <>
@@ -134,7 +146,7 @@ function NewSale({ context }: { context: SaleContext }) {
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
-              submit();
+              submit(false);
             }}
           >
             {save.isError ? <SaveError error={save.error} /> : null}
@@ -155,14 +167,39 @@ function NewSale({ context }: { context: SaleContext }) {
               >
                 Limpar
               </Button>
-              <Button type="submit" pending={save.isPending}>
-                {editor.state.kind === 'quote' ? 'Salvar orçamento' : 'Salvar venda'}
+              <Button
+                type="submit"
+                variant={canReceive ? 'secondary' : 'primary'}
+                pending={save.isPending && !save.variables.receive}
+              >
+                {editor.state.kind === 'quote' ? 'Salvar orçamento' : 'Salvar em aberto'}
               </Button>
+              {canReceive ? (
+                <Button
+                  icon={<Wallet className="size-4" aria-hidden />}
+                  pending={save.isPending && save.variables.receive}
+                  onClick={() => {
+                    submit(true);
+                  }}
+                >
+                  Registrar recebimento
+                </Button>
+              ) : null}
             </FormActions>
           </form>
         }
         side={<RecentSales />}
       />
+      {receiving ? (
+        <ReceiveDialog
+          sale={receiving}
+          methods={context.paymentMethods}
+          onClose={() => {
+            // A venda já está gravada: fechar sem receber a deixa em aberto.
+            void open(receiving.id);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -236,12 +273,18 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
   const toast = useToast();
   const editor = useSaleEditor(saleToForm(sale));
   const [cancelling, setCancelling] = useState(false);
+  const [receiving, setReceiving] = useState<Sale | null>(null);
   const save = useMutation({
-    mutationFn: (data: SaleData) => api('PUT', `/sales/${sale.id}`, saleSchema, data),
-    onSuccess: async (saved) => {
+    mutationFn: (args: { data: SaleData; receive: boolean }) =>
+      api('PUT', `/sales/${sale.id}`, saleSchema, args.data),
+    onSuccess: async (saved, { receive }) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
       editor.reset(saleToForm(saved));
+      if (receive && saved.receivable) {
+        setReceiving(saved);
+        return;
+      }
       toast.success(
         sale.status === 'quote' && saved.status === 'open'
           ? `Orçamento convertido na venda ${String(saved.code)}.`
@@ -250,11 +293,13 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
     },
     onError: editor.serverErrors,
   });
-  const submit = () => {
+  // Receber grava antes o que estiver na tela, para baixar exatamente o que se vê.
+  const submit = (receive: boolean) => {
     const data = editor.validate();
-    if (data) save.mutate(data);
+    if (data) save.mutate({ data, receive });
   };
   const converting = sale.status === 'quote' && editor.state.kind === 'sale';
+  const canReceive = sale.receivable && editor.state.kind === 'sale';
 
   return (
     <>
@@ -274,7 +319,7 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
-              submit();
+              submit(false);
             }}
           >
             {save.isError ? <SaveError error={save.error} /> : null}
@@ -287,14 +332,38 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
               extraProfessionals={sale.items.map((i) => i.professional)}
             />
             <FormActions>
-              <Button type="submit" pending={save.isPending}>
+              <Button
+                type="submit"
+                variant={canReceive ? 'secondary' : 'primary'}
+                pending={save.isPending && !save.variables.receive}
+              >
                 {converting ? 'Converter em venda' : 'Salvar alterações'}
               </Button>
+              {canReceive ? (
+                <Button
+                  icon={<Wallet className="size-4" aria-hidden />}
+                  pending={save.isPending && save.variables.receive}
+                  onClick={() => {
+                    submit(true);
+                  }}
+                >
+                  Registrar recebimento
+                </Button>
+              ) : null}
             </FormActions>
           </form>
         }
         side={<RecentSales currentId={sale.id} />}
       />
+      {receiving ? (
+        <ReceiveDialog
+          sale={receiving}
+          methods={context.paymentMethods}
+          onClose={() => {
+            setReceiving(null);
+          }}
+        />
+      ) : null}
       <CancelDialog
         sale={sale}
         open={cancelling}
@@ -391,6 +460,7 @@ function SaleView({ sale }: { sale: Sale }) {
                 <Line label="Total" value={formatMoney(sale.netTotal)} strong />
               </dl>
             </Section>
+            {sale.closed ? <Payments sale={sale} /> : null}
             {sale.notes ? (
               <Section title="Observações">
                 <p className="text-sm whitespace-pre-wrap">{sale.notes}</p>
@@ -408,6 +478,59 @@ function SaleView({ sale }: { sale: Sale }) {
         }}
       />
     </>
+  );
+}
+
+/** Formas que baixaram a venda e a agenda de parcelas a receber [RN-27]. */
+function Payments({ sale }: { sale: Sale }) {
+  return (
+    <Section
+      title="Recebimento"
+      {...(sale.closed
+        ? { description: `Baixada em ${formatDateTime(sale.closed.at)} por ${sale.closed.by}` }
+        : {})}
+    >
+      {sale.payments.length === 0 ? (
+        <p className="text-sm text-ink-muted">Venda sem valor a receber.</p>
+      ) : (
+        <ul className="divide-y divide-line" aria-label="Formas de recebimento">
+          {sale.payments.map((p) => (
+            <li key={p.id} className="py-3 first:pt-0 last:pb-0">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 text-sm font-medium">
+                  {p.methodName}
+                  {p.installments > 1 ? (
+                    <span className="font-normal text-ink-muted"> em {p.installments}×</span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 font-mono text-sm tabular-nums">
+                  {formatMoney(p.amount)}
+                </span>
+              </div>
+              <ul
+                className="mt-1.5 space-y-0.5 text-xs text-ink-muted"
+                aria-label={`Parcelas de ${p.methodName}`}
+              >
+                {p.receivables.map((r) => (
+                  <li key={r.number} className="flex flex-wrap justify-between gap-x-3">
+                    <span>
+                      {p.installments > 1 ? `${String(r.number)}/${String(p.installments)} · ` : ''}
+                      Previsto para {formatBrDate(r.dueDate)}
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {formatMoney(r.amount)}
+                      {r.feeAmount > 0
+                        ? ` − taxa ${formatMoney(r.feeAmount)} = ${formatMoney(r.netAmount)}`
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }
 
@@ -499,7 +622,8 @@ function RecentSales({ currentId }: { currentId?: string }) {
   const recent = useQuery(salesListQuery({ sinceHours: 24, pageSize: 50 }));
   const found = useQuery({ ...salesListQuery({ q, pageSize: 10 }), enabled: q.length >= 1 });
   const groups: { title: string; statuses: SaleStatus[] }[] = [
-    { title: 'Em aberto', statuses: ['open'] },
+    { title: 'Não pagas', statuses: ['open'] },
+    { title: 'Pagas', statuses: ['closed'] },
     { title: 'Orçamentos', statuses: ['quote'] },
     { title: 'Canceladas', statuses: ['cancelled'] },
   ];

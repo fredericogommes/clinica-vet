@@ -31,6 +31,7 @@ const entityLabels: Record<string, string> = {
   product_brand: 'Marca',
   sale: 'Venda',
   sales_settings: 'Configuração de vendas',
+  payment_method: 'Forma de recebimento',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',
@@ -48,6 +49,7 @@ const actionLabels: Record<string, string> = {
   convert: 'Converteu orçamento em venda',
   cancel: 'Cancelou',
   add_item: 'Lançou item pela ficha',
+  receive: 'Registrou recebimento',
 };
 
 export interface AuditFilter {

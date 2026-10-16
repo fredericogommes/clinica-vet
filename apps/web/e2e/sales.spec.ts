@@ -129,13 +129,13 @@ test('PDV: venda com profissional por item, limite de desconto, orçamento e can
   // Desconto acima do limite é recusado pelo servidor e apontado no campo.
   await page.getByRole('group', { name: 'Desconto em' }).getByText('%', { exact: true }).click();
   await page.getByLabel('Desconto (%)').fill('50');
-  await page.getByRole('button', { name: 'Salvar venda' }).click();
+  await page.getByRole('button', { name: 'Salvar em aberto' }).click();
   await expect(page.getByText(/Desconto acima do seu limite/)).toBeVisible();
   await page.getByLabel('Desconto (%)').fill('5');
   await expect(
     page.getByRole('region', { name: 'Desconto e observações' }).getByText('R$ 218,50'),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Salvar venda' }).click();
+  await page.getByRole('button', { name: 'Salvar em aberto' }).click();
   await expect(toasts(page).getByText(/Venda \d+ gravada: R\$\s218,50\./)).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(tutor);
   await expect(page.getByText('Em aberto', { exact: true }).first()).toBeVisible();
@@ -238,4 +238,70 @@ test('ficha clínica: atendimento finalizado e item lançado caem na venda abert
   await panel.getByRole('link', { name: 'Abrir no PDV' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(tutor);
   await expect(page.getByText('Lançado pela ficha clínica')).toHaveCount(1);
+});
+
+test('recebimento: forma por adquirente e bandeira, pagamento dividido e parcelas', async ({
+  page,
+}) => {
+  const { pet, service, product } = await seed(page, 'r');
+  const card = `Rede Visa Crédito ${run}`;
+
+  // Forma de recebimento com prazo, parcelamento e taxa [RN-27].
+  await sidebar(page).getByRole('link', { name: 'Formas de recebimento' }).click();
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Nova forma de recebimento' });
+  await form.getByLabel('Nome').fill(card);
+  await form.getByLabel('Tipo', { exact: true }).selectOption({ label: 'Cartão de crédito' });
+  await form.getByLabel('Adquirente', { exact: true }).fill('Rede');
+  await form.getByLabel('Bandeira').fill('Visa');
+  await form.getByLabel('Prazo de liquidação (dias)').fill('30');
+  await form.getByLabel('Taxa da adquirente (%)').fill('3,5');
+  await form.getByLabel('Parcelamento').selectOption({ label: 'Até 6×' });
+  await form.getByRole('button', { name: 'Salvar' }).click();
+  await expect(toasts(page).getByText('Forma de recebimento incluída.')).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: card })).toContainText(
+    'Cai em 30 dias · até 6× · taxa 3,5%',
+  );
+
+  // Venda de R$ 190,00 recebida em dinheiro e no cartão em 3×.
+  await sidebar(page).getByRole('link', { name: 'Ponto de venda' }).click();
+  await page.getByLabel('Localizar cliente').fill(pet);
+  await page
+    .getByRole('list', { name: 'Clientes encontrados' })
+    .getByRole('button', { name: pet })
+    .click();
+  const add = page.getByLabel('Adicionar item');
+  await add.fill(service);
+  await expect(page.getByRole('list', { name: 'Itens encontrados' })).toContainText(service);
+  await add.press('Enter');
+  await add.fill(product);
+  await expect(page.getByRole('list', { name: 'Itens encontrados' })).toContainText(product);
+  await add.press('Enter');
+  await page.getByRole('button', { name: 'Registrar recebimento' }).click();
+
+  const dialog = page.getByRole('dialog', { name: /Registrar recebimento da venda \d+/ });
+  await expect(dialog.getByLabel('Forma 1: valor')).toHaveValue('190,00');
+  await dialog.getByLabel('Forma 1: forma de recebimento').selectOption({ label: 'Dinheiro' });
+  await dialog.getByLabel('Forma 1: valor').fill('40');
+  await expect(dialog.getByText(/Falta\s*R\$\s150,00/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Dividir com outra forma' }).click();
+  await expect(dialog.getByLabel('Forma 2: valor')).toHaveValue('150,00');
+  await dialog.getByLabel('Forma 2: forma de recebimento').selectOption({ label: card });
+  await dialog.getByLabel('Forma 2: parcelas').selectOption({ label: '3×' });
+  await expect(dialog.getByText(/3× de R\$\s50,00/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Receber e baixar venda' }).click();
+
+  await expect(toasts(page).getByText(/Venda \d+ recebida e baixada\./)).toBeVisible();
+  await expect(page.getByText('Baixada', { exact: true }).first()).toBeVisible();
+  const payments = page.getByRole('list', { name: 'Formas de recebimento' });
+  await expect(payments).toContainText('Dinheiro');
+  await expect(payments).toContainText(`${card} em 3×`);
+  await expect(
+    page.getByRole('list', { name: `Parcelas de ${card}` }).getByRole('listitem'),
+  ).toHaveCount(3);
+  await expect(page.getByRole('list', { name: `Parcelas de ${card}` })).toContainText(
+    /taxa R\$\s1,75 = R\$\s48,25/,
+  );
+  // Baixada não é mais editável.
+  await expect(page.getByRole('button', { name: 'Salvar alterações' })).toHaveCount(0);
 });

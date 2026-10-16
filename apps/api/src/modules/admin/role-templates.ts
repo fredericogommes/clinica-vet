@@ -49,6 +49,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.discount',
       'sales.change_price',
       'sales.cancel',
+      'sales.receive',
       'sales.configure',
     ],
   },
@@ -84,6 +85,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'products.view',
       'sales.view',
       'sales.manage',
+      'sales.receive',
     ],
   },
   {

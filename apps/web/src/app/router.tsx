@@ -61,6 +61,11 @@ const PdvPage = lazy(() =>
 const SalePage = lazy(() =>
   import('../features/sales/sale-pages').then((m) => ({ default: m.SalePage })),
 );
+const PaymentMethodsPage = lazy(() =>
+  import('../features/sales/payment-methods-page').then((m) => ({
+    default: m.PaymentMethodsPage,
+  })),
+);
 const SalesSettingsPage = lazy(() =>
   import('../features/sales/settings-page').then((m) => ({ default: m.SalesSettingsPage })),
 );
@@ -635,6 +640,16 @@ const salesSettingsRoute = createRoute({
   ),
 });
 
+const paymentMethodsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/formas-de-recebimento',
+  component: () => (
+    <RequirePermission permission="sales.configure">
+      <PaymentMethodsPage />
+    </RequirePermission>
+  ),
+});
+
 const saleRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vendas/$saleId',
@@ -677,6 +692,7 @@ const routeTree = rootRoute.addChildren([
     productBrandsRoute,
     pdvRoute,
     salesSettingsRoute,
+    paymentMethodsRoute,
     saleRoute,
     coatsRoute,
     originsRoute,

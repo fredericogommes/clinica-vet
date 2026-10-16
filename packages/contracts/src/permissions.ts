@@ -77,9 +77,14 @@ export const permissionCatalog = {
     label: 'Alterar o preço de itens que permitem preço livre na venda',
   },
   'sales.cancel': { group: 'Vendas', label: 'Cancelar vendas e orçamentos em aberto' },
+  'sales.receive': {
+    group: 'Vendas',
+    label: 'Registrar recebimento e baixar vendas, com pagamento dividido',
+  },
   'sales.configure': {
     group: 'Vendas',
-    label: 'Configurar vendas: limite de desconto da clínica e tipo de venda padrão',
+    label:
+      'Configurar vendas: limite de desconto da clínica, tipo de venda padrão e formas de recebimento',
   },
   'catalogs.manage': {
     group: 'Cadastros',

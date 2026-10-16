@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paymentMethodSchema, salePaymentSchema } from './payments.js';
 import { moneySchema, productKinds, saleUnits, serviceKinds } from './products.js';
 
 /** Venda e orçamento são a mesma entidade, com status [RN-23]. */
@@ -138,9 +139,13 @@ export const saleSchema = z.object({
   cancelled: z
     .object({ at: z.iso.datetime({ offset: true }), by: z.string(), reason: z.string() })
     .nullable(),
+  /** Recebimento que baixou a venda [RN-27]. */
+  closed: z.object({ at: z.iso.datetime({ offset: true }), by: z.string() }).nullable(),
+  payments: z.array(salePaymentSchema),
   /** O que o usuário logado pode fazer com a venda agora. */
   editable: z.boolean(),
   cancellable: z.boolean(),
+  receivable: z.boolean(),
 });
 export type Sale = z.infer<typeof saleSchema>;
 
@@ -244,6 +249,8 @@ export const saleContextSchema = z.object({
   discountLimitPercent: z.number(),
   defaultSaleType: z.enum(saleTypes),
   professionals: z.array(ref),
+  /** Formas de recebimento ativas, na ordem de cadastro. */
+  paymentMethods: z.array(paymentMethodSchema),
 });
 export type SaleContext = z.infer<typeof saleContextSchema>;
 
