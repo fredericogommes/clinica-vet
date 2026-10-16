@@ -300,7 +300,8 @@ test('recebimento e caixa: pagamento dividido, parcelas, sangria, fechamento e e
   const opening = page.getByRole('dialog', { name: 'Abrir caixa' });
   await opening.getByLabel('Troco inicial (R$)').fill('100');
   await opening.getByRole('button', { name: 'Abrir caixa' }).click();
-  await expect(toasts(page).getByText(/Caixa \d+ aberto com R\$\s100,00 de troco\./)).toBeVisible();
+  // O recebimento só segue depois que o caixa abre; o diálogo, modal, esconde o aviso da árvore
+  // de acessibilidade, e o caixa aberto é conferido no painel depois do recebimento.
 
   const dialog = page.getByRole('dialog', { name: /Registrar recebimento da venda \d+/ });
   await expect(dialog.getByLabel('Forma 1: valor')).toHaveValue('190,00');
