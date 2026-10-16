@@ -24,7 +24,10 @@ type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 async function request(method: Method, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['content-type'] = 'application/json';
+  // Arquivos vão crus, com o tipo do próprio arquivo; o resto vai como JSON.
+  const file = body instanceof Blob ? body : null;
+  if (file) headers['content-type'] = file.type;
+  else if (body !== undefined) headers['content-type'] = 'application/json';
   if (method !== 'GET' && csrfToken) headers['x-csrf-token'] = csrfToken;
   let response: Response;
   try {
@@ -32,7 +35,7 @@ async function request(method: Method, path: string, body?: unknown): Promise<Re
       method,
       headers,
       credentials: 'same-origin',
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(file ? { body: file } : body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     throw new ApiRequestError(

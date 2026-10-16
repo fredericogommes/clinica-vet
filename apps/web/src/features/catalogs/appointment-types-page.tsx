@@ -12,17 +12,18 @@ import { Controller, useForm } from 'react-hook-form';
 import { Button } from '../../design-system/button';
 import { Checkbox } from '../../design-system/checkbox';
 import { Dialog } from '../../design-system/dialog';
-import { SelectField, TextField } from '../../design-system/field';
+import { SelectField, TextareaField, TextField } from '../../design-system/field';
 import { Badge, PageHeader, Section } from '../../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states';
 import { useToast } from '../../design-system/toast';
 import { api, errorMessage } from '../../lib/api';
 import { applyFieldErrors } from '../../lib/forms';
 import { appointmentTypesQuery } from '../schedule/queries';
+import { PlaceholderHelp } from './clinical-catalog-pages';
 
 const durations = Array.from({ length: 16 }, (_, i) => (i + 1) * 15);
 
-/** Tipos de atendimento [p.5]: nome e duração padrão, que o agendamento já sugere. */
+/** Tipos de atendimento [p.5]: duração sugerida no agendamento e modelo do prontuário [RN-18]. */
 export function AppointmentTypesPage() {
   const types = useQuery(appointmentTypesQuery);
   const [editing, setEditing] = useState<AppointmentType | null | undefined>(undefined);
@@ -31,7 +32,7 @@ export function AppointmentTypesPage() {
       <PageHeader
         area="Cadastros"
         title="Tipos de atendimento"
-        description="Cada tipo traz a duração sugerida no agendamento. Arquive o que não é mais usado em vez de excluir."
+        description="Cada tipo traz a duração sugerida no agendamento e o modelo de prontuário que abre no atendimento. Arquive o que não é mais usado em vez de excluir."
       />
       <Section
         title="Tipos cadastrados"
@@ -63,6 +64,7 @@ export function AppointmentTypesPage() {
             {types.data.map((t) => (
               <li key={t.id} className="flex items-center gap-3 px-2 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.name}</span>
+                {t.recordTemplate ? <Badge tone="sage">Com modelo</Badge> : null}
                 <span className="font-mono text-xs text-ink-muted">{t.durationMinutes} min</span>
                 {t.archived ? <Badge>Arquivado</Badge> : null}
                 <Button
@@ -100,6 +102,7 @@ function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: 
     defaultValues: {
       name: type?.name ?? '',
       durationMinutes: type?.durationMinutes ?? 60,
+      recordTemplate: type?.recordTemplate ?? '',
       archived: type?.archived ?? false,
     },
   });
@@ -121,6 +124,7 @@ function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: 
   return (
     <Dialog
       open
+      size="lg"
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
@@ -173,6 +177,14 @@ function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: 
             />
           )}
         />
+        <TextareaField
+          label="Modelo de prontuário"
+          rows={10}
+          hint="Abre preenchido no atendimento deste tipo. FC, FR, temperatura, TPC, peso e escore corporal já têm campos próprios."
+          error={form.formState.errors.recordTemplate?.message}
+          {...form.register('recordTemplate')}
+        />
+        <PlaceholderHelp />
         {type ? (
           <Controller
             control={form.control}

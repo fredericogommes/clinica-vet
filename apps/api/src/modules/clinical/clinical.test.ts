@@ -287,7 +287,21 @@ describe('eventos da ficha [RN-17]', () => {
     expect(rendered.title).toBe('Atestado de saúde');
     expect(rendered.body).toContain('microchip 985112003456789');
     expect(rendered.body).toContain('CPF 529.982.247-25');
-    expect(rendered.body).toContain(ADMIN.name);
+    expect(rendered.body).toContain('Matriz, ');
+
+    // A assinatura sai do usuário logado, não de um texto fixo do modelo.
+    const signed = (
+      await admin.send('POST', '/api/catalogs/clinical-templates', {
+        kind: 'document',
+        name: 'Declaração assinada',
+        body: '{{animal}}: {{profissional}}',
+        archived: false,
+      })
+    ).json<ClinicalTemplate>();
+    const signedBody = (
+      await admin.get(`/api/clinical/patients/${thor.id}/render?templateId=${signed.id}`)
+    ).json<{ body: string }>().body;
+    expect(signedBody).toBe(`Thor: ${ADMIN.name}`);
 
     await record({ kind: 'weight', occurredAt: null, weightKg: 13.1, notes: 'Em jejum' });
     await record({ kind: 'pathology', occurredAt: null, pathologyId: dermatite.id, notes: '' });

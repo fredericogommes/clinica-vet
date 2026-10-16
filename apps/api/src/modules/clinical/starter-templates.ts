@@ -43,22 +43,15 @@ export const starterClinicalTemplates = [
   {
     kind: 'prescription' as const,
     name: 'Receita simples',
-    body: `Paciente: {{animal}} ({{especie}}, {{raca}}), {{idade}}, {{peso}}
-Responsável: {{responsavel}}
+    body: `Uso oral
 
-Uso oral
-
-1. 
-
-{{unidade}}, {{data}}
-{{profissional}}`,
+1. `,
   },
   {
     kind: 'document' as const,
     name: 'Atestado de saúde',
     body: `Atesto, para os devidos fins, que examinei nesta data o animal {{animal}}, {{especie}}, {{raca}}, {{sexo}}, {{idade}}, microchip {{microchip}}, sob responsabilidade de {{responsavel}} ({{documento_responsavel}}), e que ele não apresenta sinais clínicos de doença infectocontagiosa.
 
-{{unidade}}, {{data}}
-{{profissional}}`,
+{{unidade}}, {{data}}.`,
   },
 ];

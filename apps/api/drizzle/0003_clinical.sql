@@ -145,17 +145,10 @@ INSERT INTO "clinical_templates" ("id", "organization_id", "kind", "name", "body
 SELECT encode(set_bit(set_bit(overlay(uuid_send(gen_random_uuid()) PLACING substring(int8send(floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint) FROM 3) FROM 1 FOR 6), 52, 1), 53, 1), 'hex')::uuid, o."id", t.kind, t.name, t.body
 FROM "organizations" o
 CROSS JOIN (VALUES
-  ('prescription', 'Receita simples', $tpl$Paciente: {{animal}} ({{especie}}, {{raca}}), {{idade}}, {{peso}}
-Responsável: {{responsavel}}
+  ('prescription', 'Receita simples', $tpl$Uso oral
 
-Uso oral
-
-1. 
-
-{{unidade}}, {{data}}
-{{profissional}}$tpl$),
+1. $tpl$),
   ('document', 'Atestado de saúde', $tpl$Atesto, para os devidos fins, que examinei nesta data o animal {{animal}}, {{especie}}, {{raca}}, {{sexo}}, {{idade}}, microchip {{microchip}}, sob responsabilidade de {{responsavel}} ({{documento_responsavel}}), e que ele não apresenta sinais clínicos de doença infectocontagiosa.
 
-{{unidade}}, {{data}}
-{{profissional}}$tpl$)
+{{unidade}}, {{data}}.$tpl$)
 ) AS t(kind, name, body);

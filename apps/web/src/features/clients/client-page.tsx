@@ -6,7 +6,7 @@ import {
   formatCep,
 } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Archive,
   History,
@@ -29,6 +29,7 @@ import { useToast } from '../../design-system/toast';
 import { api, errorMessage } from '../../lib/api';
 import { formatDateTime, formatDay } from '../../lib/format';
 import { useCan } from '../../lib/session';
+import { DeleteRecordButton } from '../shared/delete-record';
 import { ConsentsDialog, currentConsents } from './consents-dialog';
 import { formatDate, formatDocument, formatPhone, whatsappUrl } from './format';
 import { clientQuery } from './queries';
@@ -42,6 +43,7 @@ export function ClientPage({ clientId }: { clientId: string }) {
   const toast = useToast();
   const [consentsOpen, setConsentsOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const navigate = useNavigate();
 
   const archive = useMutation({
     mutationFn: (archived: boolean) =>
@@ -126,6 +128,19 @@ export function ClientPage({ clientId }: { clientId: string }) {
                   Arquivar
                 </Button>
               )
+            ) : null}
+            {can('clients.delete') && c.patients.length === 0 ? (
+              <DeleteRecordButton
+                name={c.name}
+                path={`/clients/${clientId}`}
+                description="Para cadastros feitos por engano. Contatos e consentimentos saem junto."
+                onDeleted={async () => {
+                  queryClient.removeQueries({ queryKey: clientQuery(clientId).queryKey });
+                  await queryClient.invalidateQueries({ queryKey: ['clients', 'list'] });
+                  toast.success('Cliente excluído.');
+                  await navigate({ to: '/clientes' });
+                }}
+              />
             ) : null}
           </>
         }

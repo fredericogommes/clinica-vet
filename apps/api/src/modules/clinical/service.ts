@@ -971,14 +971,22 @@ function contentOf(
   }
 }
 
+/** Campos planos, para o log mostrar "campo: antes → depois" (sinais vitais um a um). */
 function snapshot(e: ClinicalEvent, patientId: string) {
+  const content = e.data;
+  const flat: Record<string, unknown> = { ...content };
+  delete flat.kind;
+  if ('vitals' in content) {
+    delete flat.vitals;
+    Object.assign(flat, content.vitals);
+  }
   return {
     patientId,
     kind: e.kind,
     status: e.status,
     occurredAt: e.occurredAt,
-    data: e.data,
-    ...(e.void ? { void: e.void } : {}),
+    ...flat,
+    ...(e.void ? { voidReason: e.void.reason } : {}),
   };
 }
 

@@ -1,8 +1,11 @@
 import type { Permission } from '@clinica/contracts';
 import {
+  Activity,
   CalendarClock,
   CalendarDays,
+  ClipboardList,
   Dna,
+  FileText,
   House,
   Palette,
   PawPrint,
@@ -36,6 +39,12 @@ export const navigation: NavSection[] = [
       { label: 'Início', to: '/', icon: House },
       { label: 'Clientes', to: '/clientes', icon: UsersRound, permission: 'clients.view' },
       { label: 'Animais', to: '/animais', icon: PawPrint, permission: 'patients.view' },
+      {
+        label: 'Atendimento',
+        to: '/atendimento',
+        icon: Stethoscope,
+        permission: 'clinical.view',
+      },
     ],
   },
   {
@@ -80,7 +89,19 @@ export const navigation: NavSection[] = [
       {
         label: 'Tipos de atendimento',
         to: '/cadastros/tipos-de-atendimento',
-        icon: Stethoscope,
+        icon: ClipboardList,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Patologias',
+        to: '/cadastros/patologias',
+        icon: Activity,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Modelos de receita e documento',
+        to: '/cadastros/modelos',
+        icon: FileText,
         permission: 'catalogs.manage',
       },
       {

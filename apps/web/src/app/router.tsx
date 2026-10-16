@@ -8,10 +8,10 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { ShieldOff } from 'lucide-react';
-import { lazy, type ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { z } from 'zod';
 import { Panel } from '../design-system/layout';
-import { EmptyState, ErrorState } from '../design-system/states';
+import { EmptyState, ErrorState, SkeletonRows } from '../design-system/states';
 import { LoginPage } from '../features/auth/login-page';
 import { HomePage } from '../features/home/home-page';
 import { errorMessage } from '../lib/api';
@@ -69,6 +69,25 @@ const ShiftsPage = lazy(() =>
 );
 const ScheduleConfigPage = lazy(() =>
   import('../features/schedule/config-page').then((m) => ({ default: m.ScheduleConfigPage })),
+);
+const ClinicalSearchPage = lazy(() =>
+  import('../features/clinical/search-page').then((m) => ({ default: m.ClinicalSearchPage })),
+);
+const ClinicalRecordPage = lazy(() =>
+  import('../features/clinical/record-page').then((m) => ({ default: m.ClinicalRecordPage })),
+);
+const PrintEventPage = lazy(() =>
+  import('../features/clinical/print-page').then((m) => ({ default: m.PrintEventPage })),
+);
+const PathologiesPage = lazy(() =>
+  import('../features/catalogs/clinical-catalog-pages').then((m) => ({
+    default: m.PathologiesPage,
+  })),
+);
+const ClinicalTemplatesPage = lazy(() =>
+  import('../features/catalogs/clinical-catalog-pages').then((m) => ({
+    default: m.ClinicalTemplatesPage,
+  })),
 );
 const AppointmentTypesPage = lazy(() =>
   import('../features/catalogs/appointment-types-page').then((m) => ({
@@ -138,6 +157,34 @@ const appRoute = createRoute({
   component: AppShell,
 });
 
+/** Folhas de impressão: exigem sessão, mas ficam fora do menu e do layout do sistema. */
+const printRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'print',
+  beforeLoad: async ({ context, location }) => {
+    const session = await context.queryClient.query(sessionQuery);
+    if (!session) throw redirect({ to: '/entrar', search: { redirect: location.href } });
+  },
+  component: () => (
+    <Suspense fallback={<SkeletonRows />}>
+      <Outlet />
+    </Suspense>
+  ),
+});
+
+const printEventRoute = createRoute({
+  getParentRoute: () => printRoute,
+  path: '/impressao/evento/$eventId',
+  component: function PrintEvent() {
+    const { eventId } = printEventRoute.useParams();
+    return (
+      <RequirePermission permission="clinical.view">
+        <PrintEventPage eventId={eventId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const homeRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: HomePage });
 
 const usersRoute = createRoute({
@@ -177,7 +224,7 @@ const auditRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/consultas/auditoria',
   validateSearch: z.object({
-    entidade: z.enum(['client', 'patient']).optional().catch(undefined),
+    entidade: z.enum(['client', 'patient', 'clinical_event']).optional().catch(undefined),
     id: z.uuid().optional().catch(undefined),
     nome: z.string().max(160).optional().catch(undefined),
   }),
@@ -338,6 +385,60 @@ const originsRoute = createRoute({
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+/** As duas buscas do atendimento ficam na URL, como nas demais listas. */
+const clinicalSearchRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/atendimento',
+  validateSearch: z.object({
+    cliente: z.string().max(100).optional().catch(undefined),
+    animal: z.string().max(100).optional().catch(undefined),
+    pagina: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function ClinicalSearch() {
+    const s = clinicalSearchRoute.useSearch();
+    return (
+      <RequirePermission permission="clinical.view">
+        <ClinicalSearchPage
+          search={{ client: s.cliente ?? '', patient: s.animal ?? '', page: s.pagina ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const clinicalRecordRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/atendimento/$patientId',
+  component: function ClinicalRecord() {
+    const { patientId } = clinicalRecordRoute.useParams();
+    return (
+      <RequirePermission permission="clinical.view">
+        <ClinicalRecordPage key={patientId} patientId={patientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const pathologiesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/patologias',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <PathologiesPage />
+    </RequirePermission>
+  ),
+});
+
+const clinicalTemplatesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/modelos',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <ClinicalTemplatesPage />
+    </RequirePermission>
+  ),
+});
+
 /** Visão, data, profissional e filtro de cancelados ficam na URL: a recepção compartilha o link. */
 const agendaRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -407,6 +508,7 @@ const appointmentTypesRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  printRoute.addChildren([printEventRoute]),
   appRoute.addChildren([
     homeRoute,
     clientsRoute,
@@ -417,11 +519,15 @@ const routeTree = rootRoute.addChildren([
     patientsRoute,
     patientRoute,
     patientEditRoute,
+    clinicalSearchRoute,
+    clinicalRecordRoute,
     agendaRoute,
     shiftsRoute,
     scheduleConfigRoute,
     speciesRoute,
     appointmentTypesRoute,
+    pathologiesRoute,
+    clinicalTemplatesRoute,
     coatsRoute,
     originsRoute,
     usersRoute,
