@@ -1,4 +1,6 @@
 import {
+  appointmentTypeInputSchema,
+  appointmentTypeSchema,
   breedSchema,
   catalogItemInputSchema,
   catalogItemSchema,
@@ -17,6 +19,42 @@ export const catalogRoutes: FastifyPluginAsyncZod<{ catalogs: CatalogService }> 
   app,
   { catalogs },
 ) => {
+  // Rotas estáticas antes de "/:kind": o Fastify dá precedência a elas.
+  app.get(
+    '/appointment-types',
+    {
+      config: { access: { kind: 'authenticated' } },
+      schema: { response: { 200: z.array(appointmentTypeSchema) } },
+    },
+    async (request) => catalogs.listAppointmentTypes(requireAuth(request)),
+  );
+
+  app.post(
+    '/appointment-types',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: { body: appointmentTypeInputSchema, response: { 201: appointmentTypeSchema } },
+    },
+    async (request, reply) => {
+      const item = await catalogs.createAppointmentType(requireAuth(request), request.body);
+      return reply.status(201).send(item);
+    },
+  );
+
+  app.put(
+    '/appointment-types/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'catalogs.manage' } },
+      schema: {
+        params: idParams,
+        body: appointmentTypeInputSchema,
+        response: { 200: appointmentTypeSchema },
+      },
+    },
+    async (request) =>
+      catalogs.updateAppointmentType(requireAuth(request), request.params.id, request.body),
+  );
+
   // Os cadastros alimentam os formulários de clientes e animais, por isso a leitura só exige sessão.
   app.get(
     '/:kind',

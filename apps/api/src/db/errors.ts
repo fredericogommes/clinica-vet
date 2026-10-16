@@ -13,3 +13,10 @@ export function violatedConstraint(error: unknown): string | null {
   }
   return 'cause' in error ? violatedConstraint(error.cause) : null;
 }
+
+/** Violação de EXCLUDE (SQLSTATE 23P01), usada na agenda para impedir sobreposição. */
+export function isExclusionViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ('code' in error && error.code === '23P01') return true;
+  return 'cause' in error && isExclusionViolation(error.cause);
+}

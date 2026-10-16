@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   date,
   foreignKey,
   index,
@@ -8,6 +9,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -360,5 +362,166 @@ export const patientOwnerHistory = pgTable(
     uniqueIndex('patient_owner_history_current_uq')
       .on(t.patientId)
       .where(sql`${t.endedAt} is null`),
+  ],
+);
+
+/** Tipos de atendimento [p.5]: alimentam a agenda e, depois, o modelo de prontuário. */
+export const appointmentTypes = pgTable(
+  'appointment_types',
+  {
+    ...catalogColumns,
+    durationMinutes: integer('duration_minutes').notNull().default(60),
+  },
+  (t) => [
+    uniqueIndex('appointment_types_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    check('appointment_types_duration_ck', sql`${t.durationMinutes} between 15 and 720`),
+  ],
+);
+
+/** Horário de funcionamento da unidade, em minutos desde a meia-noite. Dia sem linha = fechado. */
+export const unitOpeningHours = pgTable(
+  'unit_opening_hours',
+  {
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    weekday: smallint('weekday').notNull(),
+    startMinute: integer('start_minute').notNull(),
+    endMinute: integer('end_minute').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.unitId, t.weekday] }),
+    check(
+      'unit_opening_hours_range_ck',
+      sql`0 <= ${t.startMinute} and ${t.startMinute} < ${t.endMinute} and ${t.endMinute} <= 1440 and ${t.weekday} between 0 and 6`,
+    ),
+  ],
+);
+
+/** Profissionais com agenda na unidade [RN-11]: horário fixo semanal ou escala variável. */
+export const scheduleMembers = pgTable(
+  'schedule_members',
+  {
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    mode: text('mode', { enum: ['fixed', 'variable'] }).notNull(),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.unitId, t.userId] })],
+);
+
+export const scheduleFixedHours = pgTable(
+  'schedule_fixed_hours',
+  {
+    unitId: uuid('unit_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    weekday: smallint('weekday').notNull(),
+    startMinute: integer('start_minute').notNull(),
+    endMinute: integer('end_minute').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.unitId, t.userId, t.weekday] }),
+    foreignKey({
+      name: 'schedule_fixed_hours_member_fk',
+      columns: [t.unitId, t.userId],
+      foreignColumns: [scheduleMembers.unitId, scheduleMembers.userId],
+    }).onDelete('cascade'),
+    check(
+      'schedule_fixed_hours_range_ck',
+      sql`0 <= ${t.startMinute} and ${t.startMinute} < ${t.endMinute} and ${t.endMinute} <= 1440 and ${t.weekday} between 0 and 6`,
+    ),
+  ],
+);
+
+/** Turnos da escala variável. Só turnos confirmados abrem horários na agenda. */
+export const scheduleShifts = pgTable(
+  'schedule_shifts',
+  {
+    id: uuid('id').primaryKey(),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    date: date('date').notNull(),
+    startMinute: integer('start_minute').notNull(),
+    endMinute: integer('end_minute').notNull(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('schedule_shifts_unit_date_idx').on(t.unitId, t.date),
+    check(
+      'schedule_shifts_range_ck',
+      sql`0 <= ${t.startMinute} and ${t.startMinute} < ${t.endMinute} and ${t.endMinute} <= 1440`,
+    ),
+  ],
+);
+
+export const appointments = pgTable(
+  'appointments',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    professionalId: uuid('professional_id')
+      .notNull()
+      .references(() => users.id),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id),
+    typeId: uuid('type_id')
+      .notNull()
+      .references(() => appointmentTypes.id),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    status: text('status', {
+      enum: ['scheduled', 'confirmed', 'waiting', 'in_progress', 'ready', 'cancelled', 'no_show'],
+    }).notNull(),
+    notes: text('notes'),
+    fitIn: boolean('fit_in').notNull().default(false),
+    /** Agendamentos criados juntos por recorrência compartilham a série. */
+    seriesId: uuid('series_id'),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    arrivedAt: timestamp('arrived_at', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    createdBy: uuid('created_by').references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    index('appointments_unit_starts_idx').on(t.unitId, t.startsAt),
+    index('appointments_client_idx').on(t.clientId),
+    index('appointments_series_idx').on(t.seriesId),
+    check('appointments_range_ck', sql`${t.endsAt} > ${t.startsAt}`),
+    // A exclusão "sem sobreposição por profissional" fica na migração (EXCLUDE USING gist).
+  ],
+);
+
+export const appointmentPatients = pgTable(
+  'appointment_patients',
+  {
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id, { onDelete: 'cascade' }),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    position: integer('position').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.appointmentId, t.patientId] }),
+    index('appointment_patients_patient_idx').on(t.patientId),
   ],
 );

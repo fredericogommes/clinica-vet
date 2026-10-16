@@ -17,9 +17,19 @@ export const permissionCatalog = {
     label: 'Trocar o responsável de um animal',
   },
   'patients.archive': { group: 'Clientes e animais', label: 'Arquivar e restaurar animais' },
+  'schedule.view': { group: 'Agenda', label: 'Ver agenda e escala' },
+  'schedule.manage': {
+    group: 'Agenda',
+    label: 'Agendar, remarcar e mudar o status dos agendamentos',
+  },
+  'schedule.fit_in': { group: 'Agenda', label: 'Encaixar fora da escala do profissional' },
+  'schedule.configure': {
+    group: 'Agenda',
+    label: 'Configurar horário de funcionamento, profissionais e escala',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
-    label: 'Editar espécies, raças, pelagens e origem dos clientes',
+    label: 'Editar espécies, raças, pelagens, origens de clientes e tipos de atendimento',
   },
   'admin.users.view': { group: 'Configuração', label: 'Ver usuários' },
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },

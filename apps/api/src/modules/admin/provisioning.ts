@@ -1,12 +1,14 @@
 import { and, eq } from 'drizzle-orm';
 import type { Executor } from '../../db/client.js';
 import {
+  appointmentTypes,
   breeds,
   costCenters,
   organizations,
   rolePermissions,
   roles,
   species,
+  unitOpeningHours,
   units,
   userUnits,
   users,
@@ -72,6 +74,7 @@ export async function provisionOrganization(
     .values({ id: newId(), organizationId, unitId, name: 'Geral', isDefault: true });
   await syncTemplateRoles(tx, organizationId);
   await seedSpecies(tx, organizationId);
+  await seedSchedule(tx, organizationId, unitId);
 
   const [adminRole] = await tx
     .select({ id: roles.id })
@@ -103,4 +106,32 @@ async function seedSpecies(tx: Executor, organizationId: string): Promise<void> 
       .insert(breeds)
       .values({ id: newId(), organizationId, speciesId, name: 'Sem raça definida (SRD)' });
   }
+}
+
+/**
+ * Ponto de partida da agenda: Seg–Sáb 08:00–18:00 e alguns tipos de atendimento comuns. A clínica
+ * ajusta tudo em Configuração da agenda e em Tipos de atendimento.
+ */
+async function seedSchedule(tx: Executor, organizationId: string, unitId: string): Promise<void> {
+  await tx
+    .insert(unitOpeningHours)
+    .values(
+      [1, 2, 3, 4, 5, 6].map((weekday) => ({ unitId, weekday, startMinute: 480, endMinute: 1080 })),
+    );
+  const types: [string, number][] = [
+    ['Consulta', 60],
+    ['Retorno', 30],
+    ['Vacinação', 30],
+    ['Coleta de exames', 30],
+    ['Cirurgia', 120],
+    ['Banho e tosa', 90],
+  ];
+  await tx.insert(appointmentTypes).values(
+    types.map(([name, durationMinutes]) => ({
+      id: newId(),
+      organizationId,
+      name,
+      durationMinutes,
+    })),
+  );
 }
