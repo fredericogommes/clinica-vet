@@ -128,6 +128,8 @@ beforeEach(async () => {
   const methods = (await admin.get('/api/payment-methods')).json<PaymentMethod[]>();
   dinheiro = methods.find((m) => m.name === 'Dinheiro')!;
   visa = await createMethod();
+  // Recebimento entra no caixa aberto do operador [RN-29].
+  expect((await admin.send('POST', '/api/cash', { openingAmount: 100 })).statusCode).toBe(201);
 });
 afterEach(async () => {
   await h.close();
@@ -328,11 +330,13 @@ describe('registrar recebimento [RN-27]', () => {
         .statusCode,
     ).toBe(403);
     const recep = await loginAs(h, admin, 'Recepcionista');
-    const res = await receive(
-      sale,
-      [{ methodId: dinheiro.id, amount: 255, installments: 1 }],
-      recep,
+    let res = await receive(sale, [{ methodId: dinheiro.id, amount: 255, installments: 1 }], recep);
+    expect(res.statusCode).toBe(409);
+    expect(res.json<ApiError>().error.message).toBe(
+      'Abra o seu caixa antes de registrar recebimento.',
     );
+    await recep.send('POST', '/api/cash', { openingAmount: 0 });
+    res = await receive(sale, [{ methodId: dinheiro.id, amount: 255, installments: 1 }], recep);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<Sale>().closed?.by).toBe('Recepcionista');
   });

@@ -24,6 +24,8 @@ import { patientRoutes } from '../modules/patients/routes.js';
 import { PatientService } from '../modules/patients/service.js';
 import { productRoutes } from '../modules/products/routes.js';
 import { ProductService } from '../modules/products/service.js';
+import { cashRoutes } from '../modules/cash/routes.js';
+import { CashService } from '../modules/cash/service.js';
 import { paymentMethodRoutes } from '../modules/payments/routes.js';
 import { PaymentMethodService } from '../modules/payments/service.js';
 import { saleRoutes } from '../modules/sales/routes.js';
@@ -94,7 +96,8 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   });
   await app.register(appointmentRoutes, { prefix: '/api/appointments', appointments });
   const paymentMethods = new PaymentMethodService(db);
-  const sales = new SaleService(db, paymentMethods);
+  const cash = new CashService(db);
+  const sales = new SaleService(db, paymentMethods, cash);
   await app.register(clinicalRoutes, {
     prefix: '/api/clinical',
     clinical: new ClinicalService(db, patients, appointments, sales),
@@ -105,6 +108,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     prefix: '/api/payment-methods',
     methods: paymentMethods,
   });
+  await app.register(cashRoutes, { prefix: '/api/cash', cash });
 
   return app;
 }

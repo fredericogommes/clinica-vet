@@ -845,7 +845,10 @@ export const sales = pgTable(
     ),
     check(
       'sales_closed_ck',
-      sql`(${t.status} = 'closed') = (${t.closedAt} is not null and ${t.closedBy} is not null)`,
+      // Baixada tem quem baixou; estornada (cancelada depois de baixada) guarda a baixa.
+      sql`(${t.closedAt} is null) = (${t.closedBy} is null)
+        and (${t.status} <> 'closed' or ${t.closedAt} is not null)
+        and (${t.status} not in ('quote', 'open') or ${t.closedAt} is null)`,
     ),
     check(
       'sales_cancel_ck',
@@ -988,10 +991,15 @@ export const salePayments = pgTable(
     receivedBy: uuid('received_by')
       .notNull()
       .references(() => users.id),
+    /** Caixa em que o recebimento entrou [RN-29]; nulo só nos recebimentos anteriores ao caixa. */
+    cashSessionId: uuid('cash_session_id').references((): AnyPgColumn => cashSessions.id),
+    /** Estornada junto com a venda; as parcelas deixam de valer. */
+    reversedAt: timestamp('reversed_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('sale_payments_sale_position_uq').on(t.saleId, t.position),
     index('sale_payments_method_idx').on(t.paymentMethodId),
+    index('sale_payments_cash_session_idx').on(t.cashSessionId),
     check(
       'sale_payments_values_ck',
       sql`${t.amount} > 0 and ${t.installments} between 1 and 24 and ${t.feePercent} between 0 and 30`,
@@ -1022,6 +1030,83 @@ export const saleReceivables = pgTable(
     check(
       'sale_receivables_values_ck',
       sql`${t.amount} > 0 and ${t.feeAmount} >= 0 and ${t.netAmount} = ${t.amount} - ${t.feeAmount}`,
+    ),
+  ],
+);
+
+/**
+ * Caixa por operador, unidade e dia [RN-29, p.10]: abre com troco inicial, recebe vendas e fecha
+ * com a contagem do dinheiro. Um operador tem no máximo um caixa aberto por unidade.
+ */
+export const cashSessions = pgTable(
+  'cash_sessions',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    operatorId: uuid('operator_id')
+      .notNull()
+      .references(() => users.id),
+    status: text('status', { enum: ['open', 'closed'] }).notNull(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+    openingAmount: money('opening_amount').notNull(),
+    openingNotes: text('opening_notes').notNull().default(''),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    closedBy: uuid('closed_by').references(() => users.id),
+    expectedCash: money('expected_cash'),
+    countedCash: money('counted_cash'),
+    closingNotes: text('closing_notes').notNull().default(''),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('cash_sessions_org_code_uq').on(t.organizationId, t.code),
+    uniqueIndex('cash_sessions_open_uq')
+      .on(t.unitId, t.operatorId)
+      .where(sql`${t.status} = 'open'`),
+    index('cash_sessions_unit_opened_idx').on(t.unitId, t.openedAt),
+    check('cash_sessions_opening_ck', sql`${t.openingAmount} >= 0`),
+    check(
+      'cash_sessions_closed_ck',
+      sql`(${t.status} = 'closed') = (${t.closedAt} is not null and ${t.closedBy} is not null
+        and ${t.expectedCash} is not null and ${t.countedCash} is not null)`,
+    ),
+    check('cash_sessions_counted_ck', sql`${t.countedCash} is null or ${t.countedCash} >= 0`),
+  ],
+);
+
+/**
+ * Movimento do caixa que não é recebimento: sangria, suprimento e estorno de venda baixada
+ * (devolução na forma original). O valor é sempre positivo; o tipo diz se entra ou sai.
+ */
+export const cashMovements = pgTable(
+  'cash_movements',
+  {
+    id: uuid('id').primaryKey(),
+    cashSessionId: uuid('cash_session_id')
+      .notNull()
+      .references(() => cashSessions.id),
+    kind: text('kind', { enum: ['supply', 'withdrawal', 'refund'] }).notNull(),
+    amount: money('amount').notNull(),
+    description: text('description').notNull(),
+    methodName: text('method_name'),
+    paymentKind: text('payment_kind'),
+    saleId: uuid('sale_id').references(() => sales.id),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('cash_movements_session_idx').on(t.cashSessionId),
+    check('cash_movements_amount_ck', sql`${t.amount} > 0`),
+    check(
+      'cash_movements_refund_ck',
+      sql`(${t.kind} = 'refund') = (${t.saleId} is not null and ${t.paymentKind} is not null)`,
     ),
   ],
 );

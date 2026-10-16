@@ -42,6 +42,7 @@ import { containsText } from '../../core/search.js';
 import { addDays, instantToZoned } from '../../core/zoned-time.js';
 import type { Database, Executor } from '../../db/client.js';
 import {
+  cashMovements,
   clients,
   costCenters,
   patients,
@@ -57,6 +58,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import type { CashService } from '../cash/service.js';
 import type { PaymentMethodService } from '../payments/service.js';
 
 const invalid = (path: string, message: string) =>
@@ -83,6 +85,7 @@ export class SaleService {
   constructor(
     private readonly db: Database,
     private readonly methods: PaymentMethodService,
+    private readonly cash: CashService,
   ) {}
 
   async settings(auth: AuthContext, executor?: Executor): Promise<SalesSettings> {
@@ -335,6 +338,7 @@ export class SaleService {
       editable: pending && auth.permissions.has('sales.manage'),
       cancellable: pending && auth.permissions.has('sales.cancel'),
       receivable: s.status === 'open' && auth.permissions.has('sales.receive'),
+      reversible: s.status === 'closed' && auth.permissions.has('sales.reverse'),
     };
   }
 
@@ -655,6 +659,8 @@ export class SaleService {
         );
       }
 
+      // O recebimento entra no caixa aberto do operador [RN-29].
+      const session = await this.cash.openSessionFor(tx, auth, 'registrar recebimento');
       const now = new Date();
       const [unit] = await tx
         .select({ timeZone: units.timeZone })
@@ -676,6 +682,7 @@ export class SaleService {
           feePercent: l.method.feePercent,
           receivedAt: now,
           receivedBy: auth.userId,
+          cashSessionId: session.id,
         });
         await tx.insert(saleReceivables).values(
           splitInstallments(l.cents, l.input.installments).map((cents, i) => {
@@ -717,6 +724,88 @@ export class SaleService {
     });
   }
 
+  /**
+   * Estorno de venda baixada [RN-29]: devolve cada forma recebida pelo caixa aberto do operador,
+   * marca os recebimentos como estornados (as parcelas deixam de valer) e cancela a venda com o
+   * motivo. Devolução em dinheiro precisa caber no dinheiro do caixa.
+   */
+  async reverse(auth: AuthContext, id: string, reason: string): Promise<Sale> {
+    return this.db.transaction(async (tx) => {
+      const current = await this.lock(tx, auth, id);
+      if (current.status !== 'closed') {
+        throw conflict('Só venda baixada é estornada; cancele a venda em aberto.');
+      }
+      const session = await this.cash.openSessionFor(tx, auth, 'estornar a venda');
+      const payments = (
+        await tx
+          .select()
+          .from(salePayments)
+          .where(eq(salePayments.saleId, id))
+          .orderBy(asc(salePayments.position))
+      ).filter((p) => p.reversedAt === null);
+      const cashOut = payments
+        .filter((p) => p.kind === 'cash')
+        .reduce((a, p) => a + toCents(p.amount), 0);
+      if (cashOut > 0) {
+        const available = await this.cash.expectedCash(tx, session);
+        if (cashOut > available) {
+          throw conflict(
+            `O dinheiro do caixa (${brl(fromCents(available))}) não cobre a devolução de ${brl(fromCents(cashOut))}.`,
+          );
+        }
+      }
+      const now = new Date();
+      for (const p of payments) {
+        await tx.insert(cashMovements).values({
+          id: newId(),
+          cashSessionId: session.id,
+          kind: 'refund',
+          amount: p.amount,
+          description: `Estorno da venda ${String(current.code)}: ${reason}`,
+          methodName: p.methodName,
+          paymentKind: p.kind,
+          saleId: id,
+          createdBy: auth.userId,
+          createdAt: now,
+        });
+      }
+      if (payments.length > 0) {
+        await tx
+          .update(salePayments)
+          .set({ reversedAt: now })
+          .where(
+            inArray(
+              salePayments.id,
+              payments.map((p) => p.id),
+            ),
+          );
+      }
+      await tx
+        .update(sales)
+        .set({
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelledBy: auth.userId,
+          cancelReason: reason,
+          updatedAt: now,
+        })
+        .where(eq(sales.id, id));
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'sale',
+        entityId: id,
+        action: 'reverse',
+        before: { code: current.code, status: saleStatusLabels.closed },
+        after: {
+          code: current.code,
+          status: saleStatusLabels.cancelled,
+          reason,
+          payments: payments.map((p) => `${p.methodName} ${brl(p.amount)}`).join('; '),
+        },
+      });
+      return this.get(auth, id, tx);
+    });
+  }
+
   private async paymentsOf(db: Executor, saleId: string): Promise<Sale['payments']> {
     const rows = await db
       .select()
@@ -741,6 +830,7 @@ export class SaleService {
       amount: r.amount,
       installments: r.installments,
       feePercent: r.feePercent,
+      reversed: r.reversedAt !== null,
       receivables: parts
         .filter((p) => p.salePaymentId === r.id)
         .map((p) => ({

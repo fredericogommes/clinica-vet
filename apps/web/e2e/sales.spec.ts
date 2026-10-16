@@ -240,10 +240,27 @@ test('ficha clínica: atendimento finalizado e item lançado caem na venda abert
   await expect(page.getByText('Lançado pela ficha clínica')).toHaveCount(1);
 });
 
-test('recebimento: forma por adquirente e bandeira, pagamento dividido e parcelas', async ({
+/** Fecha o caixa que o administrador tenha deixado aberto em execuções anteriores. */
+async function closeOpenCash(page: Page) {
+  await page.evaluate(async () => {
+    const session = (await (await fetch('/api/auth/session')).json()) as Session;
+    const current = (await (await fetch('/api/cash/current')).json()) as {
+      session: { id: string; expectedCash: number } | null;
+    };
+    if (!current.session) return;
+    await fetch(`/api/cash/${current.session.id}/close`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+      body: JSON.stringify({ countedCash: current.session.expectedCash, notes: '' }),
+    });
+  });
+}
+
+test('recebimento e caixa: pagamento dividido, parcelas, sangria, fechamento e estorno', async ({
   page,
 }) => {
   const { pet, service, product } = await seed(page, 'r');
+  await closeOpenCash(page);
   const card = `Rede Visa Crédito ${run}`;
 
   // Forma de recebimento com prazo, parcelamento e taxa [RN-27].
@@ -279,6 +296,13 @@ test('recebimento: forma por adquirente e bandeira, pagamento dividido e parcela
   await add.press('Enter');
   await page.getByRole('button', { name: 'Registrar recebimento' }).click();
 
+  // Sem caixa aberto, o PDV pede a abertura antes de receber [RN-29].
+  const opening = page.getByRole('dialog', { name: 'Abrir caixa' });
+  await opening.getByLabel('Troco inicial (R$)').fill('100');
+  await opening.getByRole('button', { name: 'Abrir caixa' }).click();
+  // O recebimento só segue depois que o caixa abre; o diálogo, modal, esconde o aviso da árvore
+  // de acessibilidade, e o caixa aberto é conferido no painel depois do recebimento.
+
   const dialog = page.getByRole('dialog', { name: /Registrar recebimento da venda \d+/ });
   await expect(dialog.getByLabel('Forma 1: valor')).toHaveValue('190,00');
   await dialog.getByLabel('Forma 1: forma de recebimento').selectOption({ label: 'Dinheiro' });
@@ -304,4 +328,51 @@ test('recebimento: forma por adquirente e bandeira, pagamento dividido e parcela
   );
   // Baixada não é mais editável.
   await expect(page.getByRole('button', { name: 'Salvar alterações' })).toHaveCount(0);
+  const saleUrl = page.url();
+
+  // Caixa: R$ 100 de troco + R$ 40 em dinheiro; cartão não entra na gaveta.
+  const cashPanel = page.getByRole('region', { name: /^Caixa \d+$/ });
+  await expect(cashPanel).toContainText(/Dinheiro em caixa\s*R\$\s140,00/);
+  await cashPanel.getByRole('link', { name: 'Movimentos' }).click();
+  await expect(page).toHaveURL(/\/vendas\/caixas\/[0-9a-f-]{36}$/);
+  const moves = page.getByRole('list', { name: 'Movimentos do caixa' });
+  await expect(moves.getByRole('listitem')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Sangria' }).click();
+  const withdrawal = page.getByRole('dialog', { name: /Sangria no caixa \d+/ });
+  await withdrawal.getByLabel('Valor (R$)').fill('500');
+  await withdrawal.getByLabel('Descrição').fill('Depósito no banco');
+  await withdrawal.getByRole('button', { name: 'Lançar sangria' }).click();
+  await expect(
+    withdrawal.getByText(/A sangria passa do dinheiro em caixa \(R\$\s140,00\)/),
+  ).toBeVisible();
+  await withdrawal.getByLabel('Valor (R$)').fill('30');
+  await withdrawal.getByRole('button', { name: 'Lançar sangria' }).click();
+  await expect(moves.getByRole('listitem')).toHaveCount(4);
+
+  // Estorno devolve pelo caixa: R$ 40 saem da gaveta.
+  await page.goto(saleUrl);
+  await page.getByRole('button', { name: 'Estornar venda' }).click();
+  const reverse = page.getByRole('dialog', { name: /Estornar venda \d+/ });
+  await expect(reverse.getByRole('list', { name: 'Devoluções' })).toContainText(card);
+  await reverse.getByLabel('Motivo').fill('Cobrado em duplicidade');
+  await reverse.getByRole('button', { name: 'Estornar venda' }).click();
+  await expect(toasts(page).getByText(/Venda \d+ estornada/)).toBeVisible();
+  await expect(page.getByRole('note')).toContainText('Motivo: Cobrado em duplicidade');
+  await expect(cashPanel).toContainText(/Dinheiro em caixa\s*R\$\s70,00/);
+
+  // Fechamento com diferença pede explicação.
+  await cashPanel.getByRole('link', { name: 'Movimentos' }).click();
+  await page.getByRole('button', { name: 'Fechar caixa' }).click();
+  const closing = page.getByRole('dialog', { name: /Fechar caixa \d+/ });
+  await closing.getByLabel('Dinheiro contado (R$)').fill('65');
+  await expect(closing.getByText('Falta de R$ 5,00.')).toBeVisible();
+  await closing.getByRole('button', { name: 'Fechar caixa' }).click();
+  await expect(
+    closing.getByText('Explique a diferença entre o contado e o esperado'),
+  ).toBeVisible();
+  await closing.getByLabel('Observação').fill('Troco dado a mais');
+  await closing.getByRole('button', { name: 'Fechar caixa' }).click();
+  await expect(toasts(page).getByText(/Caixa \d+ fechado\./)).toBeVisible();
+  await expect(page.getByText('Fechado', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/R\$\s5,00 \(falta\)/)).toBeVisible();
 });

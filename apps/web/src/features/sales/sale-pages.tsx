@@ -26,6 +26,8 @@ import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { formatMoney, formatPercent, quantityInput } from '../products/format';
 import { saleContextQuery, saleQuery, salesListQuery } from './queries';
+import { CashPanel } from '../cash/cash-panel';
+import { useCashGate } from '../cash/cash-gate';
 import { ReceiveDialog } from './receive-dialog';
 import { StatusBadge } from './status-badge';
 import {
@@ -132,6 +134,7 @@ function NewSale({ context }: { context: SaleContext }) {
     if (data) save.mutate({ data, receive });
   };
   const canReceive = can('sales.receive') && editor.state.kind === 'sale';
+  const cashGate = useCashGate('O recebimento entra no seu caixa. Abra-o para continuar.');
 
   return (
     <>
@@ -179,7 +182,9 @@ function NewSale({ context }: { context: SaleContext }) {
                   icon={<Wallet className="size-4" aria-hidden />}
                   pending={save.isPending && save.variables.receive}
                   onClick={() => {
-                    submit(true);
+                    cashGate.gate(() => {
+                      submit(true);
+                    });
                   }}
                 >
                   Registrar recebimento
@@ -188,8 +193,9 @@ function NewSale({ context }: { context: SaleContext }) {
             </FormActions>
           </form>
         }
-        side={<RecentSales />}
+        side={<SidePanels />}
       />
+      {cashGate.dialog}
       {receiving ? (
         <ReceiveDialog
           sale={receiving}
@@ -253,7 +259,9 @@ function SaleHeader({ sale, onCancel }: { sale: Sale; onCancel: (() => void) | n
               icon={<Ban className="size-4" aria-hidden />}
               onClick={onCancel}
             >
-              Cancelar {sale.status === 'quote' ? 'orçamento' : 'venda'}
+              {sale.status === 'closed'
+                ? 'Estornar venda'
+                : `Cancelar ${sale.status === 'quote' ? 'orçamento' : 'venda'}`}
             </Button>
           ) : null}
           {can('sales.manage') ? (
@@ -300,6 +308,7 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
   };
   const converting = sale.status === 'quote' && editor.state.kind === 'sale';
   const canReceive = sale.receivable && editor.state.kind === 'sale';
+  const cashGate = useCashGate('O recebimento entra no seu caixa. Abra-o para continuar.');
 
   return (
     <>
@@ -344,7 +353,9 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
                   icon={<Wallet className="size-4" aria-hidden />}
                   pending={save.isPending && save.variables.receive}
                   onClick={() => {
-                    submit(true);
+                    cashGate.gate(() => {
+                      submit(true);
+                    });
                   }}
                 >
                   Registrar recebimento
@@ -353,8 +364,9 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
             </FormActions>
           </form>
         }
-        side={<RecentSales currentId={sale.id} />}
+        side={<SidePanels currentId={sale.id} />}
       />
+      {cashGate.dialog}
       {receiving ? (
         <ReceiveDialog
           sale={receiving}
@@ -378,18 +390,27 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
 /** Venda baixada, cancelada ou sem permissão de edição: só leitura. */
 function SaleView({ sale }: { sale: Sale }) {
   const [cancelling, setCancelling] = useState(false);
+  // Venda baixada é estornada pelo caixa aberto do operador [RN-29].
+  const cashGate = useCashGate('O estorno devolve o valor pelo seu caixa. Abra-o para continuar.');
   return (
     <>
       <SaleHeader
         sale={sale}
         onCancel={
-          sale.cancellable
+          sale.reversible
             ? () => {
-                setCancelling(true);
+                cashGate.gate(() => {
+                  setCancelling(true);
+                });
               }
-            : null
+            : sale.cancellable
+              ? () => {
+                  setCancelling(true);
+                }
+              : null
         }
       />
+      {cashGate.dialog}
       <Layout
         main={
           <div className="space-y-5">
@@ -468,7 +489,7 @@ function SaleView({ sale }: { sale: Sale }) {
             ) : null}
           </div>
         }
-        side={<RecentSales currentId={sale.id} />}
+        side={<SidePanels currentId={sale.id} />}
       />
       <CancelDialog
         sale={sale}
@@ -501,6 +522,9 @@ function Payments({ sale }: { sale: Sale }) {
                   {p.methodName}
                   {p.installments > 1 ? (
                     <span className="font-normal text-ink-muted"> em {p.installments}×</span>
+                  ) : null}
+                  {p.reversed ? (
+                    <span className="font-normal text-danger-600"> · estornado</span>
                   ) : null}
                 </span>
                 <span className="shrink-0 font-mono text-sm tabular-nums">
@@ -555,12 +579,16 @@ function CancelDialog({ sale, open, onClose }: { sale: Sale; open: boolean; onCl
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | undefined>();
   const cancel = useMutation({
-    mutationFn: () => api('POST', `/sales/${sale.id}/cancel`, saleSchema, { reason }),
+    mutationFn: () =>
+      api('POST', `/sales/${sale.id}/${reversing ? 'reverse' : 'cancel'}`, saleSchema, { reason }),
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['cash'] });
       toast.success(
-        `${sale.status === 'quote' ? 'Orçamento' : 'Venda'} ${String(sale.code)} cancelad${sale.status === 'quote' ? 'o' : 'a'}.`,
+        reversing
+          ? `Venda ${String(sale.code)} estornada; a devolução entrou no seu caixa.`
+          : `${sale.status === 'quote' ? 'Orçamento' : 'Venda'} ${String(sale.code)} cancelad${sale.status === 'quote' ? 'o' : 'a'}.`,
       );
       onClose();
     },
@@ -570,15 +598,23 @@ function CancelDialog({ sale, open, onClose }: { sale: Sale; open: boolean; onCl
       );
     },
   });
+  const reversing = sale.status === 'closed';
   const noun = sale.status === 'quote' ? 'orçamento' : 'venda';
+  const refunds = sale.payments.filter((p) => !p.reversed);
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title={`Cancelar ${noun} ${String(sale.code)}`}
-      description="O registro continua no histórico, marcado como cancelado."
+      title={
+        reversing ? `Estornar venda ${String(sale.code)}` : `Cancelar ${noun} ${String(sale.code)}`
+      }
+      description={
+        reversing
+          ? 'A devolução sai do seu caixa na forma em que foi recebida, e a venda fica cancelada no histórico.'
+          : 'O registro continua no histórico, marcado como cancelado.'
+      }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -595,11 +631,24 @@ function CancelDialog({ sale, open, onClose }: { sale: Sale; open: boolean; onCl
               cancel.mutate();
             }}
           >
-            Cancelar {noun}
+            {reversing ? 'Estornar venda' : `Cancelar ${noun}`}
           </Button>
         </>
       }
     >
+      {reversing && refunds.length > 0 ? (
+        <ul
+          className="mb-4 space-y-1 rounded-control bg-sunken px-3 py-2 text-sm"
+          aria-label="Devoluções"
+        >
+          {refunds.map((p) => (
+            <li key={p.id} className="flex justify-between gap-3">
+              <span>Devolver em {p.methodName}</span>
+              <span className="font-mono tabular-nums">{formatMoney(p.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <TextareaField
         label="Motivo"
         rows={3}
@@ -612,6 +661,16 @@ function CancelDialog({ sale, open, onClose }: { sale: Sale; open: boolean; onCl
         }}
       />
     </Dialog>
+  );
+}
+
+/** Painel lateral do PDV [p.9]: caixa do operador e vendas recentes. */
+function SidePanels({ currentId }: { currentId?: string }) {
+  return (
+    <div className="space-y-5">
+      <CashPanel />
+      <RecentSales {...(currentId ? { currentId } : {})} />
+    </div>
   );
 }
 

@@ -78,6 +78,7 @@ export function ReceiveDialog({
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['cash'] });
       toast.success(`Venda ${String(saved.code)} recebida e baixada.`);
       onReceived?.(saved);
       onClose();
