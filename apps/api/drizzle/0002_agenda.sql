@@ -107,3 +107,14 @@ CREATE INDEX "schedule_shifts_unit_date_idx" ON "schedule_shifts" USING btree ("
 -- Escrita à mão (o Drizzle não modela EXCLUDE): um profissional nunca tem dois agendamentos
 -- ativos que se sobreponham, mesmo com duas recepções gravando ao mesmo tempo [RN-12].
 ALTER TABLE "appointments" ADD CONSTRAINT "appointments_no_overlap" EXCLUDE USING gist ("professional_id" WITH =, tstzrange("starts_at", "ends_at") WITH &&) WHERE ("status" NOT IN ('cancelled', 'no_show'));
+--> statement-breakpoint
+-- Ponto de partida para instalações existentes, igual ao de uma organização nova:
+-- Seg–Sáb 08:00–18:00 e tipos de atendimento comuns (UUID v7 gerado em SQL).
+INSERT INTO "unit_opening_hours" ("unit_id", "weekday", "start_minute", "end_minute")
+SELECT u."id", d.weekday, 480, 1080 FROM "units" u CROSS JOIN generate_series(1, 6) AS d(weekday);
+--> statement-breakpoint
+INSERT INTO "appointment_types" ("id", "organization_id", "name", "duration_minutes")
+SELECT encode(set_bit(set_bit(overlay(uuid_send(gen_random_uuid()) PLACING substring(int8send(floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint) FROM 3) FROM 1 FOR 6), 52, 1), 53, 1), 'hex')::uuid,
+       o."id", t.name, t.duration
+FROM "organizations" o
+CROSS JOIN (VALUES ('Consulta', 60), ('Retorno', 30), ('Vacinação', 30), ('Coleta de exames', 30), ('Cirurgia', 120), ('Banho e tosa', 90)) AS t(name, duration);

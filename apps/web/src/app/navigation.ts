@@ -1,12 +1,16 @@
 import type { Permission } from '@clinica/contracts';
 import {
+  CalendarClock,
+  CalendarDays,
   Dna,
   House,
   Palette,
   PawPrint,
   ScrollText,
+  Settings2,
   ShieldCheck,
   Signpost,
+  Stethoscope,
   Users,
   UsersRound,
   type LucideIcon,
@@ -35,6 +39,19 @@ export const navigation: NavSection[] = [
     ],
   },
   {
+    label: 'Agenda',
+    items: [
+      { label: 'Agenda', to: '/agenda', icon: CalendarDays, permission: 'schedule.view' },
+      { label: 'Escala', to: '/agenda/escala', icon: CalendarClock, permission: 'schedule.view' },
+      {
+        label: 'Configuração da agenda',
+        to: '/agenda/configuracao',
+        icon: Settings2,
+        permission: 'schedule.configure',
+      },
+    ],
+  },
+  {
     label: 'Consultas',
     items: [
       {
@@ -58,6 +75,12 @@ export const navigation: NavSection[] = [
         label: 'Pelagens',
         to: '/cadastros/pelagens',
         icon: Palette,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Tipos de atendimento',
+        to: '/cadastros/tipos-de-atendimento',
+        icon: Stethoscope,
         permission: 'catalogs.manage',
       },
       {

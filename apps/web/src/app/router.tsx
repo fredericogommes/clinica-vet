@@ -61,6 +61,20 @@ const SpeciesPage = lazy(() =>
 const SimpleCatalogPage = lazy(() =>
   import('../features/catalogs/catalog-pages').then((m) => ({ default: m.SimpleCatalogPage })),
 );
+const AgendaPage = lazy(() =>
+  import('../features/schedule/agenda-page').then((m) => ({ default: m.AgendaPage })),
+);
+const ShiftsPage = lazy(() =>
+  import('../features/schedule/shifts-page').then((m) => ({ default: m.ShiftsPage })),
+);
+const ScheduleConfigPage = lazy(() =>
+  import('../features/schedule/config-page').then((m) => ({ default: m.ScheduleConfigPage })),
+);
+const AppointmentTypesPage = lazy(() =>
+  import('../features/catalogs/appointment-types-page').then((m) => ({
+    default: m.AppointmentTypesPage,
+  })),
+);
 
 /** Busca, página e filtro de arquivados ficam na URL para que a lista sobreviva ao voltar. */
 const listSearchSchema = z.object({
@@ -322,6 +336,75 @@ const originsRoute = createRoute({
   ),
 });
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** Visão, data, profissional e filtro de cancelados ficam na URL: a recepção compartilha o link. */
+const agendaRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agenda',
+  validateSearch: z.object({
+    view: z.enum(['dia', 'semana', 'mes']).optional().catch(undefined),
+    data: isoDate.optional().catch(undefined),
+    profissional: z.uuid().optional().catch(undefined),
+    cancelados: z.boolean().optional().catch(undefined),
+  }),
+  component: function Agenda() {
+    const s = agendaRoute.useSearch();
+    return (
+      <RequirePermission permission="schedule.view">
+        <AgendaPage
+          search={{
+            view: s.view ?? 'dia',
+            date: s.data,
+            professionalId: s.profissional,
+            showCancelled: s.cancelados ?? false,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const shiftsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agenda/escala',
+  validateSearch: z.object({
+    mes: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .optional()
+      .catch(undefined),
+  }),
+  component: function Shifts() {
+    const { mes } = shiftsRoute.useSearch();
+    return (
+      <RequirePermission permission="schedule.view">
+        <ShiftsPage month={mes} />
+      </RequirePermission>
+    );
+  },
+});
+
+const scheduleConfigRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/agenda/configuracao',
+  component: () => (
+    <RequirePermission permission="schedule.configure">
+      <ScheduleConfigPage />
+    </RequirePermission>
+  ),
+});
+
+const appointmentTypesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/tipos-de-atendimento',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <AppointmentTypesPage />
+    </RequirePermission>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
@@ -334,7 +417,11 @@ const routeTree = rootRoute.addChildren([
     patientsRoute,
     patientRoute,
     patientEditRoute,
+    agendaRoute,
+    shiftsRoute,
+    scheduleConfigRoute,
     speciesRoute,
+    appointmentTypesRoute,
     coatsRoute,
     originsRoute,
     usersRoute,

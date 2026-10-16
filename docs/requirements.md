@@ -109,7 +109,8 @@ Não bloqueantes (premissa adotada, reversível)
 - L4 Migração de dados do SimplesVet: não mencionada. Premissa: fora do MVP; o modelo permite importação posterior por CSV.
 - L5 Lista exata das 256 chaves de permissão: só exemplos no documento. Premissa: catálogo de ações derivado de cada tela implementada, versionado no código.
 - L6 Faixas da Curva ABC: não definidas. Premissa: A = 80 % da receita acumulada, B = 15 %, C = 5 %, período de 12 meses, configurável.
-- L7 Regra de "Animal pronto"/"Atrasado": não definida. Premissa: "Atrasado" é derivado (horário passou sem chegada), não status manual.
+- L7 Regra de "Animal pronto"/"Atrasado": não definida. Premissa: "Atrasado" é derivado (horário passou sem chegada), não status manual. O ciclo só anda para a frente; foram acrescentados "Cancelado" e "Não compareceu", que liberam o horário e podem ser reativados.
+- L12 Agenda (premissas da implementação): passo de 15 min na grade de horários; turno da escala vale dentro do mesmo dia (plantão que cruza a meia-noite vira dois turnos); turno lançado entra em rascunho e só abre horários depois de "Confirmar o mês"; encaixe fora da escala exige a permissão `schedule.fit_in` e nunca sobrepõe outro agendamento; recorrência grava a série inteira ou nada; semana da agenda vai de domingo a sábado.
 - L8 Diagnóstico codificado: o documento não indica padrão de codificação. Premissa: catálogo de patologias próprio com código interno.
 - L9 Escore corporal: escala não definida. Premissa: 1 a 9.
 - L10 Áreas fora do backlog do documento (Site institucional, Campanha SMS, NPS, Beta, features do fornecedor): fora do escopo até decisão.

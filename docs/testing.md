@@ -1,10 +1,11 @@
 # Testes
 
-| Camada                        | Ferramenta                       | Onde                         | Como rodar                 |
-| ----------------------------- | -------------------------------- | ---------------------------- | -------------------------- |
-| Integração e segurança da API | Vitest + PostgreSQL real         | `apps/api/src/**/*.test.ts`  | `npm test -w @clinica/api` |
-| Componentes da interface      | Vitest + Testing Library (jsdom) | `apps/web/src/**/*.test.tsx` | `npm test -w @clinica/web` |
-| Ponta a ponta                 | Playwright (desktop e celular)   | `apps/web/e2e`               | `npm run test:e2e`         |
+| Camada                           | Ferramenta                       | Onde                                                        | Como rodar                 |
+| -------------------------------- | -------------------------------- | ----------------------------------------------------------- | -------------------------- |
+| Integração e segurança da API    | Vitest + PostgreSQL real         | `apps/api/src/**/*.test.ts`                                 | `npm test -w @clinica/api` |
+| Regras puras (agenda, contratos) | Vitest                           | `slots.test.ts`, `rules.test.ts`, `packages/contracts/test` | `npm test`                 |
+| Componentes da interface         | Vitest + Testing Library (jsdom) | `apps/web/src/**/*.test.tsx`                                | `npm test -w @clinica/web` |
+| Ponta a ponta                    | Playwright (desktop e celular)   | `apps/web/e2e`                                              | `npm run test:e2e`         |
 
 ## Banco de testes
 
@@ -21,4 +22,5 @@ O projeto `setup` (`e2e/auth.setup.ts`) entra uma vez como administrador e grava
 - Login: credenciais inválidas sem revelar se o e-mail existe, validação por campo, limite de tentativas, cookie `HttpOnly`/`SameSite`, token de sessão guardado só como hash, logout no servidor.
 - Acesso: rota sem declaração impede a API de subir, requisição sem sessão é rejeitada antes da validação, ausência de chave nega, isolamento entre organizações, CSRF obrigatório em escrita.
 - Perfis e usuários: modelos imutáveis, clonagem, chave fora do catálogo rejeitada, nome e e-mail duplicados, a clínica nunca fica sem administrador, usuário desativado perde a sessão, auditoria com antes e depois.
+- Agenda: horários livres (escala ∩ funcionamento, duração, passo, agora), sobreposição impedida inclusive com gravações simultâneas, encaixe com permissão, recorrência tudo-ou-nada, ciclo de status com marcos e médias, atraso derivado, fuso da unidade; E2E configura profissional, agenda pelo horário livre e percorre o ciclo.
 - Interface: fluxo completo de clonar perfil, criar usuário e verificar a restrição de acesso; logout; menu móvel.

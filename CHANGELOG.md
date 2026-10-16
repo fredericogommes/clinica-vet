@@ -11,6 +11,9 @@
 - Animais: espécie e raça vinculadas, pelagem, sexo, castração, nascimento com idade calculada, microchip único, pedigree, marcações em destaque, óbito, arquivamento e troca de responsável com histórico.
 - Cadastros de apoio: espécies e raças, pelagens e origens de clientes.
 - Histórico de alterações na ficha do cliente e do animal (auditoria filtrada pelo registro).
+- Agenda por profissional: visões Dia, Semana e Mês, faixas fora do horário sombreadas, agendamento em dois passos com horários livres já cruzados com o profissional, vários animais, recorrência, encaixe com permissão própria, ciclo Agendado → Confirmado → Em espera → Em atendimento → Animal pronto (mais Atrasado, Cancelado e Não compareceu) com médias de espera e atendimento.
+- Escala variável com turnos em rascunho e "Confirmar o mês inteiro"; configuração do horário de funcionamento e dos profissionais com horário fixo.
+- Tipos de atendimento com duração padrão.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Segurança
