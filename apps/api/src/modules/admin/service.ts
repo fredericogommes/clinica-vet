@@ -244,8 +244,13 @@ export class AdminService {
     auth: AuthContext,
     page: number,
     pageSize: number,
+    filter: { entity?: string | undefined; entityId?: string | undefined } = {},
   ): Promise<{ items: AuditEntry[]; total: number }> {
-    const where = eq(auditLog.organizationId, auth.organizationId);
+    const where = and(
+      eq(auditLog.organizationId, auth.organizationId),
+      filter.entity ? eq(auditLog.entity, filter.entity) : undefined,
+      filter.entityId ? eq(auditLog.entityId, filter.entityId) : undefined,
+    );
     const [rows, totals] = await Promise.all([
       this.db
         .select({

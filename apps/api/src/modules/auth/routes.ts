@@ -15,13 +15,14 @@ export const authRoutes: FastifyPluginAsyncZod<{
       schema: { body: loginRequestSchema, response: { 204: z.null() } },
     },
     async (request, reply) => {
-      const { token, expiresAt } = await sessions.login(request.body.email, request.body.password);
+      const { token } = await sessions.login(request.body.email, request.body.password);
+      // Cookie de sessão do navegador (sem data): a validade deslizante fica no servidor, e fechar
+      // o navegador num computador compartilhado do balcão encerra o acesso.
       reply.setCookie(SESSION_COOKIE, token, {
         httpOnly: true,
         secure: secureCookies,
         sameSite: 'lax',
         path: '/',
-        expires: expiresAt,
       });
       return reply.status(204).send(null);
     },

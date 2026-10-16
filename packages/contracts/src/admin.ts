@@ -75,6 +75,16 @@ export const pageQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+/** Filtro opcional da auditoria por registro, usado no "Histórico de alterações" das fichas. */
+export const auditQuerySchema = pageQuerySchema.extend({
+  entity: z
+    .string()
+    .regex(/^[a-z_]{1,40}$/)
+    .optional(),
+  entityId: z.uuid().optional(),
+});
+export type AuditQuery = z.infer<typeof auditQuerySchema>;
+
 export function pageSchema<T extends z.ZodType>(item: T) {
   return z.object({
     items: z.array(item),

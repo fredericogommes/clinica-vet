@@ -4,6 +4,7 @@ import { and, asc, eq, gt, isNull, lt } from 'drizzle-orm';
 import { loadRolePermissions } from '../../core/access.js';
 import { recordAudit } from '../../core/audit.js';
 import { AppError } from '../../core/errors.js';
+import { LoginThrottle } from '../../core/login-throttle.js';
 import { timingSafeDummyHash, verifyPassword } from '../../core/passwords.js';
 import type { Database } from '../../db/client.js';
 import { organizations, sessions, units, userUnits, users } from '../../db/schema.js';
@@ -33,10 +34,18 @@ export class SessionService {
   constructor(
     private readonly db: Database,
     private readonly ttlMs: number,
+    private readonly throttle = new LoginThrottle(),
   ) {}
 
   /** Retorna o token do cookie. Mensagem idêntica para e-mail inexistente, inativo ou senha errada. */
   async login(email: string, password: string): Promise<{ token: string; expiresAt: Date }> {
+    const key = email.toLowerCase();
+    if (this.throttle.isBlocked(key)) {
+      throw new AppError(
+        'rate_limited',
+        'Muitas tentativas com este e-mail. Aguarde 15 minutos ou peça ao administrador para redefinir a senha.',
+      );
+    }
     const [user] = await this.db
       .select({
         id: users.id,
@@ -45,14 +54,19 @@ export class SessionService {
         active: users.active,
       })
       .from(users)
-      .where(eq(users.email, email.toLowerCase()));
+      .where(eq(users.email, key));
 
     if (!user) {
       await verifyPassword(await timingSafeDummyHash(), password);
+      this.throttle.recordFailure(key);
       throw invalidCredentials();
     }
     const valid = await verifyPassword(user.passwordHash, password);
-    if (!valid || !user.active) throw invalidCredentials();
+    if (!valid || !user.active) {
+      this.throttle.recordFailure(key);
+      throw invalidCredentials();
+    }
+    this.throttle.reset(key);
 
     const [firstUnit] = await this.db
       .select({ id: units.id })

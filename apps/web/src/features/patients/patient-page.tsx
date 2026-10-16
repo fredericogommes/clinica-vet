@@ -1,7 +1,14 @@
 import { formatAge, patientSchema } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ArrowRightLeft, Pencil, TriangleAlert } from 'lucide-react';
+import {
+  Archive,
+  History,
+  ArchiveRestore,
+  ArrowRightLeft,
+  Pencil,
+  TriangleAlert,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Button, buttonClasses } from '../../design-system/button';
 import { Dialog } from '../../design-system/dialog';
@@ -84,6 +91,16 @@ export function PatientPage({ patientId }: { patientId: string }) {
               >
                 Trocar responsável
               </Button>
+            ) : null}
+            {can('admin.audit.view') ? (
+              <Link
+                to="/consultas/auditoria"
+                search={{ entidade: 'patient', id: patientId, nome: p.name }}
+                className={buttonClasses('ghost')}
+              >
+                <History className="size-4" aria-hidden />
+                Histórico
+              </Link>
             ) : null}
             {can('patients.archive') ? (
               p.archived ? (

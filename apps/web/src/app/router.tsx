@@ -162,11 +162,21 @@ const roleDetailRoute = createRoute({
 const auditRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/consultas/auditoria',
-  component: () => (
-    <RequirePermission permission="admin.audit.view">
-      <AuditPage />
-    </RequirePermission>
-  ),
+  validateSearch: z.object({
+    entidade: z.enum(['client', 'patient']).optional().catch(undefined),
+    id: z.uuid().optional().catch(undefined),
+    nome: z.string().max(160).optional().catch(undefined),
+  }),
+  component: function Audit() {
+    const { entidade, id, nome } = auditRoute.useSearch();
+    const filter =
+      entidade && id ? { entity: entidade, entityId: id, label: nome ?? '' } : undefined;
+    return (
+      <RequirePermission permission="admin.audit.view">
+        <AuditPage key={id ?? 'all'} filter={filter} />
+      </RequirePermission>
+    );
+  },
 });
 
 const clientsRoute = createRoute({

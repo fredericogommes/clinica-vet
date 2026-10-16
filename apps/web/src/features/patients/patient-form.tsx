@@ -94,6 +94,37 @@ export function PatientForm({
         });
       })}
     >
+      <Section title="Situação">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Controller
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <Segmented
+                label="Situação do animal"
+                value={field.value}
+                onChange={(v) => {
+                  field.onChange(v);
+                  if (v === 'alive') form.setValue('deceasedOn', '');
+                }}
+                options={[
+                  { value: 'alive', label: 'Vivo' },
+                  { value: 'deceased', label: 'Óbito' },
+                ]}
+              />
+            )}
+          />
+          {status === 'deceased' ? (
+            <TextField
+              label="Data do óbito"
+              type="date"
+              error={errors.deceasedOn?.message}
+              {...form.register('deceasedOn')}
+            />
+          ) : null}
+        </div>
+      </Section>
+
       <Section title="Identificação">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
@@ -251,37 +282,6 @@ export function PatientForm({
               />
             ) : null}
           </div>
-        </div>
-      </Section>
-
-      <Section title="Situação">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Controller
-            control={form.control}
-            name="status"
-            render={({ field }) => (
-              <Segmented
-                label="Situação do animal"
-                value={field.value}
-                onChange={(v) => {
-                  field.onChange(v);
-                  if (v === 'alive') form.setValue('deceasedOn', '');
-                }}
-                options={[
-                  { value: 'alive', label: 'Vivo' },
-                  { value: 'deceased', label: 'Óbito' },
-                ]}
-              />
-            )}
-          />
-          {status === 'deceased' ? (
-            <TextField
-              label="Data do óbito"
-              type="date"
-              error={errors.deceasedOn?.message}
-              {...form.register('deceasedOn')}
-            />
-          ) : null}
         </div>
       </Section>
     </form>

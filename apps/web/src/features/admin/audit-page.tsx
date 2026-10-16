@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { ScrollText } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { buttonClasses } from '../../design-system/button';
 import { Badge, PageHeader, Panel } from '../../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states';
 import { DataTable, Pagination } from '../../design-system/table';
@@ -9,26 +11,56 @@ import { formatDateTime } from '../../lib/format';
 import { AuditChanges } from './audit-changes';
 import { auditQuery } from './queries';
 
-const entityLabels: Record<string, string> = { role: 'Perfil', user: 'Usuário', session: 'Sessão' };
+const entityLabels: Record<string, string> = {
+  role: 'Perfil',
+  user: 'Usuário',
+  session: 'Sessão',
+  client: 'Cliente',
+  patient: 'Animal',
+  species: 'Espécie',
+  breed: 'Raça',
+  coat: 'Pelagem',
+  client_origin: 'Origem de cliente',
+};
 const actionLabels: Record<string, string> = {
   create: 'Criou',
   update: 'Alterou',
   delete: 'Excluiu',
   clone: 'Clonou',
   login: 'Entrou',
+  archive: 'Arquivou',
+  restore: 'Restaurou',
+  consent: 'Registrou consentimento',
+  transfer_owner: 'Trocou responsável',
 };
 
-export function AuditPage() {
+export interface AuditFilter {
+  entity: string;
+  entityId: string;
+  /** Nome do registro, só para o cabeçalho; a filtragem usa o id. */
+  label: string;
+}
+
+export function AuditPage({ filter }: { filter?: AuditFilter | undefined }) {
   const [page, setPage] = useState(1);
   const pageSize = 25;
-  const audit = useQuery(auditQuery(page, pageSize));
+  const audit = useQuery(auditQuery(page, pageSize, filter));
 
   return (
     <>
       <PageHeader
         area="Consultas"
-        title="Auditoria"
+        title={filter ? `Histórico de alterações · ${filter.label}` : 'Auditoria'}
         description="Quem alterou o quê e quando, com o valor anterior e o novo."
+        {...(filter
+          ? {
+              actions: (
+                <Link to="/consultas/auditoria" className={buttonClasses('secondary')}>
+                  Ver toda a auditoria
+                </Link>
+              ),
+            }
+          : {})}
       />
       <Panel>
         {audit.isPending ? (

@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
   Archive,
+  History,
   ArchiveRestore,
   Mail,
   MessageCircle,
@@ -90,6 +91,16 @@ export function ClientPage({ clientId }: { clientId: string }) {
               >
                 <Pencil className="size-4" aria-hidden />
                 Editar
+              </Link>
+            ) : null}
+            {can('admin.audit.view') ? (
+              <Link
+                to="/consultas/auditoria"
+                search={{ entidade: 'client', id: clientId, nome: c.name }}
+                className={buttonClasses('ghost')}
+              >
+                <History className="size-4" aria-hidden />
+                Histórico
               </Link>
             ) : null}
             {can('clients.archive') ? (

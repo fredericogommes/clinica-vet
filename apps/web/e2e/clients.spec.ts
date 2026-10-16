@@ -37,6 +37,15 @@ test('balcão: cadastra cliente com o primeiro animal, completa a ficha e troca 
   await expect(toasts(page).getByText('Consentimento registrado.')).toBeVisible();
   await expect(page.getByRole('listitem').filter({ hasText: /^WhatsApp/ })).toContainText('Aceita');
 
+  // Histórico de alterações da ficha vem da auditoria, filtrado pelo cliente (RN-21).
+  await page.getByRole('link', { name: 'Histórico' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    `Histórico de alterações · ${tutor}`,
+  );
+  await expect(page.getByRole('cell', { name: 'Registrou consentimento Cliente' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Criou Cliente' })).toBeVisible();
+  await page.goBack();
+
   // Completa a ficha do animal: raça da espécie e marcação em destaque (RN-07, RN-09).
   await page.getByRole('link', { name: pet }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(pet);

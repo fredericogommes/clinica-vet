@@ -13,10 +13,20 @@ export const usersQuery = queryOptions({
   queryFn: () => api('GET', '/admin/users', z.array(userSchema)),
 });
 
-export const auditQuery = (page: number, pageSize: number) =>
+export const auditQuery = (
+  page: number,
+  pageSize: number,
+  filter?: { entity: string; entityId: string },
+) =>
   queryOptions({
-    queryKey: ['admin', 'audit', page, pageSize],
-    queryFn: () =>
-      api('GET', `/admin/audit?page=${page}&pageSize=${pageSize}`, pageSchema(auditEntrySchema)),
+    queryKey: ['admin', 'audit', page, pageSize, filter?.entity, filter?.entityId],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      if (filter) {
+        params.set('entity', filter.entity);
+        params.set('entityId', filter.entityId);
+      }
+      return api('GET', `/admin/audit?${params.toString()}`, pageSchema(auditEntrySchema));
+    },
     placeholderData: keepPreviousData,
   });
