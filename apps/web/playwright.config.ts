@@ -16,7 +16,13 @@ export default defineConfig({
     ...(chromium ? { launchOptions: { executablePath: chromium } } : {}),
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] }, grepInvert: /@mobile/ },
-    { name: 'mobile', use: { ...devices['Pixel 7'] }, grep: /@mobile/ },
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
+    {
+      name: 'desktop',
+      use: { ...devices['Desktop Chrome'] },
+      grepInvert: /@mobile/,
+      dependencies: ['setup'],
+    },
+    { name: 'mobile', use: { ...devices['Pixel 7'] }, grep: /@mobile/, dependencies: ['setup'] },
   ],
 });

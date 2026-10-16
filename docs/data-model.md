@@ -16,4 +16,21 @@ Fonte: `apps/api/src/db/schema.ts`; migrações SQL em `apps/api/drizzle`. Conve
 | `sessions`         | Sessão de login                | Guarda o SHA-256 do token, nunca o token; expiração deslizante; token CSRF por sessão     |
 | `audit_log`        | Trilha de auditoria            | Gravada na mesma transação da alteração, com antes e depois                               |
 
+## Clientes e animais (Fase 1)
+
+| Tabela                  | Papel                                    | Regras principais                                                                                                            |
+| ----------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `organization_counters` | Numeração sequencial por organização     | Upsert com bloqueio de linha: códigos de ficha (`client`, `patient`) nunca se repetem, mesmo com cadastros simultâneos       |
+| `species`               | Espécie                                  | Nome único por organização sem diferenciar maiúsculas; arquivável                                                            |
+| `breeds`                | Raça de uma espécie                      | Nome único por espécie; `UNIQUE (id, species_id)` serve de alvo para a FK composta do animal                                 |
+| `coats`                 | Pelagem                                  | Nome único por organização; arquivável                                                                                       |
+| `client_origins`        | Como o cliente conheceu a clínica        | Nome único por organização; arquivável                                                                                       |
+| `clients`               | Responsável PF ou PJ                     | Código sequencial; CPF e CNPJ opcionais, só dígitos, únicos por organização quando informados; endereço em colunas           |
+| `client_contacts`       | Celular, telefone fixo ou e-mail         | Ordem define o principal; WhatsApp só em celular; telefones guardados só com dígitos                                         |
+| `client_consents`       | Consentimento LGPD por canal             | Somente inclusão: cada mudança é uma linha com canal, decisão, origem, data e autor; vigente = linha mais recente            |
+| `patients`              | Animal                                   | Código sequencial; FK composta `(breed_id, species_id)` impede raça de outra espécie; microchip único; marcações em `text[]` |
+| `patient_owner_history` | Responsáveis do animal ao longo do tempo | Índice único parcial garante um único vínculo aberto (`ended_at` nulo) por animal                                            |
+
+A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.
+
 O modelo das fases seguintes está em [architecture.md](architecture.md#4-modelo-de-dados-inicial-fase-01).

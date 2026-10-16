@@ -117,11 +117,13 @@ describe('cadastro de clientes', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it('arquiva e restaura; arquivado sai da lista padrão', async () => {
+  it('arquiva e restaura; arquivado sai da lista padrão e fica somente leitura', async () => {
     const client = await createClient();
     await admin.send('POST', `/api/clients/${client.id}/archive`);
     expect((await admin.get('/api/clients')).json<Page>().total).toBe(0);
     expect((await admin.get('/api/clients?archived=true')).json<Page>().total).toBe(1);
+    const edit = await admin.send('PUT', `/api/clients/${client.id}`, clientInput());
+    expect(edit.statusCode).toBe(409);
     const restored = await admin.send('POST', `/api/clients/${client.id}/restore`);
     expect(restored.json<Client>().archived).toBe(false);
   });

@@ -1,5 +1,16 @@
 import type { Permission } from '@clinica/contracts';
-import { House, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react';
+import {
+  Dna,
+  House,
+  Palette,
+  PawPrint,
+  ScrollText,
+  ShieldCheck,
+  Signpost,
+  Users,
+  UsersRound,
+  type LucideIcon,
+} from 'lucide-react';
 
 export interface NavItem {
   label: string;
@@ -15,7 +26,14 @@ export interface NavSection {
 
 /** Só entram aqui telas implementadas; áreas futuras aparecem quando existirem de verdade. */
 export const navigation: NavSection[] = [
-  { label: 'Clínica', items: [{ label: 'Início', to: '/', icon: House }] },
+  {
+    label: 'Clínica',
+    items: [
+      { label: 'Início', to: '/', icon: House },
+      { label: 'Clientes', to: '/clientes', icon: UsersRound, permission: 'clients.view' },
+      { label: 'Animais', to: '/animais', icon: PawPrint, permission: 'patients.view' },
+    ],
+  },
   {
     label: 'Consultas',
     items: [
@@ -24,6 +42,29 @@ export const navigation: NavSection[] = [
         to: '/consultas/auditoria',
         icon: ScrollText,
         permission: 'admin.audit.view',
+      },
+    ],
+  },
+  {
+    label: 'Cadastros',
+    items: [
+      {
+        label: 'Espécies e raças',
+        to: '/cadastros/especies',
+        icon: Dna,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Pelagens',
+        to: '/cadastros/pelagens',
+        icon: Palette,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Origens de clientes',
+        to: '/cadastros/origens',
+        icon: Signpost,
+        permission: 'catalogs.manage',
       },
     ],
   },

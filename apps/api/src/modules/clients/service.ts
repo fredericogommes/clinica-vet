@@ -229,6 +229,7 @@ export class ClientService {
   async update(auth: AuthContext, id: string, input: ClientData): Promise<Client> {
     return this.write(async (tx) => {
       const before = await this.lockAndGet(tx, auth, id);
+      if (before.archived) throw conflict('Restaure o cliente antes de editá-lo.');
       await this.assertOrigin(tx, auth, input.originId, before.originId);
       await tx
         .update(clients)

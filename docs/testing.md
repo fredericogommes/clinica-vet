@@ -14,6 +14,8 @@ Cada execução da API cria um banco descartável (`clinica_test_<aleatório>`),
 
 Requer API e interface rodando e um administrador semeado. Variáveis: `E2E_BASE_URL` (padrão `http://localhost:5173`), `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`. Se o Chromium do Playwright não estiver instalado, aponte `PLAYWRIGHT_CHROMIUM_PATH` para um executável existente.
 
+O projeto `setup` (`e2e/auth.setup.ts`) entra uma vez como administrador e grava a sessão em `e2e/.auth/admin.json` (fora do Git); os testes de módulo reutilizam essa sessão. Isso evita esbarrar no limite de 10 tentativas de login por minuto. Os testes de login continuam entrando por conta própria.
+
 ## Cobertura atual
 
 - Login: credenciais inválidas sem revelar se o e-mail existe, validação por campo, limite de tentativas, cookie `HttpOnly`/`SameSite`, token de sessão guardado só como hash, logout no servidor.

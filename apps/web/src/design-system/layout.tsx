@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 export function PageHeader({
   area,
@@ -30,9 +30,19 @@ export function PageHeader({
   );
 }
 
-export function Panel({ children, className }: { children: ReactNode; className?: string }) {
+export function Panel({
+  children,
+  className,
+  labelledBy,
+}: {
+  children: ReactNode;
+  className?: string | undefined;
+  /** Id do título que nomeia a região para leitores de tela. */
+  labelledBy?: string;
+}) {
   return (
     <section
+      aria-labelledby={labelledBy}
       className={clsx('rounded-panel border border-line bg-surface shadow-panel', className)}
     >
       {children}
@@ -58,5 +68,65 @@ export function Badge({ tone = 'neutral', children }: { tone?: BadgeTone; childr
     >
       {children}
     </span>
+  );
+}
+
+/** Bloco de formulário ou de ficha com título e conteúdo. */
+export function Section({
+  title,
+  description,
+  actions,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  const titleId = useId();
+  return (
+    <Panel className={className} labelledBy={titleId}>
+      <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
+        <div>
+          <h2 id={titleId} className="font-display text-[15px] font-semibold text-ink">
+            {title}
+          </h2>
+          {description ? <p className="mt-0.5 text-xs text-ink-muted">{description}</p> : null}
+        </div>
+        {actions ? <div className="flex shrink-0 gap-1">{actions}</div> : null}
+      </div>
+      <div className="px-5 py-4">{children}</div>
+    </Panel>
+  );
+}
+
+/** Pares rótulo/valor da ficha. Valor ausente aparece como travessão discreto. */
+export function Facts({ items }: { items: { label: string; value: ReactNode }[] }) {
+  return (
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0">
+          <dt className="text-xs text-ink-muted">{item.label}</dt>
+          <dd className="mt-0.5 text-sm break-words text-ink">
+            {item.value === null || item.value === undefined || item.value === '' ? (
+              <span className="text-ink-faint">Não informado</span>
+            ) : (
+              item.value
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Barra de ações de formulário longo; fica visível no rodapé enquanto se rola a página. */
+export function FormActions({ children }: { children: ReactNode }) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex justify-end gap-2 border-t border-line bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
+      {children}
+    </div>
   );
 }

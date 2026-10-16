@@ -31,6 +31,48 @@ const RoleDetailPage = lazy(() =>
 const AuditPage = lazy(() =>
   import('../features/admin/audit-page').then((m) => ({ default: m.AuditPage })),
 );
+const ClientsPage = lazy(() =>
+  import('../features/clients/clients-page').then((m) => ({ default: m.ClientsPage })),
+);
+const ClientNewPage = lazy(() =>
+  import('../features/clients/client-new-page').then((m) => ({ default: m.ClientNewPage })),
+);
+const ClientPage = lazy(() =>
+  import('../features/clients/client-page').then((m) => ({ default: m.ClientPage })),
+);
+const ClientEditPage = lazy(() =>
+  import('../features/clients/client-edit-page').then((m) => ({ default: m.ClientEditPage })),
+);
+const PatientsPage = lazy(() =>
+  import('../features/patients/patients-page').then((m) => ({ default: m.PatientsPage })),
+);
+const PatientNewPage = lazy(() =>
+  import('../features/patients/patient-new-page').then((m) => ({ default: m.PatientNewPage })),
+);
+const PatientPage = lazy(() =>
+  import('../features/patients/patient-page').then((m) => ({ default: m.PatientPage })),
+);
+const PatientEditPage = lazy(() =>
+  import('../features/patients/patient-edit-page').then((m) => ({ default: m.PatientEditPage })),
+);
+const SpeciesPage = lazy(() =>
+  import('../features/catalogs/catalog-pages').then((m) => ({ default: m.SpeciesPage })),
+);
+const SimpleCatalogPage = lazy(() =>
+  import('../features/catalogs/catalog-pages').then((m) => ({ default: m.SimpleCatalogPage })),
+);
+
+/** Busca, página e filtro de arquivados ficam na URL para que a lista sobreviva ao voltar. */
+const listSearchSchema = z.object({
+  q: z.string().max(100).optional().catch(undefined),
+  page: z.number().int().min(1).optional().catch(undefined),
+  archived: z.boolean().optional().catch(undefined),
+});
+const listParams = (s: z.infer<typeof listSearchSchema>) => ({
+  q: s.q ?? '',
+  page: s.page ?? 1,
+  archived: s.archived ?? false,
+});
 
 function RequirePermission({
   permission,
@@ -127,9 +169,169 @@ const auditRoute = createRoute({
   ),
 });
 
+const clientsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clientes',
+  validateSearch: listSearchSchema,
+  component: function Clients() {
+    const search = clientsRoute.useSearch();
+    return (
+      <RequirePermission permission="clients.view">
+        <ClientsPage search={listParams(search)} />
+      </RequirePermission>
+    );
+  },
+});
+
+const clientNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clientes/novo',
+  component: () => (
+    <RequirePermission permission="clients.manage">
+      <ClientNewPage />
+    </RequirePermission>
+  ),
+});
+
+const clientRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clientes/$clientId',
+  component: function Client() {
+    const { clientId } = clientRoute.useParams();
+    return (
+      <RequirePermission permission="clients.view">
+        <ClientPage key={clientId} clientId={clientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const clientEditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clientes/$clientId/editar',
+  component: function ClientEdit() {
+    const { clientId } = clientEditRoute.useParams();
+    return (
+      <RequirePermission permission="clients.manage">
+        <ClientEditPage clientId={clientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const patientNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/clientes/$clientId/animais/novo',
+  component: function PatientNew() {
+    const { clientId } = patientNewRoute.useParams();
+    return (
+      <RequirePermission permission="patients.manage">
+        <PatientNewPage clientId={clientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const patientsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/animais',
+  validateSearch: listSearchSchema,
+  component: function Patients() {
+    const search = patientsRoute.useSearch();
+    return (
+      <RequirePermission permission="patients.view">
+        <PatientsPage search={listParams(search)} />
+      </RequirePermission>
+    );
+  },
+});
+
+const patientRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/animais/$patientId',
+  component: function Patient() {
+    const { patientId } = patientRoute.useParams();
+    return (
+      <RequirePermission permission="patients.view">
+        <PatientPage key={patientId} patientId={patientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const patientEditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/animais/$patientId/editar',
+  component: function PatientEdit() {
+    const { patientId } = patientEditRoute.useParams();
+    return (
+      <RequirePermission permission="patients.manage">
+        <PatientEditPage patientId={patientId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const speciesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/especies',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <SpeciesPage />
+    </RequirePermission>
+  ),
+});
+
+const coatsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/pelagens',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <SimpleCatalogPage
+        kind="coats"
+        title="Pelagens"
+        noun="pelagem"
+        description="Cores e padrões de pelagem usados na ficha do animal."
+      />
+    </RequirePermission>
+  ),
+});
+
+const originsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/origens',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <SimpleCatalogPage
+        kind="client-origins"
+        title="Origens de clientes"
+        noun="origem"
+        description="Como o cliente conheceu a clínica. Alimenta os relatórios de captação."
+      />
+    </RequirePermission>
+  ),
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  appRoute.addChildren([homeRoute, usersRoute, rolesRoute, roleDetailRoute, auditRoute]),
+  appRoute.addChildren([
+    homeRoute,
+    clientsRoute,
+    clientNewRoute,
+    clientRoute,
+    clientEditRoute,
+    patientNewRoute,
+    patientsRoute,
+    patientRoute,
+    patientEditRoute,
+    speciesRoute,
+    coatsRoute,
+    originsRoute,
+    usersRoute,
+    rolesRoute,
+    roleDetailRoute,
+    auditRoute,
+  ]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {
