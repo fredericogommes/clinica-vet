@@ -368,6 +368,39 @@ export class PurchasesService {
     });
   }
 
+  /**
+   * Compra em rascunho com os itens de um pedido: data de entrada hoje, conta e categoria
+   * padrão. Lote, valores e parcelas se acertam no rascunho, antes de confirmar.
+   */
+  async draftFrom(
+    tx: Executor,
+    auth: AuthContext,
+    draft: Pick<PurchaseInput, 'supplierId' | 'notes' | 'items'>,
+  ): Promise<string> {
+    const today = await this.today(tx, auth.unitId);
+    await this.finance.ensure(tx, auth.organizationId, today);
+    const id = await this.insert(tx, auth, 'manual', {
+      ...draft,
+      invoiceNumber: '',
+      invoiceSeries: '',
+      invoiceKey: '',
+      issuedOn: null,
+      enteredOn: today,
+      freight: 0,
+      otherCosts: 0,
+      discount: 0,
+      ...(await this.defaults(tx, auth)),
+      installments: [],
+    });
+    await recordAudit(tx, actorOf(auth), {
+      entity: 'purchase',
+      entityId: id,
+      action: 'create',
+      after: await this.snapshot(tx, auth, id),
+    });
+    return id;
+  }
+
   async update(auth: AuthContext, id: string, input: PurchaseInput): Promise<Purchase> {
     return this.db.transaction(async (tx) => {
       const current = await this.lock(tx, auth, id);

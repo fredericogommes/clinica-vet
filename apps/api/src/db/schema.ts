@@ -2057,3 +2057,78 @@ export const stockCountLines = pgTable(
     check('stock_count_lines_ck', sql`${t.counted} is null or ${t.counted} >= 0`),
   ],
 );
+
+/**
+ * Pedido de compra [p.17]: o que a clínica pede ao fornecedor, sugerido pela análise de estoque.
+ * Não mexe no estoque nem no financeiro; ao chegar a mercadoria vira uma compra em rascunho.
+ */
+export const purchaseOrders = pgTable(
+  'purchase_orders',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    status: text('status', { enum: ['draft', 'sent', 'received', 'cancelled'] }).notNull(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    expectedOn: date('expected_on', { mode: 'string' }),
+    notes: text('notes').notNull().default(''),
+    /** Estimativa pelo custo informado em cada item. */
+    total: money('total').notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    sentBy: uuid('sent_by').references(() => users.id),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    /** A compra lançada a partir do pedido. */
+    purchaseId: uuid('purchase_id').references(() => purchases.id),
+    receivedBy: uuid('received_by').references(() => users.id),
+    receivedAt: timestamp('received_at', { withTimezone: true }),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('purchase_orders_org_code_uq').on(t.organizationId, t.code),
+    index('purchase_orders_org_status_idx').on(t.organizationId, t.status),
+    check(
+      'purchase_orders_ck',
+      sql`${t.total} >= 0
+        and (${t.status} not in ('sent', 'received') or ${t.sentAt} is not null)
+        and (${t.status} <> 'received' or (${t.receivedAt} is not null and ${t.purchaseId} is not null))
+        and (${t.status} <> 'cancelled' or (${t.cancelledAt} is not null and ${t.cancelReason} is not null))`,
+    ),
+  ],
+);
+
+/** Item do pedido, na unidade do produto, com o custo estimado. */
+export const purchaseOrderItems = pgTable(
+  'purchase_order_items',
+  {
+    id: uuid('id').primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    quantity: quantity('quantity').notNull(),
+    unitCost: money('unit_cost'),
+  },
+  (t) => [
+    index('purchase_order_items_order_idx').on(t.orderId, t.position),
+    uniqueIndex('purchase_order_items_product_uq').on(t.orderId, t.productId),
+    check(
+      'purchase_order_items_ck',
+      sql`${t.quantity} > 0 and (${t.unitCost} is null or ${t.unitCost} >= 0)`,
+    ),
+  ],
+);
