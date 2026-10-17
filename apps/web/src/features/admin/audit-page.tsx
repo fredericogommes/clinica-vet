@@ -31,6 +31,8 @@ const entityLabels: Record<string, string> = {
   product_brand: 'Marca',
   sale: 'Venda',
   client_package: 'Pacote do cliente',
+  hospitalization: 'Internação',
+  box: 'Box de internação',
   sales_settings: 'Configuração de vendas',
   payment_method: 'Forma de recebimento',
   cash_session: 'Caixa',
@@ -72,6 +74,14 @@ const actionLabels: Record<string, string> = {
   transfer: 'Transferiu entre contas',
   reconcile: 'Conciliou depósito',
   undo: 'Desfez',
+  admit: 'Internou',
+  move_box: 'Trocou de box',
+  discharge: 'Deu alta',
+  death: 'Registrou óbito',
+  entry_occurrence: 'Registrou ocorrência',
+  entry_weight: 'Registrou peso',
+  entry_parameters: 'Registrou parâmetros clínicos',
+  entry_report: 'Registrou relatório médico',
 };
 
 export interface AuditFilter {

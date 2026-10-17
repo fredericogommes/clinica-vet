@@ -38,7 +38,7 @@ test('balcão: cadastra cliente com o primeiro animal, completa a ficha e troca 
   await expect(page.getByRole('listitem').filter({ hasText: /^WhatsApp/ })).toContainText('Aceita');
 
   // Histórico de alterações da ficha vem da auditoria, filtrado pelo cliente (RN-21).
-  await page.getByRole('link', { name: 'Histórico' }).click();
+  await page.getByRole('link', { name: 'Histórico', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     `Histórico de alterações · ${tutor}`,
   );

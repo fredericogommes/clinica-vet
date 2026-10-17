@@ -41,6 +41,22 @@ export const permissionCatalog = {
     group: 'Atendimento clínico',
     label: 'Registrar evento clínico com data e hora retroativas',
   },
+  'hospitalization.view': {
+    group: 'Internação',
+    label: 'Ver os animais internados, a ficha de internação e o histórico de internações',
+  },
+  'hospitalization.manage': {
+    group: 'Internação',
+    label: 'Internar, editar, trocar o box, dar alta, registrar óbito e cancelar internações',
+  },
+  'hospitalization.record': {
+    group: 'Internação',
+    label: 'Registrar ocorrência, peso, parâmetros clínicos e relatório médico na internação',
+  },
+  'hospitalization.configure': {
+    group: 'Internação',
+    label: 'Cadastrar os boxes de internação da unidade',
+  },
   'schedule.view': { group: 'Agenda', label: 'Ver agenda e escala' },
   'schedule.manage': {
     group: 'Agenda',

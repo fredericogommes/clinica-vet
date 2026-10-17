@@ -27,6 +27,7 @@ import { ProtocolsPanel } from './protocols-panel';
 import { TimelinePanel } from './timeline';
 import { WeightChart } from './weight-chart';
 import { PatientSalePanel } from '../sales/patient-sale-panel';
+import { HospitalizationShortcut } from '../hospitalization/shortcut';
 
 /**
  * Ficha clínica em três colunas [RN-16]: venda aberta e agenda do animal, linha do tempo e ações.
@@ -278,15 +279,26 @@ function RecordHeader({ record }: { record: ClinicalRecord }) {
             ) : null}
           </div>
         </dl>
-        {can('patients.view') ? (
-          <Link
-            to="/animais/$patientId"
-            params={{ patientId: p.id }}
-            className={clsx(buttonClasses('secondary', 'sm'), 'self-start md:self-center')}
-          >
-            Cadastro do animal
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap gap-2 self-start md:flex-col md:self-center">
+          <HospitalizationShortcut
+            patient={{
+              id: p.id,
+              name: p.name,
+              detail: [p.speciesName, p.breedName, record.owner.name].filter(Boolean).join(' · '),
+              alive: p.status === 'alive',
+              archived: p.archived,
+            }}
+          />
+          {can('patients.view') ? (
+            <Link
+              to="/animais/$patientId"
+              params={{ patientId: p.id }}
+              className={buttonClasses('secondary', 'sm')}
+            >
+              Cadastro do animal
+            </Link>
+          ) : null}
+        </div>
       </Panel>
       {p.markings.length > 0 ? (
         <div
