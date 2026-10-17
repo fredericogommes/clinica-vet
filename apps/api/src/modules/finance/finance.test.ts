@@ -97,7 +97,7 @@ describe('estrutura inicial', () => {
         .filter((c) => c.system)
         .map((c) => c.name)
         .sort(),
-    ).toEqual(['Taxas de cartão', 'Vendas']);
+    ).toEqual(['Comissões', 'Taxas de cartão', 'Vendas']);
     expect(options.costCenters.length).toBeGreaterThan(0);
 
     // Chamadas em paralelo não duplicam nada.

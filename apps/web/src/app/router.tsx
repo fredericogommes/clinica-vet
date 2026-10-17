@@ -1,4 +1,5 @@
 import {
+  commissionStatementSituations,
   messageTriggers,
   productKinds,
   purchaseOrderSituations,
@@ -174,6 +175,23 @@ const StockCountsPage = lazy(() =>
 );
 const StockCountPage = lazy(() =>
   import('../features/stock/stock-pages').then((m) => ({ default: m.StockCountPage })),
+);
+const CommissionsOpenPage = lazy(() =>
+  import('../features/commissions/pages').then((m) => ({ default: m.CommissionsOpenPage })),
+);
+const CommissionStatementsPage = lazy(() =>
+  import('../features/commissions/pages').then((m) => ({ default: m.CommissionStatementsPage })),
+);
+const CommissionStatementPage = lazy(() =>
+  import('../features/commissions/pages').then((m) => ({ default: m.CommissionStatementPage })),
+);
+const MyCommissionsPage = lazy(() =>
+  import('../features/commissions/pages').then((m) => ({ default: m.MyCommissionsPage })),
+);
+const CommissionSettingsPage = lazy(() =>
+  import('../features/commissions/settings-page').then((m) => ({
+    default: m.CommissionSettingsPage,
+  })),
 );
 const PurchaseOrdersPage = lazy(() =>
   import('../features/purchases/order-pages').then((m) => ({ default: m.PurchaseOrdersPage })),
@@ -1077,6 +1095,69 @@ const purchaseOrderRoute = createRoute({
   },
 });
 
+const commissionsOpenRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/comissoes',
+  validateSearch: z.object({ ate: z.iso.date().optional().catch(undefined) }),
+  component: function CommissionsOpen() {
+    const { ate } = commissionsOpenRoute.useSearch();
+    return (
+      <RequirePermission permission="commissions.view">
+        <CommissionsOpenPage ate={ate} />
+      </RequirePermission>
+    );
+  },
+});
+
+const commissionStatementsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/comissoes/extratos',
+  validateSearch: z.object({
+    situacao: z.enum(commissionStatementSituations).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function CommissionStatements() {
+    const s = commissionStatementsRoute.useSearch();
+    return (
+      <RequirePermission permission="commissions.view">
+        <CommissionStatementsPage
+          search={{ situacao: s.situacao ?? 'abertos', page: s.page ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+// O extrato é aberto por quem vê todos ou pelo próprio profissional; a API decide.
+const commissionStatementRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/comissoes/extratos/$statementId',
+  component: function CommissionStatement() {
+    const { statementId } = commissionStatementRoute.useParams();
+    return <CommissionStatementPage key={statementId} statementId={statementId} />;
+  },
+});
+
+const myCommissionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/comissoes/minhas',
+  component: () => (
+    <RequirePermission permission="commissions.view_own">
+      <MyCommissionsPage />
+    </RequirePermission>
+  ),
+});
+
+const commissionSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/comissoes/configuracao',
+  component: () => (
+    <RequirePermission permission="commissions.configure">
+      <CommissionSettingsPage />
+    </RequirePermission>
+  ),
+});
+
 const stockExitsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/estoque/saidas',
@@ -1338,6 +1419,11 @@ const routeTree = rootRoute.addChildren([
     purchaseOrdersRoute,
     purchaseOrderNewRoute,
     purchaseOrderRoute,
+    commissionsOpenRoute,
+    commissionStatementsRoute,
+    commissionStatementRoute,
+    myCommissionsRoute,
+    commissionSettingsRoute,
     stockExitsRoute,
     stockAnalysisRoute,
     stockCountsRoute,

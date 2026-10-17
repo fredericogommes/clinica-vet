@@ -39,6 +39,7 @@
 - Outras saídas de estoque por perda, quebra, vencimento, uso interno ou doação, escolhendo o lote e guardando o custo; cancelar devolve ao estoque. Inventário por grupo ou geral, com contagem salva aos poucos, diferença na hora e aplicação ao estoque que mostra o saldo de antes.
 - Análise de estoque: cada produto em Repor, Em excesso, Parado, Novos ou Adequado, com contagem e valor por situação, consumo médio, duração e excedente; a ficha do produto mostra os mesmos indicadores.
 - Pedido de compra por fornecedor, com sugestão do que repor, texto pronto para copiar, mandar no WhatsApp ou por e-mail, e recebimento que vira rascunho de compra.
+- Comissionamento: comissões em aberto por profissional, extratos que fecham em contas a pagar, com revisão, pagamento e arquivo, ajustes quando a venda muda, Minhas comissões para a equipe e configuração de base, critério, integração e quem recebe.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido
