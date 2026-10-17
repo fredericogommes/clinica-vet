@@ -45,6 +45,7 @@
 - Ranking de clientes (curva ABC) em Vendas, com valor, participação e acumulado por cliente, e a classe A, B ou C na ficha do cliente.
 - Conta do cliente (fiado): forma de recebimento com prazo, telas Recebimentos e Saldo dos clientes, recebimento total ou parcial pelo caixa e débito na venda.
 - Pacotes de sessões (como 10 banhos): cadastro no serviço, abertura na venda baixada e Pacotes vendidos para registrar e desfazer as sessões.
+- Internação: boxes da unidade, painel de animais internados, ficha de internação com ocorrência, peso, parâmetros clínicos e relatório médico, alta, óbito e cancelamento, e histórico de internações.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

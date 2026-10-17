@@ -2426,3 +2426,165 @@ export const portalSessions = pgTable(
   },
   (t) => [index('portal_sessions_account_idx').on(t.accountId)],
 );
+
+/**
+ * Box de internação da unidade [p.15]: nome, sigla, tipo (isolamento, UTI, felinos), capacidade e
+ * espécies aceitas (nenhuma linha em `box_species` aceita qualquer espécie).
+ */
+export const boxes = pgTable(
+  'boxes',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    name: text('name').notNull(),
+    code: text('code').notNull(),
+    kind: text('kind', { enum: ['general', 'isolation', 'icu', 'feline'] }).notNull(),
+    capacity: smallint('capacity').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('boxes_unit_code_uq').on(t.unitId, sql`upper(${t.code})`),
+    uniqueIndex('boxes_unit_name_uq').on(t.unitId, sql`lower(${t.name})`),
+    check('boxes_capacity_ck', sql`${t.capacity} between 1 and 50`),
+  ],
+);
+
+export const boxSpecies = pgTable(
+  'box_species',
+  {
+    boxId: uuid('box_id')
+      .notNull()
+      .references(() => boxes.id, { onDelete: 'cascade' }),
+    speciesId: uuid('species_id')
+      .notNull()
+      .references(() => species.id),
+  },
+  (t) => [primaryKey({ columns: [t.boxId, t.speciesId] })],
+);
+
+/**
+ * Internação [p.14, RN-40]: um animal internado por vez. Termina em alta, óbito ou cancelamento,
+ * com quem encerrou, quando e a observação ou o motivo.
+ */
+export const hospitalizations = pgTable(
+  'hospitalizations',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    /** Responsável na abertura; a troca de responsável depois não muda a internação. */
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id),
+    veterinarianId: uuid('veterinarian_id')
+      .notNull()
+      .references(() => users.id),
+    priority: text('priority', { enum: ['routine', 'attention', 'urgent'] }).notNull(),
+    status: text('status', {
+      enum: ['admitted', 'discharged', 'deceased', 'cancelled'],
+    }).notNull(),
+    reason: text('reason').notNull(),
+    admittedAt: timestamp('admitted_at', { withTimezone: true }).notNull(),
+    expectedDischargeOn: date('expected_discharge_on'),
+    boxId: uuid('box_id').references(() => boxes.id),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    endedBy: uuid('ended_by').references(() => users.id),
+    outcomeNotes: text('outcome_notes'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('hospitalizations_org_code_uq').on(t.organizationId, t.code),
+    uniqueIndex('hospitalizations_patient_open_uq')
+      .on(t.patientId)
+      .where(sql`${t.status} = 'admitted'`),
+    index('hospitalizations_unit_status_idx').on(t.unitId, t.status),
+    index('hospitalizations_box_idx').on(t.boxId),
+    check(
+      'hospitalizations_end_ck',
+      sql`(${t.status} = 'admitted') = (${t.endedAt} is null)
+        and (${t.endedAt} is null) = (${t.endedBy} is null)
+        and (${t.status} <> 'admitted' or ${t.outcomeNotes} is null)
+        and (${t.status} <> 'cancelled' or ${t.outcomeNotes} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * Histórico da internação [p.15]: ocorrência, peso, relatório médico e parâmetros clínicos com
+ * opções fechadas [RN-41] em colunas próprias, além dos registros do sistema (abertura, box,
+ * alteração e desfecho). O peso também vira evento de peso no prontuário do animal.
+ */
+export const hospitalizationEntries = pgTable(
+  'hospitalization_entries',
+  {
+    id: uuid('id').primaryKey(),
+    hospitalizationId: uuid('hospitalization_id')
+      .notNull()
+      .references(() => hospitalizations.id),
+    kind: text('kind', {
+      enum: [
+        'admission',
+        'occurrence',
+        'weight',
+        'parameters',
+        'report',
+        'box',
+        'update',
+        'discharge',
+        'death',
+        'cancel',
+      ],
+    }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id),
+    text: text('text').notNull().default(''),
+    weightKg: numeric('weight_kg', { precision: 8, scale: 3, mode: 'number' }),
+    clinicalEventId: uuid('clinical_event_id').references(() => clinicalEvents.id),
+    appetite: text('appetite'),
+    behavior: text('behavior'),
+    feces: text('feces'),
+    urine: text('urine'),
+    vomit: text('vomit'),
+    temperature: text('temperature'),
+    heartRate: smallint('heart_rate'),
+    respiratoryRate: smallint('respiratory_rate'),
+    systolicPressure: smallint('systolic_pressure'),
+    glucose: smallint('glucose'),
+    dehydration: numeric('dehydration', { precision: 3, scale: 1, mode: 'number' }),
+  },
+  (t) => [
+    index('hospitalization_entries_hosp_idx').on(t.hospitalizationId, t.occurredAt),
+    check(
+      'hospitalization_entries_weight_ck',
+      sql`(${t.kind} = 'weight') = (${t.weightKg} is not null)
+        and (${t.weightKg} is null or ${t.weightKg} between 0.001 and 2000)`,
+    ),
+    check(
+      'hospitalization_entries_numbers_ck',
+      sql`(${t.heartRate} is null or ${t.heartRate} between 10 and 400)
+        and (${t.respiratoryRate} is null or ${t.respiratoryRate} between 4 and 200)
+        and (${t.systolicPressure} is null or ${t.systolicPressure} between 20 and 350)
+        and (${t.glucose} is null or ${t.glucose} between 10 and 1500)
+        and (${t.dehydration} is null or ${t.dehydration} between 0 and 15)`,
+    ),
+  ],
+);

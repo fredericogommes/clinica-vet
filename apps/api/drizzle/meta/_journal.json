@@ -183,6 +183,13 @@
       "when": 1792270016121,
       "tag": "0025_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792272283086,
+      "tag": "0026_hospitalization",
+      "breakpoints": true
     }
   ]
 }

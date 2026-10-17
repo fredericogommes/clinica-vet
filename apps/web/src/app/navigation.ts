@@ -1,6 +1,9 @@
 import type { Permission } from '@clinica/contracts';
 import {
   Trophy,
+  BedDouble,
+  History,
+  Warehouse,
   Banknote,
   Layers,
   BookUser,
@@ -78,6 +81,29 @@ export const navigation: NavSection[] = [
         to: '/atendimento',
         icon: Stethoscope,
         permission: 'clinical.view',
+      },
+    ],
+  },
+  {
+    label: 'Internação',
+    items: [
+      {
+        label: 'Animais internados',
+        to: '/internacao',
+        icon: BedDouble,
+        permission: 'hospitalization.view',
+      },
+      {
+        label: 'Histórico de internações',
+        to: '/internacao/historico',
+        icon: History,
+        permission: 'hospitalization.view',
+      },
+      {
+        label: 'Boxes',
+        to: '/internacao/boxes',
+        icon: Warehouse,
+        permission: 'hospitalization.configure',
       },
     ],
   },

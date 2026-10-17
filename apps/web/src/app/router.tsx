@@ -116,6 +116,22 @@ const MySalesPage = lazy(() =>
 const ClientRankingPage = lazy(() =>
   import('../features/sales/reports-page').then((m) => ({ default: m.ClientRankingPage })),
 );
+const HospitalizedPage = lazy(() =>
+  import('../features/hospitalization/pages').then((m) => ({ default: m.HospitalizedPage })),
+);
+const HospitalizationHistoryPage = lazy(() =>
+  import('../features/hospitalization/pages').then((m) => ({
+    default: m.HospitalizationHistoryPage,
+  })),
+);
+const HospitalizationRecordPage = lazy(() =>
+  import('../features/hospitalization/record-page').then((m) => ({
+    default: m.HospitalizationRecordPage,
+  })),
+);
+const BoxesPage = lazy(() =>
+  import('../features/hospitalization/boxes-page').then((m) => ({ default: m.BoxesPage })),
+);
 const PackagesPage = lazy(() =>
   import('../features/sales/packages-page').then((m) => ({ default: m.PackagesPage })),
 );
@@ -1557,6 +1573,64 @@ const saleRoute = createRoute({
   },
 });
 
+/** Painel da internação [p.14]: a busca fica na URL, como nas demais listas. */
+const hospitalizedRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/internacao',
+  validateSearch: z.object({ q: z.string().max(100).optional().catch(undefined) }),
+  component: function Hospitalized() {
+    const s = hospitalizedRoute.useSearch();
+    return (
+      <RequirePermission permission="hospitalization.view">
+        <HospitalizedPage q={s.q ?? ''} />
+      </RequirePermission>
+    );
+  },
+});
+
+const hospitalizationHistoryRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/internacao/historico',
+  validateSearch: z.object({
+    q: z.string().max(100).optional().catch(undefined),
+    situacao: z.enum(['discharged', 'deceased', 'cancelled']).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function HospitalizationHistory() {
+    const s = hospitalizationHistoryRoute.useSearch();
+    return (
+      <RequirePermission permission="hospitalization.view">
+        <HospitalizationHistoryPage
+          search={{ q: s.q ?? '', status: s.situacao, page: s.page ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const boxesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/internacao/boxes',
+  component: () => (
+    <RequirePermission permission="hospitalization.configure">
+      <BoxesPage />
+    </RequirePermission>
+  ),
+});
+
+const hospitalizationRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/internacao/$hospitalizationId',
+  component: function HospitalizationRecord() {
+    const { hospitalizationId } = hospitalizationRoute.useParams();
+    return (
+      <RequirePermission permission="hospitalization.view">
+        <HospitalizationRecordPage key={hospitalizationId} id={hospitalizationId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   portalLoginRoute,
@@ -1575,6 +1649,10 @@ const routeTree = rootRoute.addChildren([
     patientEditRoute,
     clinicalSearchRoute,
     clinicalRecordRoute,
+    hospitalizedRoute,
+    hospitalizationHistoryRoute,
+    boxesRoute,
+    hospitalizationRoute,
     agendaRoute,
     shiftsRoute,
     scheduleConfigRoute,
