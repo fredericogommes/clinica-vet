@@ -126,7 +126,7 @@ export function Facts({ items }: { items: { label: string; value: ReactNode }[] 
 /** Barra de ações de formulário longo; fica visível no rodapé enquanto se rola a página. */
 export function FormActions({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex justify-end gap-2 border-t border-line bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
+    <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-wrap justify-end gap-2 border-t border-line bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
       {children}
     </div>
   );

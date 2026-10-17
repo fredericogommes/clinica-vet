@@ -20,6 +20,8 @@ import {
   products,
   purchases,
   saleItems,
+  stockCounts,
+  stockExits,
   sales,
   stockBalances,
   stockLots,
@@ -443,6 +445,189 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Outra saída [p.17]: tira do saldo e do lote escolhido (vencido inclusive). Não cria pendência:
+   * não se perde o que não está na prateleira.
+   */
+  async issue(
+    tx: Executor,
+    auth: AuthContext,
+    exit: { id: string; organizationId: string; unitId: string; code: number },
+    lines: { index: number; productId: string; lotId: string | null; quantity: number }[],
+  ): Promise<void> {
+    const locked = await this.lock(
+      tx,
+      exit.organizationId,
+      exit.unitId,
+      lines.map((l) => l.productId),
+    );
+    const lotIds = [...new Set(lines.map((l) => l.lotId).filter((v): v is string => v !== null))];
+    const lotRows =
+      lotIds.length > 0
+        ? await tx
+            .select({
+              id: stockLots.id,
+              productId: stockLots.productId,
+              code: stockLots.code,
+              onHand: stockLots.onHand,
+            })
+            .from(stockLots)
+            .where(and(inArray(stockLots.id, lotIds), eq(stockLots.unitId, exit.unitId)))
+            .for('update')
+        : [];
+    const lotLeft = new Map(lotRows.map((l) => [l.id, toMilli(l.onHand)]));
+    for (const line of lines) {
+      const path = `items.${String(line.index)}`;
+      const b = locked.get(line.productId);
+      if (!b) throw invalid(`${path}.productId`, 'Este produto não controla estoque');
+      const milli = toMilli(line.quantity);
+      let lots: LotChange[] = [];
+      if (b.tracksLots) {
+        const lot = lotRows.find((l) => l.id === line.lotId && l.productId === line.productId);
+        if (!lot) throw invalid(`${path}.lotId`, 'Escolha o lote que sai');
+        const left = lotLeft.get(lot.id) ?? 0;
+        if (milli > left) {
+          throw invalid(`${path}.quantity`, `Só há ${qty(left)} ${b.unit} no lote ${lot.code}`);
+        }
+        lotLeft.set(lot.id, left - milli);
+        lots = [{ lotId: lot.id, milli: -milli }];
+      }
+      if (milli > b.onHand) {
+        throw invalid(
+          `${path}.quantity`,
+          `Só há ${qty(b.onHand)} ${b.unit} de ${b.name} em estoque`,
+        );
+      }
+      const after = { onHand: b.onHand - milli, shortfall: b.shortfall };
+      await this.write(
+        tx,
+        auth,
+        exit,
+        line.productId,
+        after,
+        { kind: 'exit', quantity: -milli, shortfall: 0, notes: `Saída ${String(exit.code)}` },
+        lots,
+      );
+      locked.set(line.productId, { ...b, ...after });
+    }
+  }
+
+  /** Cancelar a saída devolve cada quantidade ao lote de onde saiu, quitando pendência antes. */
+  async unissue(
+    tx: Executor,
+    auth: AuthContext,
+    exit: { id: string; organizationId: string; unitId: string; code: number },
+  ): Promise<void> {
+    const moves = await tx
+      .select({
+        id: stockMovements.id,
+        productId: stockMovements.productId,
+        quantity: stockMovements.quantity,
+        lotId: stockMovementLots.lotId,
+      })
+      .from(stockMovements)
+      .leftJoin(stockMovementLots, eq(stockMovementLots.movementId, stockMovements.id))
+      .where(and(eq(stockMovements.exitId, exit.id), eq(stockMovements.kind, 'exit')))
+      .orderBy(asc(stockMovements.id));
+    const locked = await this.lock(
+      tx,
+      exit.organizationId,
+      exit.unitId,
+      moves.map((m) => m.productId),
+    );
+    for (const move of moves) {
+      const b = locked.get(move.productId);
+      if (!b) continue;
+      const milli = -toMilli(move.quantity);
+      const after = applyEntry(b, milli);
+      const increase = after.onHand - b.onHand;
+      await this.write(
+        tx,
+        auth,
+        exit,
+        move.productId,
+        after,
+        {
+          kind: 'exit_cancel',
+          quantity: milli,
+          shortfall: 0,
+          notes: `Saída ${String(exit.code)} cancelada`,
+        },
+        move.lotId && increase > 0 ? [{ lotId: move.lotId, milli: increase }] : [],
+      );
+      locked.set(move.productId, { ...b, ...after });
+    }
+  }
+
+  /**
+   * Aplica o inventário: cada linha contada vira o saldo (do lote, quando há lote) e zera a
+   * pendência do produto. Devolve o saldo do sistema antes de cada linha, para guardar.
+   */
+  async applyCount(
+    tx: Executor,
+    auth: AuthContext,
+    count: { id: string; organizationId: string; unitId: string; code: number },
+    lines: { productId: string; lotId: string | null; counted: number }[],
+  ): Promise<(number | null)[]> {
+    const locked = await this.lock(
+      tx,
+      count.organizationId,
+      count.unitId,
+      lines.map((l) => l.productId),
+    );
+    const lotIds = lines.map((l) => l.lotId).filter((v): v is string => v !== null);
+    const lotRows =
+      lotIds.length > 0
+        ? await tx
+            .select({ id: stockLots.id, onHand: stockLots.onHand })
+            .from(stockLots)
+            .where(inArray(stockLots.id, lotIds))
+            .for('update')
+        : [];
+    const lotOnHand = new Map(lotRows.map((l) => [l.id, toMilli(l.onHand)]));
+    const expected: (number | null)[] = [];
+    for (const line of lines) {
+      const b = locked.get(line.productId);
+      if (!b || (b.tracksLots && !line.lotId) || (!b.tracksLots && line.lotId)) {
+        expected.push(null);
+        continue;
+      }
+      const counted = toMilli(line.counted);
+      let after: { onHand: number; shortfall: number };
+      let lots: LotChange[] = [];
+      let before: number;
+      if (line.lotId) {
+        before = lotOnHand.get(line.lotId) ?? 0;
+        after = { onHand: b.onHand - before + counted, shortfall: 0 };
+        lots = [{ lotId: line.lotId, milli: counted - before }];
+        lotOnHand.set(line.lotId, counted);
+      } else {
+        before = b.onHand - b.shortfall;
+        after = { onHand: counted, shortfall: 0 };
+      }
+      expected.push(fromMilli(before));
+      const change = after.onHand - (b.onHand - b.shortfall);
+      if (change !== 0 || b.shortfall !== 0 || lots.some((l) => l.milli !== 0)) {
+        await this.write(
+          tx,
+          auth,
+          count,
+          line.productId,
+          after,
+          {
+            kind: 'count',
+            quantity: change,
+            shortfall: 0,
+            notes: `Inventário ${String(count.code)}`,
+          },
+          lots,
+        );
+      }
+      locked.set(line.productId, { ...b, ...after });
+    }
+    return expected;
+  }
+
   /** Lotes não vencidos com saldo, na ordem de saída. */
   private async validLots(tx: Executor, unitId: string, productId: string) {
     const today = await this.today(tx, unitId);
@@ -534,6 +719,9 @@ export class InventoryService {
         movement.kind === 'purchase' || movement.kind === 'purchase_cancel'
           ? (scope.id ?? null)
           : null,
+      exitId:
+        movement.kind === 'exit' || movement.kind === 'exit_cancel' ? (scope.id ?? null) : null,
+      countId: movement.kind === 'count' ? (scope.id ?? null) : null,
       createdBy: auth.userId,
     });
     for (const lot of lots) {
@@ -655,12 +843,18 @@ export class InventoryService {
         saleCode: sales.code,
         purchaseId: stockMovements.purchaseId,
         purchaseCode: purchases.code,
+        exitId: stockMovements.exitId,
+        exitCode: stockExits.code,
+        countId: stockMovements.countId,
+        countCode: stockCounts.code,
         by: users.name,
       })
       .from(stockMovements)
       .innerJoin(users, eq(users.id, stockMovements.createdBy))
       .leftJoin(sales, eq(sales.id, stockMovements.saleId))
       .leftJoin(purchases, eq(purchases.id, stockMovements.purchaseId))
+      .leftJoin(stockExits, eq(stockExits.id, stockMovements.exitId))
+      .leftJoin(stockCounts, eq(stockCounts.id, stockMovements.countId))
       .where(
         and(
           eq(stockMovements.unitId, auth.unitId),
@@ -734,6 +928,8 @@ export class InventoryService {
           m.purchaseId && m.purchaseCode !== null && auth.permissions.has('purchases.view')
             ? { id: m.purchaseId, code: m.purchaseCode }
             : null,
+        exit: m.exitId && m.exitCode !== null ? { id: m.exitId, code: m.exitCode } : null,
+        count: m.countId && m.countCode !== null ? { id: m.countId, code: m.countCode } : null,
         lots: movementLots
           .filter((l) => l.movementId === m.id)
           .map((l) => ({ code: l.code, quantity: l.quantity })),
@@ -920,6 +1116,8 @@ export class InventoryService {
         saleCode: sales.code,
         purchaseId: purchases.id,
         purchaseCode: purchases.code,
+        exitId: stockExits.id,
+        exitCode: stockExits.code,
         patientId: patients.id,
         patientName: patients.name,
         clientId: clients.id,
@@ -931,6 +1129,7 @@ export class InventoryService {
       .innerJoin(users, eq(users.id, stockMovements.createdBy))
       .leftJoin(sales, eq(sales.id, stockMovements.saleId))
       .leftJoin(purchases, eq(purchases.id, stockMovements.purchaseId))
+      .leftJoin(stockExits, eq(stockExits.id, stockMovements.exitId))
       .leftJoin(patients, eq(patients.id, sales.patientId))
       .leftJoin(clients, eq(clients.id, sales.clientId))
       .where(eq(stockMovementLots.lotId, lotId))
@@ -955,6 +1154,7 @@ export class InventoryService {
           r.purchaseId && r.purchaseCode !== null && can('purchases.view')
             ? { id: r.purchaseId, code: r.purchaseCode }
             : null,
+        exit: r.exitId && r.exitCode !== null ? { id: r.exitId, code: r.exitCode } : null,
         patient:
           r.patientId && r.patientName !== null && can('patients.view')
             ? { id: r.patientId, name: r.patientName }

@@ -67,6 +67,14 @@ export const permissionCatalog = {
     group: 'Estoque e serviços',
     label: 'Lançar entrada de estoque e ajustar o saldo pela contagem',
   },
+  'inventory.exits': {
+    group: 'Estoque e serviços',
+    label: 'Lançar e cancelar outras saídas de estoque (perda, quebra, uso interno)',
+  },
+  'inventory.counts': {
+    group: 'Estoque e serviços',
+    label: 'Fazer inventário e aplicar a contagem ao estoque',
+  },
   'purchases.view': { group: 'Estoque e serviços', label: 'Ver compras e notas de entrada' },
   'purchases.manage': {
     group: 'Estoque e serviços',

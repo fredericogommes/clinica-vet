@@ -3,6 +3,8 @@ import {
   productKinds,
   purchaseSituations,
   saleStatuses,
+  stockExitReasons,
+  stockExitSituations,
   vaccineKinds,
   type Permission,
 } from '@clinica/contracts';
@@ -158,6 +160,15 @@ const PurchaseNewPage = lazy(() =>
 );
 const PurchasePage = lazy(() =>
   import('../features/purchases/purchase-pages').then((m) => ({ default: m.PurchasePage })),
+);
+const StockExitsPage = lazy(() =>
+  import('../features/stock/stock-pages').then((m) => ({ default: m.StockExitsPage })),
+);
+const StockCountsPage = lazy(() =>
+  import('../features/stock/stock-pages').then((m) => ({ default: m.StockCountsPage })),
+);
+const StockCountPage = lazy(() =>
+  import('../features/stock/stock-pages').then((m) => ({ default: m.StockCountPage })),
 );
 const AccountsPage = lazy(() =>
   import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
@@ -1012,6 +1023,63 @@ const purchaseRoute = createRoute({
   },
 });
 
+const stockExitsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/saidas',
+  validateSearch: z.object({
+    situacao: z.enum(stockExitSituations).optional().catch(undefined),
+    motivo: z.enum(stockExitReasons).optional().catch(undefined),
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function StockExits() {
+    const s = stockExitsRoute.useSearch();
+    return (
+      <RequirePermission permission="inventory.exits">
+        <StockExitsPage
+          search={{
+            situacao: s.situacao ?? 'ativas',
+            motivo: s.motivo,
+            de: s.de,
+            ate: s.ate,
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const stockCountsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/inventario',
+  validateSearch: z.object({
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function StockCounts() {
+    const { page } = stockCountsRoute.useSearch();
+    return (
+      <RequirePermission permission="inventory.counts">
+        <StockCountsPage page={page ?? 1} />
+      </RequirePermission>
+    );
+  },
+});
+
+const stockCountRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/inventario/$countId',
+  component: function StockCount() {
+    const { countId } = stockCountRoute.useParams();
+    return (
+      <RequirePermission permission="inventory.counts">
+        <StockCountPage key={countId} countId={countId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const productBrandsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/estoque/marcas',
@@ -1191,6 +1259,9 @@ const routeTree = rootRoute.addChildren([
     purchasesRoute,
     purchaseNewRoute,
     purchaseRoute,
+    stockExitsRoute,
+    stockCountsRoute,
+    stockCountRoute,
     pdvRoute,
     salesSettingsRoute,
     paymentMethodsRoute,

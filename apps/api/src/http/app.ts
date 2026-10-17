@@ -40,6 +40,8 @@ import { FinanceReportsService } from '../modules/finance/reports.js';
 import { FinanceService } from '../modules/finance/service.js';
 import { purchaseRoutes } from '../modules/purchases/routes.js';
 import { PurchasesService } from '../modules/purchases/service.js';
+import { stockRoutes } from '../modules/stock/routes.js';
+import { StockOpsService } from '../modules/stock/service.js';
 import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
 import { DashboardService } from '../modules/dashboard/service.js';
@@ -150,6 +152,10 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(purchaseRoutes, {
     prefix: '/api/purchases',
     purchases: new PurchasesService(db, inventory, finance),
+  });
+  await app.register(stockRoutes, {
+    prefix: '/api/stock',
+    stock: new StockOpsService(db, inventory),
   });
   await app.register(messagingRoutes, {
     prefix: '/api/messages',

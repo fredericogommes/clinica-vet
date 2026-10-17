@@ -1005,7 +1005,16 @@ export const stockMovements = pgTable(
       .notNull()
       .references(() => products.id),
     kind: text('kind', {
-      enum: ['entry', 'count', 'sale', 'sale_return', 'purchase', 'purchase_cancel'],
+      enum: [
+        'entry',
+        'count',
+        'sale',
+        'sale_return',
+        'purchase',
+        'purchase_cancel',
+        'exit',
+        'exit_cancel',
+      ],
     }).notNull(),
     quantity: quantity('quantity').notNull(),
     shortfall: quantity('shortfall').notNull().default(0),
@@ -1014,6 +1023,8 @@ export const stockMovements = pgTable(
     notes: text('notes').notNull().default(''),
     saleId: uuid('sale_id').references(() => sales.id),
     purchaseId: uuid('purchase_id').references((): AnyPgColumn => purchases.id),
+    exitId: uuid('exit_id').references((): AnyPgColumn => stockExits.id),
+    countId: uuid('count_id').references((): AnyPgColumn => stockCounts.id),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
@@ -1023,13 +1034,16 @@ export const stockMovements = pgTable(
     index('stock_movements_product_idx').on(t.unitId, t.productId, t.createdAt),
     index('stock_movements_sale_idx').on(t.saleId),
     index('stock_movements_purchase_idx').on(t.purchaseId),
+    index('stock_movements_exit_idx').on(t.exitId),
+    index('stock_movements_count_idx').on(t.countId),
     check(
       'stock_movements_ck',
       sql`${t.onHandAfter} >= 0 and ${t.shortfall} >= 0 and ${t.shortfallAfter} >= 0
         and (${t.kind} not in ('sale', 'sale_return') or ${t.saleId} is not null)
         and (${t.kind} not in ('purchase', 'purchase_cancel') or ${t.purchaseId} is not null)
-        and (${t.kind} not in ('sale', 'purchase_cancel') or ${t.quantity} < 0)
-        and (${t.kind} not in ('entry', 'sale_return', 'purchase') or ${t.quantity} > 0)`,
+        and (${t.kind} not in ('exit', 'exit_cancel') or ${t.exitId} is not null)
+        and (${t.kind} not in ('sale', 'purchase_cancel', 'exit') or ${t.quantity} < 0)
+        and (${t.kind} not in ('entry', 'sale_return', 'purchase', 'exit_cancel') or ${t.quantity} > 0)`,
     ),
   ],
 );
@@ -1923,4 +1937,123 @@ export const supplierProducts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.supplierId, t.supplierCode] })],
+);
+
+/**
+ * Outra saída de estoque [p.17]: perda, quebra, vencimento, uso interno ou doação. Baixa na
+ * hora, lote a lote, e guarda o custo do momento para medir quanto se perdeu; cancelar devolve.
+ */
+export const stockExits = pgTable(
+  'stock_exits',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    reason: text('reason', {
+      enum: ['loss', 'breakage', 'expired', 'internal_use', 'donation', 'other'],
+    }).notNull(),
+    occurredOn: date('occurred_on').notNull(),
+    notes: text('notes').notNull().default(''),
+    totalCost: money('total_cost').notNull().default(0),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+  },
+  (t) => [
+    uniqueIndex('stock_exits_org_code_uq').on(t.organizationId, t.code),
+    index('stock_exits_unit_date_idx').on(t.unitId, t.occurredOn),
+    check(
+      'stock_exits_ck',
+      sql`${t.totalCost} >= 0 and (${t.cancelledAt} is null) = (${t.cancelReason} is null)`,
+    ),
+  ],
+);
+
+export const stockExitItems = pgTable(
+  'stock_exit_items',
+  {
+    id: uuid('id').primaryKey(),
+    exitId: uuid('exit_id')
+      .notNull()
+      .references(() => stockExits.id, { onDelete: 'cascade' }),
+    position: smallint('position').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    lotId: uuid('lot_id').references(() => stockLots.id),
+    quantity: quantity('quantity').notNull(),
+    /** Custo do produto no momento da saída; nulo quando o produto não tinha custo. */
+    unitCost: money('unit_cost'),
+  },
+  (t) => [
+    uniqueIndex('stock_exit_items_position_uq').on(t.exitId, t.position),
+    index('stock_exit_items_product_idx').on(t.productId),
+    check('stock_exit_items_ck', sql`${t.quantity} > 0`),
+  ],
+);
+
+/**
+ * Inventário [p.17]: contagem física de vários produtos de uma vez. Enquanto aberto, guarda o
+ * que foi contado; ao aplicar, cada linha contada vira o saldo (por lote quando controla lote).
+ */
+export const stockCounts = pgTable(
+  'stock_counts',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    status: text('status', { enum: ['open', 'applied', 'cancelled'] }).notNull(),
+    groupId: uuid('group_id').references(() => productGroups.id),
+    notes: text('notes').notNull().default(''),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    closedBy: uuid('closed_by').references(() => users.id),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('stock_counts_org_code_uq').on(t.organizationId, t.code),
+    index('stock_counts_unit_idx').on(t.unitId, t.status),
+    check('stock_counts_ck', sql`(${t.status} = 'open') = (${t.closedAt} is null)`),
+  ],
+);
+
+export const stockCountLines = pgTable(
+  'stock_count_lines',
+  {
+    id: uuid('id').primaryKey(),
+    countId: uuid('count_id')
+      .notNull()
+      .references(() => stockCounts.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    lotId: uuid('lot_id').references(() => stockLots.id),
+    /** Saldo do sistema quando o inventário foi aplicado (antes, mostra-se o saldo atual). */
+    expected: quantity('expected'),
+    counted: quantity('counted'),
+  },
+  (t) => [
+    uniqueIndex('stock_count_lines_uq').on(
+      t.countId,
+      t.productId,
+      sql`coalesce(${t.lotId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    ),
+    check('stock_count_lines_ck', sql`${t.counted} is null or ${t.counted} >= 0`),
+  ],
 );

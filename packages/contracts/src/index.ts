@@ -20,3 +20,4 @@ export * from './vaccines.js';
 export * from './messaging.js';
 export * from './finance.js';
 export * from './purchases.js';
+export * from './stock-ops.js';
