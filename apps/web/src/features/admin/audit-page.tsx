@@ -56,6 +56,8 @@ const actionLabels: Record<string, string> = {
   close: 'Fechou',
   supply: 'Suprimento',
   withdrawal: 'Sangria',
+  stock_entry: 'Lançou entrada de estoque',
+  stock_count: 'Registrou contagem de estoque',
 };
 
 export interface AuditFilter {

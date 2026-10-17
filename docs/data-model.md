@@ -83,6 +83,13 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `cash_sessions`    | Caixa de um operador numa unidade [RN-29]              | Código sequencial; troco inicial; um caixa aberto por operador e unidade (índice único parcial); fechado guarda quem fechou, dinheiro esperado, contado e observação                     |
 | `cash_movements`   | Suprimento, sangria e devolução de estorno             | Valor > 0 e descrição; devolução sempre ligada à venda e com a forma e o tipo de pagamento copiados                                                                                      |
 
+| Tabela            | Papel                                | Regras principais                                                                                                                                                       |
+| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stock_balances`  | Saldo do produto por unidade [RN-31] | Chave (unidade, produto); saldo e pendência ≥ 0 e nunca os dois positivos; travada em toda reserva, baixa, estorno e ajuste                                             |
+| `stock_movements` | Entrada, contagem, venda e estorno   | Quantidade com sinal, parte em pendência, saldo e pendência resultantes, observação, venda de origem e autor; venda sempre negativa, entrada e estorno sempre positivos |
+
+`product_groups.blocks_sale_without_stock` (padrão verdadeiro) decide se falta de saldo bloqueia a venda; a reserva não tem tabela: é a soma dos itens das vendas em aberto da unidade (migração 0009).
+
 `sale_payments.cash_session_id` aponta o caixa que recebeu e `reversed_at` marca o pagamento devolvido no estorno (migração 0008, que também deixa a venda estornada guardar a baixa original).
 
 `sales.closed_at`/`closed_by` marcam a baixa; CHECK garante que só venda baixada os tem (migração 0007, que também cria Dinheiro e PIX nas organizações existentes).

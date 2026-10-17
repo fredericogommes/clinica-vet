@@ -4,18 +4,21 @@ import {
   productListItemSchema,
   productListQuerySchema,
   productSchema,
+  productStockSchema,
+  stockAdjustmentSchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { InventoryService } from '../inventory/service.js';
 import type { ProductService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
 
-export const productRoutes: FastifyPluginAsyncZod<{ products: ProductService }> = async (
-  app,
-  { products },
-) => {
+export const productRoutes: FastifyPluginAsyncZod<{
+  products: ProductService;
+  inventory: InventoryService;
+}> = async (app, { products, inventory }) => {
   app.get(
     '/',
     {
@@ -60,6 +63,29 @@ export const productRoutes: FastifyPluginAsyncZod<{ products: ProductService }> 
       schema: { params: idParams, response: { 200: productSchema } },
     },
     async (request) => products.get(requireAuth(request), request.params.id),
+  );
+
+  // Estoque na unidade atual [RN-31]; nulo quando o item não controla estoque.
+  app.get(
+    '/:id/stock',
+    {
+      config: { access: { kind: 'permission', permission: 'products.view' } },
+      schema: { params: idParams, response: { 200: productStockSchema.nullable() } },
+    },
+    async (request) => inventory.stock(requireAuth(request), request.params.id),
+  );
+
+  app.post(
+    '/:id/stock',
+    {
+      config: { access: { kind: 'permission', permission: 'inventory.adjust' } },
+      schema: {
+        params: idParams,
+        body: stockAdjustmentSchema,
+        response: { 200: productStockSchema },
+      },
+    },
+    async (request) => inventory.adjust(requireAuth(request), request.params.id, request.body),
   );
 
   app.put(

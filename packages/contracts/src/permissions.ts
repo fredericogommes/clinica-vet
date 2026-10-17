@@ -63,6 +63,10 @@ export const permissionCatalog = {
     group: 'Estoque e serviços',
     label: 'Ver e alterar custo e markup dos produtos',
   },
+  'inventory.adjust': {
+    group: 'Estoque e serviços',
+    label: 'Lançar entrada de estoque e ajustar o saldo pela contagem',
+  },
   'sales.view': { group: 'Vendas', label: 'Ver vendas e orçamentos' },
   'sales.manage': {
     group: 'Vendas',

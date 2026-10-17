@@ -604,7 +604,8 @@ const productGroupsRoute = createRoute({
         title="Grupos de produtos"
         noun="grupo"
         masculine
-        description="Organizam o catálogo e os relatórios, ex. Medicamentos, Vacinas, Rações."
+        stockPolicy
+        description="Organizam o catálogo e os relatórios, ex. Medicamentos, Vacinas, Rações. Cada grupo decide se falta de saldo bloqueia a venda."
       />
     </RequirePermission>
   ),

@@ -288,6 +288,8 @@ export const productListItemSchema = z.object({
   groupName: z.string().nullable(),
   brandName: z.string().nullable(),
   salePrice: z.number(),
+  /** Saldo na unidade atual; nulo quando o item não controla estoque. */
+  stock: z.object({ onHand: z.number(), shortfall: z.number(), belowMin: z.boolean() }).nullable(),
   archived: z.boolean(),
 });
 export type ProductListItem = z.infer<typeof productListItemSchema>;

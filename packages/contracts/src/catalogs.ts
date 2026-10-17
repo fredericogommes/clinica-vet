@@ -13,6 +13,8 @@ export const catalogItemSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   archived: z.boolean(),
+  /** Só em grupos de produtos: falta de saldo bloqueia a venda [RN-31]. */
+  blocksSaleWithoutStock: z.boolean().optional(),
 });
 export type CatalogItem = z.infer<typeof catalogItemSchema>;
 
@@ -22,5 +24,6 @@ export type Breed = z.infer<typeof breedSchema>;
 export const catalogItemInputSchema = z.object({
   name: z.string().trim().min(2, 'Mínimo de 2 caracteres').max(80, 'Máximo de 80 caracteres'),
   archived: z.boolean().default(false),
+  blocksSaleWithoutStock: z.boolean().optional(),
 });
 export type CatalogItemInput = z.input<typeof catalogItemInputSchema>;
