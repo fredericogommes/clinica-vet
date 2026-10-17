@@ -3,6 +3,7 @@ import {
   entryStatusLabels,
   financialAccountKindLabels,
   acquirerKinds,
+  ON_ACCOUNT,
   fromCents,
   splitInstallments,
   toCents,
@@ -56,6 +57,7 @@ import {
   financialEntries,
   purchases,
   commissionStatements,
+  saleReceivables,
   sales,
   suppliers,
 } from '../../db/schema.js';
@@ -956,6 +958,9 @@ export class FinanceService {
   async pay(auth: AuthContext, id: string, input: PayEntryInput): Promise<Entry> {
     return this.db.transaction(async (tx) => {
       const current = await this.lock(tx, auth, id);
+      if (current.origin === 'client_account') {
+        throw conflict('Conta do cliente é recebida em Vendas > Recebimentos, pelo caixa.');
+      }
       if (current.status !== 'open') {
         throw conflict(
           current.status === 'paid' ? 'Lançamento já está pago.' : 'Lançamento cancelado não muda.',
@@ -1048,7 +1053,11 @@ export class FinanceService {
       if (current.origin === 'card_adjustment') {
         throw conflict('Ajuste de conciliação: desfaça a conciliação do depósito para cancelar.');
       }
-      if (current.origin === 'sale' || current.origin === 'card_fee') {
+      if (
+        current.origin === 'sale' ||
+        current.origin === 'card_fee' ||
+        current.origin === 'client_account'
+      ) {
         throw conflict('Lançamento de venda acompanha a venda: estorne a venda para cancelar.');
       }
       if (current.origin === 'purchase') {
@@ -1230,7 +1239,11 @@ export class FinanceService {
     const rows: (typeof financialEntries.$inferInsert)[] = [];
     for (const r of receivables) {
       // Cartão e convênio só ficam pagos na conciliação, quando o depósito cai [RN-37].
-      const paid = !acquirerKinds.includes(payment.kind as PaymentKind) && r.dueDate <= today;
+      // Cartão e convênio só ficam pagos na conciliação, quando o depósito cai [RN-37]; a conta do
+      // cliente fica em aberto até ser recebida em Recebimentos [p.10].
+      const onAccount = payment.kind === ON_ACCOUNT;
+      const paid =
+        !onAccount && !acquirerKinds.includes(payment.kind as PaymentKind) && r.dueDate <= today;
       const common = {
         organizationId: auth.organizationId,
         unitId: sale.unitId,
@@ -1255,8 +1268,10 @@ export class FinanceService {
         id: newId(),
         kind: 'income',
         direction: 'in',
-        origin: 'sale',
-        description: `Venda ${String(sale.code)} - ${who} - ${payment.methodName}`,
+        origin: onAccount ? 'client_account' : 'sale',
+        description: onAccount
+          ? `Conta do cliente - venda ${String(sale.code)} - ${who}`
+          : `Venda ${String(sale.code)} - ${who} - ${payment.methodName}`,
         categoryId: salesCategory,
         amount: r.amount,
         paidAmount: paid ? r.amount : null,
@@ -1276,6 +1291,41 @@ export class FinanceService {
       }
     }
     if (rows.length) await tx.insert(financialEntries).values(rows);
+  }
+
+  /**
+   * Recebimento da conta do cliente [p.10]: as formas recebidas entram como receitas da venda, e o
+   * valor a receber da conta diminui na mesma medida; quitado, ele sai (cancelado com o motivo).
+   */
+  async settleClientAccount(tx: Executor, accountPaymentId: string, cents: number, code: number) {
+    const [entry] = await tx
+      .select({ id: financialEntries.id, amount: financialEntries.amount })
+      .from(financialEntries)
+      .innerJoin(saleReceivables, eq(saleReceivables.id, financialEntries.saleReceivableId))
+      .where(
+        and(
+          eq(saleReceivables.salePaymentId, accountPaymentId),
+          eq(financialEntries.origin, 'client_account'),
+          eq(financialEntries.status, 'open'),
+        ),
+      )
+      .for('update');
+    if (!entry) return;
+    const rest = toCents(entry.amount) - cents;
+    const now = new Date();
+    await tx
+      .update(financialEntries)
+      .set(
+        rest > 0
+          ? { amount: fromCents(rest), updatedAt: now }
+          : {
+              status: 'cancelled',
+              cancelReason: `Conta do cliente da venda ${String(code)} quitada em Recebimentos`,
+              cancelledAt: now,
+              updatedAt: now,
+            },
+      )
+      .where(eq(financialEntries.id, entry.id));
   }
 
   /** Estorno da venda cancela as receitas e taxas que ela lançou, guardando o motivo. */

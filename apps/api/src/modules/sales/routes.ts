@@ -4,6 +4,7 @@ import {
   pageSchema,
   patientSaleItemInputSchema,
   patientSalesSchema,
+  paymentMethodSchema,
   receiveSaleSchema,
   reverseSaleSchema,
   saleContextSchema,
@@ -14,6 +15,9 @@ import {
   salesByItemQuerySchema,
   salesByItemSchema,
   clientRankingSchema,
+  clientBalancesSchema,
+  clientDebtListSchema,
+  clientDebtQuerySchema,
   salesPeriodSchema,
   salesSettingsSchema,
   salesSummarySchema,
@@ -23,6 +27,7 @@ import {
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { ClientDebtService } from './client-debts.js';
 import type { ClientRankingService } from './client-ranking.js';
 import type { SalesReportService } from './reports.js';
 import type { SaleService } from './service.js';
@@ -34,7 +39,8 @@ export const saleRoutes: FastifyPluginAsyncZod<{
   sales: SaleService;
   reports: SalesReportService;
   ranking: ClientRankingService;
-}> = async (app, { sales, reports, ranking }) => {
+  debts: ClientDebtService;
+}> = async (app, { sales, reports, ranking, debts }) => {
   app.get(
     '/',
     {
@@ -78,6 +84,32 @@ export const saleRoutes: FastifyPluginAsyncZod<{
       schema: { querystring: salesPeriodSchema, response: { 200: clientRankingSchema } },
     },
     async (request) => ranking.ranking(requireAuth(request), request.query),
+  );
+
+  // Recebimentos e Saldo dos clientes [p.10]: o que ficou na conta do cliente.
+  app.get(
+    '/debts',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.debts' } },
+      schema: { querystring: clientDebtQuerySchema, response: { 200: clientDebtListSchema } },
+    },
+    async (request) => debts.list(requireAuth(request), request.query),
+  );
+  app.get(
+    '/debts/clients',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.debts' } },
+      schema: { response: { 200: clientBalancesSchema } },
+    },
+    async (request) => debts.balances(requireAuth(request)),
+  );
+  app.get(
+    '/debts/methods',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.debts' } },
+      schema: { response: { 200: z.array(paymentMethodSchema) } },
+    },
+    async (request) => sales.settleMethods(requireAuth(request)),
   );
 
   // Minhas vendas [p.10]: só os itens do próprio profissional.
@@ -195,6 +227,15 @@ export const saleRoutes: FastifyPluginAsyncZod<{
       schema: { params: idParams, body: receiveSaleSchema, response: { 200: saleSchema } },
     },
     async (request) => sales.receive(requireAuth(request), request.params.id, request.body),
+  );
+
+  app.post(
+    '/:id/settle',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.debts' } },
+      schema: { params: idParams, body: receiveSaleSchema, response: { 200: saleSchema } },
+    },
+    async (request) => sales.settle(requireAuth(request), request.params.id, request.body),
   );
 
   app.post(

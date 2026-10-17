@@ -1,5 +1,6 @@
 import {
   feeCents,
+  ON_ACCOUNT,
   fromCents,
   receivableOffsetDays,
   saleStatusLabels,
@@ -7,6 +8,7 @@ import {
   saleTotals,
   saleTypeLabels,
   toCents,
+  type PaymentMethod,
   type Sale,
   type SaleContext,
   type PatientSaleItemInput,
@@ -70,6 +72,12 @@ const invalid = (path: string, message: string) =>
   new AppError('validation_failed', 'Dados da venda inválidos.', [{ path, message }]);
 
 type SaleRow = typeof sales.$inferSelect;
+
+interface PaymentLine {
+  input: ReceiveSaleInput['payments'][number];
+  method: typeof paymentMethods.$inferSelect;
+  cents: number;
+}
 type ItemRow = typeof saleItems.$inferSelect;
 
 const DEFAULT_SETTINGS: SalesSettings = {
@@ -179,8 +187,17 @@ export class SaleService {
       discountLimitPercent: auth.permissions.has('sales.discount') ? limit : 0,
       defaultSaleType: settings.defaultSaleType,
       professionals,
-      paymentMethods: methods,
+      // A conta do cliente só aparece para quem pode vender fiado.
+      paymentMethods: auth.permissions.has('sales.on_account')
+        ? methods
+        : methods.filter((m) => m.kind !== ON_ACCOUNT),
     };
+  }
+
+  /** Formas para receber a conta do cliente [p.10]: as ativas, menos a própria conta. */
+  async settleMethods(auth: AuthContext): Promise<PaymentMethod[]> {
+    const methods = await this.methods.list(auth, { activeOnly: true });
+    return methods.filter((m) => m.kind !== ON_ACCOUNT);
   }
 
   /** Itens vendáveis: ativos e com finalidade de venda; busca por nome, código ou barras. */
@@ -332,6 +349,7 @@ export class SaleService {
       .where(eq(saleItems.saleId, id))
       .orderBy(asc(saleItems.position));
     const payments = await this.paymentsOf(db, id);
+    const clientDebt = fromCents(payments.reduce((a, p) => a + toCents(p.open), 0));
     const s = row.sale;
     const pending = s.status === 'quote' || s.status === 'open';
     const stock = pending
@@ -396,6 +414,8 @@ export class SaleService {
       cancellable: pending && auth.permissions.has('sales.cancel'),
       receivable: s.status === 'open' && auth.permissions.has('sales.receive'),
       reversible: s.status === 'closed' && auth.permissions.has('sales.reverse'),
+      clientDebt,
+      settleable: s.status === 'closed' && clientDebt > 0 && auth.permissions.has('sales.debts'),
     };
   }
 
@@ -694,37 +714,7 @@ export class SaleService {
       if (input.payments.length === 0 && netCents > 0) {
         throw invalid('payments', 'Informe ao menos uma forma de recebimento');
       }
-      const ids = [...new Set(input.payments.map((p) => p.methodId))];
-      const found = ids.length
-        ? await tx
-            .select()
-            .from(paymentMethods)
-            .where(
-              and(
-                inArray(paymentMethods.id, ids),
-                eq(paymentMethods.organizationId, auth.organizationId),
-              ),
-            )
-        : [];
-      const lines = input.payments.map((p, i) => {
-        const method = found.find((m) => m.id === p.methodId);
-        if (!method || method.archivedAt) {
-          throw invalid(`payments.${i}.methodId`, 'Forma de recebimento indisponível');
-        }
-        if (p.installments > method.maxInstallments) {
-          throw invalid(
-            `payments.${i}.installments`,
-            method.maxInstallments === 1
-              ? 'Esta forma não parcela'
-              : `Esta forma aceita até ${String(method.maxInstallments)} parcelas`,
-          );
-        }
-        const cents = toCents(p.amount);
-        if (cents < p.installments) {
-          throw invalid(`payments.${i}.installments`, 'Parcelas menores que um centavo');
-        }
-        return { input: p, method, cents };
-      });
+      const lines = await this.paymentLines(tx, auth, current, input.payments, 'receive');
       const paid = lines.reduce((a, l) => a + l.cents, 0);
       if (paid !== netCents) {
         const diff = Math.abs(paid - netCents);
@@ -739,59 +729,12 @@ export class SaleService {
       // O recebimento entra no caixa aberto do operador [RN-29].
       const session = await this.cash.openSessionFor(tx, auth, 'registrar recebimento');
       const now = new Date();
-      const [unit] = await tx
-        .select({ timeZone: units.timeZone })
-        .from(units)
-        .where(eq(units.id, current.unitId));
-      const timeZone = unit?.timeZone ?? 'America/Sao_Paulo';
-      const today = instantToZoned(now, timeZone).date;
-      const sold = { ...current, soldAt: current.soldAt ?? now };
-      for (const [position, l] of lines.entries()) {
-        const paymentId = newId();
-        await tx.insert(salePayments).values({
-          id: paymentId,
-          saleId: id,
-          position,
-          paymentMethodId: l.method.id,
-          methodName: l.method.name,
-          kind: l.method.kind,
-          amount: fromCents(l.cents),
-          installments: l.input.installments,
-          settlementDays: l.method.settlementDays,
-          feePercent: l.method.feePercent,
-          receivedAt: now,
-          receivedBy: auth.userId,
-          cashSessionId: session.id,
-        });
-        const receivables = splitInstallments(l.cents, l.input.installments).map((cents, i) => {
-          const fee = feeCents(cents, l.method.feePercent);
-          return {
-            id: newId(),
-            salePaymentId: paymentId,
-            number: i + 1,
-            dueDate: addDays(today, receivableOffsetDays(l.method.settlementDays, i + 1)),
-            amount: fromCents(cents),
-            feeAmount: fromCents(fee),
-            netAmount: fromCents(cents - fee),
-          };
-        });
-        await tx.insert(saleReceivables).values(receivables);
-        // Cada parcela vira receita no financeiro, com a taxa como despesa [RN-35].
-        await this.finance.recordSaleReceipt(
-          tx,
-          auth,
-          sold,
-          {
-            kind: l.method.kind,
-            methodName: l.method.name,
-            installments: l.input.installments,
-            accountId: l.method.accountId,
-          },
-          receivables,
-          today,
-          timeZone,
-        );
-      }
+      await this.recordPayments(tx, auth, { ...current, soldAt: current.soldAt ?? now }, lines, {
+        sessionId: session.id,
+        now,
+        firstPosition: 0,
+        settlesPaymentId: null,
+      });
       // A baixa tira os itens do estoque da unidade da venda [RN-31].
       await this.inventory.consume(tx, auth, current);
       await tx
@@ -850,7 +793,8 @@ export class SaleService {
         }
       }
       const now = new Date();
-      for (const p of payments) {
+      // A conta do cliente não entrou no caixa: não há o que devolver.
+      for (const p of payments.filter((x) => x.kind !== ON_ACCOUNT)) {
         await tx.insert(cashMovements).values({
           id: newId(),
           cashSessionId: session.id,
@@ -903,6 +847,190 @@ export class SaleService {
     });
   }
 
+  /**
+   * Valida as formas de um recebimento. A conta do cliente (fiado) só vale numa venda com cliente,
+   * para quem tem a permissão, uma vez por venda; ao quitar a conta ela não entra [p.10].
+   */
+  private async paymentLines(
+    tx: Executor,
+    auth: AuthContext,
+    sale: SaleRow,
+    payments: ReceiveSaleInput['payments'],
+    mode: 'receive' | 'settle',
+  ): Promise<PaymentLine[]> {
+    const ids = [...new Set(payments.map((p) => p.methodId))];
+    const found = ids.length
+      ? await tx
+          .select()
+          .from(paymentMethods)
+          .where(
+            and(
+              inArray(paymentMethods.id, ids),
+              eq(paymentMethods.organizationId, auth.organizationId),
+            ),
+          )
+      : [];
+    let onAccount = 0;
+    return payments.map((p, i) => {
+      const method = found.find((m) => m.id === p.methodId);
+      if (!method || method.archivedAt) {
+        throw invalid(`payments.${String(i)}.methodId`, 'Forma de recebimento indisponível');
+      }
+      if (method.kind === ON_ACCOUNT) {
+        if (mode === 'settle') {
+          throw invalid(
+            `payments.${String(i)}.methodId`,
+            'Receba com outra forma: a conta do cliente é o que está sendo quitado',
+          );
+        }
+        if (!sale.clientId) {
+          throw invalid(
+            `payments.${String(i)}.methodId`,
+            'Venda sem cliente não fica na conta: escolha o cliente da venda',
+          );
+        }
+        if (!auth.permissions.has('sales.on_account')) {
+          throw invalid(
+            `payments.${String(i)}.methodId`,
+            'Você não tem permissão para vender na conta do cliente',
+          );
+        }
+        onAccount += 1;
+        if (onAccount > 1) {
+          throw invalid(`payments.${String(i)}.methodId`, 'Use a conta do cliente uma vez só');
+        }
+      }
+      if (p.installments > method.maxInstallments) {
+        throw invalid(
+          `payments.${String(i)}.installments`,
+          method.maxInstallments === 1
+            ? 'Esta forma não parcela'
+            : `Esta forma aceita até ${String(method.maxInstallments)} parcelas`,
+        );
+      }
+      const cents = toCents(p.amount);
+      if (cents < p.installments) {
+        throw invalid(`payments.${String(i)}.installments`, 'Parcelas menores que um centavo');
+      }
+      return { input: p, method, cents };
+    });
+  }
+
+  /**
+   * Grava as formas recebidas com as parcelas e lança cada parcela no financeiro [RN-35]. A conta do
+   * cliente não passa pelo caixa: fica como valor a receber, com vencimento no prazo da forma.
+   */
+  private async recordPayments(
+    tx: Executor,
+    auth: AuthContext,
+    sold: SaleRow,
+    lines: PaymentLine[],
+    opts: { sessionId: string; now: Date; firstPosition: number; settlesPaymentId: string | null },
+  ) {
+    const [unit] = await tx
+      .select({ timeZone: units.timeZone })
+      .from(units)
+      .where(eq(units.id, sold.unitId));
+    const timeZone = unit?.timeZone ?? 'America/Sao_Paulo';
+    const today = instantToZoned(opts.now, timeZone).date;
+    for (const [i, l] of lines.entries()) {
+      const paymentId = newId();
+      const onAccount = l.method.kind === ON_ACCOUNT;
+      await tx.insert(salePayments).values({
+        id: paymentId,
+        saleId: sold.id,
+        position: opts.firstPosition + i,
+        paymentMethodId: l.method.id,
+        methodName: l.method.name,
+        kind: l.method.kind,
+        amount: fromCents(l.cents),
+        installments: l.input.installments,
+        settlementDays: l.method.settlementDays,
+        feePercent: l.method.feePercent,
+        receivedAt: opts.now,
+        receivedBy: auth.userId,
+        cashSessionId: onAccount ? null : opts.sessionId,
+        settlesPaymentId: opts.settlesPaymentId,
+      });
+      const receivables = splitInstallments(l.cents, l.input.installments).map((cents, n) => {
+        const fee = feeCents(cents, l.method.feePercent);
+        return {
+          id: newId(),
+          salePaymentId: paymentId,
+          number: n + 1,
+          dueDate: addDays(today, receivableOffsetDays(l.method.settlementDays, n + 1)),
+          amount: fromCents(cents),
+          feeAmount: fromCents(fee),
+          netAmount: fromCents(cents - fee),
+        };
+      });
+      await tx.insert(saleReceivables).values(receivables);
+      await this.finance.recordSaleReceipt(
+        tx,
+        auth,
+        sold,
+        {
+          kind: l.method.kind,
+          methodName: l.method.name,
+          installments: l.input.installments,
+          accountId: l.method.accountId,
+        },
+        receivables,
+        today,
+        timeZone,
+      );
+    }
+  }
+
+  /**
+   * Recebimentos [p.10]: abate o que está na conta do cliente de uma venda baixada, total ou em
+   * parte, com as formas do balcão e pelo caixa aberto do operador.
+   */
+  async settle(auth: AuthContext, id: string, input: ReceiveSaleInput): Promise<Sale> {
+    return this.db.transaction(async (tx) => {
+      const current = await this.lock(tx, auth, id);
+      if (current.status !== 'closed') {
+        throw conflict('Só venda baixada tem valor pendurado na conta do cliente.');
+      }
+      const payments = await this.paymentsOf(tx, id);
+      const account = payments.find((p) => p.kind === ON_ACCOUNT && !p.reversed && p.open > 0);
+      if (!account) throw conflict('Esta venda não tem valor pendurado na conta do cliente.');
+      if (input.payments.length === 0) {
+        throw invalid('payments', 'Informe ao menos uma forma de recebimento');
+      }
+      const lines = await this.paymentLines(tx, auth, current, input.payments, 'settle');
+      const paid = lines.reduce((a, l) => a + l.cents, 0);
+      const openCents = toCents(account.open);
+      if (paid > openCents) {
+        throw invalid(
+          'payments',
+          `Passou ${brl(fromCents(paid - openCents))} do que falta receber (${brl(account.open)})`,
+        );
+      }
+      const session = await this.cash.openSessionFor(tx, auth, 'receber da conta do cliente');
+      const now = new Date();
+      await this.recordPayments(tx, auth, current, lines, {
+        sessionId: session.id,
+        now,
+        firstPosition: payments.length,
+        settlesPaymentId: account.id,
+      });
+      await this.finance.settleClientAccount(tx, account.id, paid, current.code);
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'sale',
+        entityId: id,
+        action: 'settle',
+        before: { code: current.code, clientDebt: brl(account.open) },
+        after: {
+          code: current.code,
+          clientDebt: brl(fromCents(openCents - paid)),
+          payments: lines.map((l) => `${l.method.name} ${brl(fromCents(l.cents))}`).join('; '),
+        },
+      });
+      return this.get(auth, id, tx);
+    });
+  }
+
   private async paymentsOf(db: Executor, saleId: string): Promise<Sale['payments']> {
     const rows = await db
       .select()
@@ -920,6 +1048,10 @@ export class SaleService {
         ),
       )
       .orderBy(asc(saleReceivables.number));
+    const settled = (accountId: string) =>
+      rows
+        .filter((r) => r.settlesPaymentId === accountId && r.reversedAt === null)
+        .reduce((a, r) => a + toCents(r.amount), 0);
     return rows.map((r) => ({
       id: r.id,
       methodName: r.methodName,
@@ -928,6 +1060,12 @@ export class SaleService {
       installments: r.installments,
       feePercent: r.feePercent,
       reversed: r.reversedAt !== null,
+      receivedAt: r.receivedAt.toISOString(),
+      settlesPaymentId: r.settlesPaymentId,
+      open:
+        r.kind === ON_ACCOUNT && r.reversedAt === null
+          ? fromCents(Math.max(0, toCents(r.amount) - settled(r.id)))
+          : 0,
       receivables: parts
         .filter((p) => p.salePaymentId === r.id)
         .map((p) => ({

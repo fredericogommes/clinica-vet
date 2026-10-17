@@ -151,6 +151,10 @@ export const saleSchema = z.object({
   receivable: z.boolean(),
   /** Venda baixada que o usuário pode estornar pelo caixa [RN-29]. */
   reversible: z.boolean(),
+  /** Quanto o cliente ainda deve desta venda (conta do cliente) [p.10]. */
+  clientDebt: z.number(),
+  /** O usuário pode receber agora o que está pendurado. */
+  settleable: z.boolean(),
 });
 export type Sale = z.infer<typeof saleSchema>;
 

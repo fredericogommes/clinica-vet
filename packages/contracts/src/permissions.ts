@@ -110,6 +110,14 @@ export const permissionCatalog = {
     group: 'Vendas',
     label: 'Consultar vendas da unidade: resumo, totais por produto e serviço e lista',
   },
+  'sales.on_account': {
+    group: 'Vendas',
+    label: 'Vender na conta do cliente (fiado), deixando o valor para receber depois',
+  },
+  'sales.debts': {
+    group: 'Vendas',
+    label: 'Ver o saldo dos clientes e receber o que está pendurado (Recebimentos)',
+  },
   'sales.ranking': {
     group: 'Vendas',
     label: 'Ver o ranking de clientes (curva ABC) com o valor comprado por cliente',

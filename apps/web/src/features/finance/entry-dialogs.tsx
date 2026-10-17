@@ -662,7 +662,10 @@ export function EntryDetailDialog({
     entry.origin === 'sale' ||
     entry.origin === 'card_fee' ||
     entry.origin === 'purchase' ||
-    entry.origin === 'commission';
+    entry.origin === 'commission' ||
+    entry.origin === 'client_account';
+  // A conta do cliente é recebida pelo caixa, em Vendas › Recebimentos [p.10].
+  const clientAccount = entry.origin === 'client_account';
   const adjustment = entry.origin === 'card_adjustment';
   const status = entryStatus(entry);
   const { mutation: reopen, generalError } = useFinanceMutation(
@@ -672,7 +675,7 @@ export function EntryDetailDialog({
   );
   const manage = can('finance.manage');
   const actions: ReactNode[] = [];
-  if (manage && entry.status === 'open') {
+  if (manage && entry.status === 'open' && !clientAccount) {
     actions.push(
       <Button
         key="pay"
@@ -856,7 +859,9 @@ export function EntryDetailDialog({
               ? 'Lançado pela compra. Para cancelar, cancele a compra.'
               : entry.origin === 'commission'
                 ? 'Lançado pelo extrato de comissão. Para cancelar, ponha o extrato em revisão.'
-                : 'Lançado pela venda. Para cancelar, estorne a venda.'}
+                : clientAccount
+                  ? 'Ficou na conta do cliente. Receba em Vendas › Recebimentos, pelo caixa; para cancelar, estorne a venda.'
+                  : 'Lançado pela venda. Para cancelar, estorne a venda.'}
           </p>
         ) : null}
       </div>

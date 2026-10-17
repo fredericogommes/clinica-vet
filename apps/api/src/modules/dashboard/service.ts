@@ -142,11 +142,13 @@ export class DashboardService {
   private async salesIndicators({ auth, today, monthStart }: Ctx) {
     const [summary, debts] = await Promise.all([
       this.reports.summary(auth, { from: monthStart, to: today }),
+      // Vendas em aberto e o que ficou na conta do cliente nas baixadas [p.10].
       this.rows(sql`select coalesce(sum(s.net_total - coalesce((select sum(p.amount)
-          from sale_payments p where p.sale_id = s.id and p.reversed_at is null), 0)), 0) as open
+          from sale_payments p where p.sale_id = s.id and p.reversed_at is null
+            and p.kind <> 'account'), 0)), 0) as open
         from sales s
         where s.organization_id = ${auth.organizationId} and s.unit_id = ${auth.unitId}
-          and s.status = 'open'`),
+          and s.status in ('open', 'closed')`),
     ]);
     return {
       net: summary.totals.net,

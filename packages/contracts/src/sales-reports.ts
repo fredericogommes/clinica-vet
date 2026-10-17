@@ -33,9 +33,9 @@ export const salesTotalsSchema = z.object({
   net: money,
   /** Líquido ÷ quantidade de vendas. */
   averageTicket: money,
-  /** Recebimentos não estornados das vendas do período. */
+  /** Recebimentos não estornados das vendas do período; a conta do cliente só quando recebida. */
   received: money,
-  /** Líquido das vendas em aberto (ainda não baixadas). */
+  /** Falta receber: vendas não baixadas e o que ainda está na conta do cliente [p.10]. */
   open: money,
 });
 export type SalesTotals = z.infer<typeof salesTotalsSchema>;

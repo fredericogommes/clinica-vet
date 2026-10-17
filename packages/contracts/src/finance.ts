@@ -141,6 +141,7 @@ export const entryOrigins = [
   'transfer',
   'purchase',
   'commission',
+  'client_account',
 ] as const;
 export type EntryOrigin = (typeof entryOrigins)[number];
 

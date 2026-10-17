@@ -1106,7 +1106,7 @@ export const paymentMethods = pgTable(
       .references(() => organizations.id),
     name: text('name').notNull(),
     kind: text('kind', {
-      enum: ['cash', 'pix', 'debit', 'credit', 'voucher', 'other'],
+      enum: ['cash', 'pix', 'debit', 'credit', 'voucher', 'other', 'account'],
     }).notNull(),
     acquirer: text('acquirer').notNull().default(''),
     brand: text('brand').notNull().default(''),
@@ -1126,7 +1126,8 @@ export const paymentMethods = pgTable(
       'payment_methods_values_ck',
       sql`${t.settlementDays} between 0 and 365 and ${t.maxInstallments} between 1 and 24
         and ${t.feePercent} between 0 and 30
-        and (${t.maxInstallments} = 1 or ${t.kind} in ('credit', 'voucher'))`,
+        and (${t.maxInstallments} = 1 or ${t.kind} in ('credit', 'voucher'))
+        and (${t.kind} <> 'account' or ${t.feePercent} = 0)`,
     ),
   ],
 );
@@ -1156,8 +1157,13 @@ export const salePayments = pgTable(
     receivedBy: uuid('received_by')
       .notNull()
       .references(() => users.id),
-    /** Caixa em que o recebimento entrou [RN-29]; nulo só nos recebimentos anteriores ao caixa. */
+    /**
+     * Caixa em que o recebimento entrou [RN-29]; nulo na conta do cliente (não entra dinheiro) e nos
+     * recebimentos anteriores ao caixa.
+     */
     cashSessionId: uuid('cash_session_id').references((): AnyPgColumn => cashSessions.id),
+    /** Recebimento posterior que abate a conta do cliente desta venda [p.10, Recebimentos]. */
+    settlesPaymentId: uuid('settles_payment_id').references((): AnyPgColumn => salePayments.id),
     /** Estornada junto com a venda; as parcelas deixam de valer. */
     reversedAt: timestamp('reversed_at', { withTimezone: true }),
   },
@@ -1165,6 +1171,7 @@ export const salePayments = pgTable(
     uniqueIndex('sale_payments_sale_position_uq').on(t.saleId, t.position),
     index('sale_payments_method_idx').on(t.paymentMethodId),
     index('sale_payments_cash_session_idx').on(t.cashSessionId),
+    index('sale_payments_settles_idx').on(t.settlesPaymentId),
     check(
       'sale_payments_values_ck',
       sql`${t.amount} > 0 and ${t.installments} between 1 and 24 and ${t.feePercent} between 0 and 30`,
@@ -1685,7 +1692,16 @@ export const financialEntries = pgTable(
     kind: text('kind', { enum: ['income', 'expense', 'transfer'] }).notNull(),
     direction: text('direction', { enum: ['in', 'out'] }).notNull(),
     origin: text('origin', {
-      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer', 'purchase', 'commission'],
+      enum: [
+        'manual',
+        'sale',
+        'card_fee',
+        'card_adjustment',
+        'transfer',
+        'purchase',
+        'commission',
+        'client_account',
+      ],
     }).notNull(),
     status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
     description: text('description').notNull(),

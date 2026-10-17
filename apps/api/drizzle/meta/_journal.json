@@ -169,6 +169,13 @@
       "when": 1792257303897,
       "tag": "0023_portal_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792261415347,
+      "tag": "0024_client_account",
+      "breakpoints": true
     }
   ]
 }

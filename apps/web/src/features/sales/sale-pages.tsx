@@ -25,7 +25,7 @@ import { formatBrDate } from '../schedule/dates';
 import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { formatMoney, formatPercent, quantityInput } from '../products/format';
-import { saleContextQuery, saleQuery, salesListQuery } from './queries';
+import { saleContextQuery, saleQuery, salesListQuery, settleMethodsQuery } from './queries';
 import { CashPanel } from '../cash/cash-panel';
 import { useCashGate } from '../cash/cash-gate';
 import { ReceiveDialog } from './receive-dialog';
@@ -390,8 +390,10 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
 /** Venda baixada, cancelada ou sem permissão de edição: só leitura. */
 function SaleView({ sale }: { sale: Sale }) {
   const [cancelling, setCancelling] = useState(false);
+  const [settling, setSettling] = useState(false);
   // Venda baixada é estornada pelo caixa aberto do operador [RN-29].
   const cashGate = useCashGate('O estorno devolve o valor pelo seu caixa. Abra-o para continuar.');
+  const settleGate = useCashGate('O recebimento entra no seu caixa. Abra-o para continuar.');
   return (
     <>
       <SaleHeader
@@ -411,6 +413,7 @@ function SaleView({ sale }: { sale: Sale }) {
         }
       />
       {cashGate.dialog}
+      {settleGate.dialog}
       <Layout
         main={
           <div className="space-y-5">
@@ -481,7 +484,20 @@ function SaleView({ sale }: { sale: Sale }) {
                 <Line label="Total" value={formatMoney(sale.netTotal)} strong />
               </dl>
             </Section>
-            {sale.closed ? <Payments sale={sale} /> : null}
+            {sale.closed ? (
+              <Payments
+                sale={sale}
+                onSettle={
+                  sale.settleable
+                    ? () => {
+                        settleGate.gate(() => {
+                          setSettling(true);
+                        });
+                      }
+                    : null
+                }
+              />
+            ) : null}
             {sale.notes ? (
               <Section title="Observações">
                 <p className="text-sm whitespace-pre-wrap">{sale.notes}</p>
@@ -491,6 +507,14 @@ function SaleView({ sale }: { sale: Sale }) {
         }
         side={<SidePanels currentId={sale.id} />}
       />
+      {settling ? (
+        <SettleDialog
+          sale={sale}
+          onClose={() => {
+            setSettling(false);
+          }}
+        />
+      ) : null}
       <CancelDialog
         sale={sale}
         open={cancelling}
@@ -502,8 +526,31 @@ function SaleView({ sale }: { sale: Sale }) {
   );
 }
 
+/** Receber da conta do cliente [p.10], com as formas ativas menos a própria conta. */
+export function SettleDialog({
+  sale,
+  onClose,
+  onReceived,
+}: {
+  sale: Sale;
+  onClose: () => void;
+  onReceived?: (sale: Sale) => void;
+}) {
+  const methods = useQuery(settleMethodsQuery);
+  if (methods.isPending) return null;
+  return (
+    <ReceiveDialog
+      sale={sale}
+      mode="settle"
+      methods={methods.data ?? []}
+      onClose={onClose}
+      {...(onReceived ? { onReceived } : {})}
+    />
+  );
+}
+
 /** Formas que baixaram a venda e a agenda de parcelas a receber [RN-27]. */
-function Payments({ sale }: { sale: Sale }) {
+function Payments({ sale, onSettle }: { sale: Sale; onSettle: (() => void) | null }) {
   return (
     <Section
       title="Recebimento"
@@ -511,6 +558,23 @@ function Payments({ sale }: { sale: Sale }) {
         ? { description: `Baixada em ${formatDateTime(sale.closed.at)} por ${sale.closed.by}` }
         : {})}
     >
+      {sale.clientDebt > 0 ? (
+        <div
+          role="note"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-control bg-amber-50 px-3 py-2 text-sm"
+        >
+          <span>
+            Na conta do cliente:{' '}
+            <strong className="font-mono tabular-nums">{formatMoney(sale.clientDebt)}</strong> a
+            receber.
+          </span>
+          {onSettle ? (
+            <Button size="sm" icon={<Wallet className="size-4" aria-hidden />} onClick={onSettle}>
+              Receber da conta
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {sale.payments.length === 0 ? (
         <p className="text-sm text-ink-muted">Venda sem valor a receber.</p>
       ) : (
@@ -526,6 +590,16 @@ function Payments({ sale }: { sale: Sale }) {
                   {p.reversed ? (
                     <span className="font-normal text-danger-600"> · estornado</span>
                   ) : null}
+                  {p.settlesPaymentId ? (
+                    <span className="block text-xs font-normal text-ink-muted">
+                      Recebido da conta do cliente em {formatDateTime(p.receivedAt)}
+                    </span>
+                  ) : null}
+                  {p.kind === 'account' && !p.reversed ? (
+                    <span className="block text-xs font-normal text-ink-muted">
+                      {p.open > 0 ? `Falta receber ${formatMoney(p.open)}` : 'Quitada'}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 font-mono text-sm tabular-nums">
                   {formatMoney(p.amount)}
@@ -539,7 +613,8 @@ function Payments({ sale }: { sale: Sale }) {
                   <li key={r.number} className="flex flex-wrap justify-between gap-x-3">
                     <span>
                       {p.installments > 1 ? `${String(r.number)}/${String(p.installments)} · ` : ''}
-                      Previsto para {formatBrDate(r.dueDate)}
+                      {p.kind === 'account' ? 'Vence em' : 'Previsto para'}{' '}
+                      {formatBrDate(r.dueDate)}
                     </span>
                     <span className="font-mono tabular-nums">
                       {formatMoney(r.amount)}
