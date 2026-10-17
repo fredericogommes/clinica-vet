@@ -67,6 +67,11 @@ export const permissionCatalog = {
     group: 'Estoque e serviços',
     label: 'Lançar entrada de estoque e ajustar o saldo pela contagem',
   },
+  'purchases.view': { group: 'Estoque e serviços', label: 'Ver compras e notas de entrada' },
+  'purchases.manage': {
+    group: 'Estoque e serviços',
+    label: 'Lançar, importar XML, confirmar e cancelar compras',
+  },
   'sales.view': { group: 'Vendas', label: 'Ver vendas e orçamentos' },
   'sales.manage': {
     group: 'Vendas',

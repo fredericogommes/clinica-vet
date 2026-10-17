@@ -5,13 +5,22 @@ import { z } from 'zod';
  * aberto reserva os itens; o grupo do produto decide se falta de saldo bloqueia a venda ou se a
  * baixa segue e a falta fica como pendência, quitada pela próxima entrada ou contagem.
  */
-export const stockMovementKinds = ['entry', 'count', 'sale', 'sale_return'] as const;
+export const stockMovementKinds = [
+  'entry',
+  'count',
+  'sale',
+  'sale_return',
+  'purchase',
+  'purchase_cancel',
+] as const;
 export type StockMovementKind = (typeof stockMovementKinds)[number];
 export const stockMovementLabels: Record<StockMovementKind, string> = {
   entry: 'Entrada',
   count: 'Contagem',
   sale: 'Venda',
   sale_return: 'Estorno de venda',
+  purchase: 'Compra',
+  purchase_cancel: 'Compra cancelada',
 };
 
 /** Quantidades em milésimos, para somar e comparar sem erro de ponto flutuante. */
@@ -81,6 +90,7 @@ export const stockMovementSchema = z.object({
   onHandAfter: z.number(),
   notes: z.string(),
   sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+  purchase: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
   /** Quanto entrou ou saiu de cada lote neste movimento. */
   lots: z.array(z.object({ code: z.string(), quantity: z.number() })),
   by: z.string(),
@@ -140,6 +150,7 @@ export const lotTraceSchema = z.object({
       notes: z.string(),
       /** Venda, animal e tutor aparecem só para quem pode vê-los. */
       sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+      purchase: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
       patient: z.object({ id: z.uuid(), name: z.string() }).nullable(),
       client: z.object({ id: z.uuid(), name: z.string() }).nullable(),
       by: z.string(),

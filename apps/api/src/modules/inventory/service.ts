@@ -4,6 +4,7 @@ import {
   type LotTrace,
   type ProductStock,
   type StockAdjustmentInput,
+  type StockMovementKind,
   type StockSummary,
 } from '@clinica/contracts';
 import { and, asc, desc, eq, gt, gte, inArray, ne, sql, sum } from 'drizzle-orm';
@@ -17,6 +18,7 @@ import {
   patients,
   productGroups,
   products,
+  purchases,
   saleItems,
   sales,
   stockBalances,
@@ -309,6 +311,138 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Entrada da compra confirmada [p.17]: cada linha da nota vira um movimento, já convertida para
+   * a unidade do produto; a entrada quita a pendência antes e só o restante entra no lote.
+   */
+  async receive(
+    tx: Executor,
+    auth: AuthContext,
+    purchase: { id: string; organizationId: string; unitId: string; code: number },
+    lines: {
+      index: number;
+      productId: string;
+      quantity: number;
+      lot: { code: string; expiresOn: string } | null;
+    }[],
+  ): Promise<void> {
+    const locked = await this.lock(
+      tx,
+      purchase.organizationId,
+      purchase.unitId,
+      lines.map((l) => l.productId),
+    );
+    for (const line of lines) {
+      const b = locked.get(line.productId);
+      if (!b) continue;
+      const milli = toMilli(line.quantity);
+      const after = applyEntry(b, milli);
+      const lot = b.tracksLots
+        ? await this.entryLot(tx, auth, line.productId, line.lot, `items.${String(line.index)}.lot`)
+        : null;
+      await this.write(
+        tx,
+        auth,
+        purchase,
+        line.productId,
+        after,
+        {
+          kind: 'purchase',
+          quantity: milli,
+          shortfall: 0,
+          notes: `Compra ${String(purchase.code)}`,
+        },
+        lot ? [{ lotId: lot.id, milli: after.onHand - b.onHand }] : [],
+      );
+      locked.set(line.productId, { ...b, ...after });
+    }
+  }
+
+  /**
+   * Cancelamento da compra: tira do estoque o que ela pôs. Se parte já saiu, recusa; a clínica
+   * acerta pela contagem antes. O que a entrada quitou de pendência volta a ser pendência.
+   */
+  async unreceive(
+    tx: Executor,
+    auth: AuthContext,
+    purchase: { id: string; organizationId: string; unitId: string; code: number },
+  ): Promise<void> {
+    const moves = await tx
+      .select({
+        id: stockMovements.id,
+        productId: stockMovements.productId,
+        quantity: stockMovements.quantity,
+      })
+      .from(stockMovements)
+      .where(and(eq(stockMovements.purchaseId, purchase.id), eq(stockMovements.kind, 'purchase')))
+      .orderBy(asc(stockMovements.id));
+    if (moves.length === 0) return;
+    const locked = await this.lock(
+      tx,
+      purchase.organizationId,
+      purchase.unitId,
+      moves.map((m) => m.productId),
+    );
+    const lotRows = await tx
+      .select({
+        movementId: stockMovementLots.movementId,
+        lotId: stockMovementLots.lotId,
+        quantity: stockMovementLots.quantity,
+        code: stockLots.code,
+        onHand: stockLots.onHand,
+      })
+      .from(stockMovementLots)
+      .innerJoin(stockLots, eq(stockLots.id, stockMovementLots.lotId))
+      .where(
+        inArray(
+          stockMovementLots.movementId,
+          moves.map((m) => m.id),
+        ),
+      )
+      .for('update');
+    const lotLeft = new Map(lotRows.map((l) => [l.lotId, toMilli(l.onHand)]));
+    for (const move of moves) {
+      const b = locked.get(move.productId);
+      if (!b) continue;
+      const received = toMilli(move.quantity);
+      const lots = lotRows.filter((l) => l.movementId === move.id);
+      // Produto com lote: sai exatamente o que entrou em cada lote; sem lote, a quantidade toda.
+      const removed = b.tracksLots
+        ? lots.reduce((total, l) => total + toMilli(l.quantity), 0)
+        : received;
+      for (const l of lots) {
+        const left = lotLeft.get(l.lotId) ?? 0;
+        if (left < toMilli(l.quantity)) {
+          throw conflict(
+            `O lote ${l.code} de ${b.name} já teve saída depois desta compra. Acerte o estoque pela contagem antes de cancelar.`,
+          );
+        }
+        lotLeft.set(l.lotId, left - toMilli(l.quantity));
+      }
+      if (b.onHand < removed) {
+        throw conflict(
+          `Só há ${qty(b.onHand)} ${b.unit} de ${b.name} em estoque, menos do que esta compra trouxe. Acerte o estoque pela contagem antes de cancelar.`,
+        );
+      }
+      const after = { onHand: b.onHand - removed, shortfall: b.shortfall + received - removed };
+      await this.write(
+        tx,
+        auth,
+        purchase,
+        move.productId,
+        after,
+        {
+          kind: 'purchase_cancel',
+          quantity: -received,
+          shortfall: 0,
+          notes: `Compra ${String(purchase.code)} cancelada`,
+        },
+        lots.map((l) => ({ lotId: l.lotId, milli: -toMilli(l.quantity) })),
+      );
+      locked.set(move.productId, { ...b, ...after });
+    }
+  }
+
   /** Lotes não vencidos com saldo, na ordem de saída. */
   private async validLots(tx: Executor, unitId: string, productId: string) {
     const today = await this.today(tx, unitId);
@@ -367,7 +501,7 @@ export class InventoryService {
     productId: string,
     after: { onHand: number; shortfall: number },
     movement: {
-      kind: 'entry' | 'count' | 'sale' | 'sale_return';
+      kind: StockMovementKind;
       quantity: number;
       shortfall: number;
       notes: string;
@@ -396,6 +530,10 @@ export class InventoryService {
       notes: movement.notes,
       saleId:
         movement.kind === 'sale' || movement.kind === 'sale_return' ? (scope.id ?? null) : null,
+      purchaseId:
+        movement.kind === 'purchase' || movement.kind === 'purchase_cancel'
+          ? (scope.id ?? null)
+          : null,
       createdBy: auth.userId,
     });
     for (const lot of lots) {
@@ -515,11 +653,14 @@ export class InventoryService {
         notes: stockMovements.notes,
         saleId: stockMovements.saleId,
         saleCode: sales.code,
+        purchaseId: stockMovements.purchaseId,
+        purchaseCode: purchases.code,
         by: users.name,
       })
       .from(stockMovements)
       .innerJoin(users, eq(users.id, stockMovements.createdBy))
       .leftJoin(sales, eq(sales.id, stockMovements.saleId))
+      .leftJoin(purchases, eq(purchases.id, stockMovements.purchaseId))
       .where(
         and(
           eq(stockMovements.unitId, auth.unitId),
@@ -589,6 +730,10 @@ export class InventoryService {
         onHandAfter: m.onHandAfter,
         notes: m.notes,
         sale: m.saleId && m.saleCode !== null ? { id: m.saleId, code: m.saleCode } : null,
+        purchase:
+          m.purchaseId && m.purchaseCode !== null && auth.permissions.has('purchases.view')
+            ? { id: m.purchaseId, code: m.purchaseCode }
+            : null,
         lots: movementLots
           .filter((l) => l.movementId === m.id)
           .map((l) => ({ code: l.code, quantity: l.quantity })),
@@ -600,7 +745,7 @@ export class InventoryService {
   }
 
   /**
-   * Entrada manual (até Compras, F2-7) ou contagem: a contagem vira o saldo e zera a pendência.
+   * Entrada avulsa (sem nota, como doação ou bonificação) ou contagem: a contagem vira o saldo e zera a pendência.
    * Grava o movimento e a auditoria na mesma transação [RN-03].
    */
   async adjust(
@@ -682,11 +827,12 @@ export class InventoryService {
     tx: Executor,
     auth: AuthContext,
     productId: string,
-    input: { code: string; expiresOn: string } | undefined,
+    input: { code: string; expiresOn: string } | null | undefined,
+    path = 'lot',
   ) {
-    if (!input) throw invalid('lot.code', 'Informe o lote e a validade da embalagem');
+    if (!input) throw invalid(`${path}.code`, 'Informe o lote e a validade da embalagem');
     if (input.expiresOn < (await this.today(tx, auth.unitId))) {
-      throw invalid('lot.expiresOn', 'Lote vencido não entra no estoque');
+      throw invalid(`${path}.expiresOn`, 'Lote vencido não entra no estoque');
     }
     const [found] = await tx
       .select({ id: stockLots.id, expiresOn: stockLots.expiresOn, onHand: stockLots.onHand })
@@ -701,7 +847,7 @@ export class InventoryService {
     if (found) {
       if (found.expiresOn !== input.expiresOn) {
         throw invalid(
-          'lot.expiresOn',
+          `${path}.expiresOn`,
           `O lote ${input.code} já está cadastrado com validade ${brDate(found.expiresOn ?? '')}`,
         );
       }
@@ -772,6 +918,8 @@ export class InventoryService {
         notes: stockMovements.notes,
         saleId: sales.id,
         saleCode: sales.code,
+        purchaseId: purchases.id,
+        purchaseCode: purchases.code,
         patientId: patients.id,
         patientName: patients.name,
         clientId: clients.id,
@@ -782,12 +930,14 @@ export class InventoryService {
       .innerJoin(stockMovements, eq(stockMovements.id, stockMovementLots.movementId))
       .innerJoin(users, eq(users.id, stockMovements.createdBy))
       .leftJoin(sales, eq(sales.id, stockMovements.saleId))
+      .leftJoin(purchases, eq(purchases.id, stockMovements.purchaseId))
       .leftJoin(patients, eq(patients.id, sales.patientId))
       .leftJoin(clients, eq(clients.id, sales.clientId))
       .where(eq(stockMovementLots.lotId, lotId))
       .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id))
       .limit(500);
-    const can = (key: 'sales.view' | 'patients.view' | 'clients.view') => auth.permissions.has(key);
+    const can = (key: 'sales.view' | 'purchases.view' | 'patients.view' | 'clients.view') =>
+      auth.permissions.has(key);
     const today = await this.today(this.db, auth.unitId);
     return {
       lot: { ...lot, expiry: expiryState(lot.expiresOn, today) },
@@ -800,6 +950,10 @@ export class InventoryService {
         sale:
           r.saleId && r.saleCode !== null && can('sales.view')
             ? { id: r.saleId, code: r.saleCode }
+            : null,
+        purchase:
+          r.purchaseId && r.purchaseCode !== null && can('purchases.view')
+            ? { id: r.purchaseId, code: r.purchaseCode }
             : null,
         patient:
           r.patientId && r.patientName !== null && can('patients.view')

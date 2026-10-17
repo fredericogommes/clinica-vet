@@ -1004,13 +1004,16 @@ export const stockMovements = pgTable(
     productId: uuid('product_id')
       .notNull()
       .references(() => products.id),
-    kind: text('kind', { enum: ['entry', 'count', 'sale', 'sale_return'] }).notNull(),
+    kind: text('kind', {
+      enum: ['entry', 'count', 'sale', 'sale_return', 'purchase', 'purchase_cancel'],
+    }).notNull(),
     quantity: quantity('quantity').notNull(),
     shortfall: quantity('shortfall').notNull().default(0),
     onHandAfter: quantity('on_hand_after').notNull(),
     shortfallAfter: quantity('shortfall_after').notNull(),
     notes: text('notes').notNull().default(''),
     saleId: uuid('sale_id').references(() => sales.id),
+    purchaseId: uuid('purchase_id').references((): AnyPgColumn => purchases.id),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
@@ -1019,12 +1022,14 @@ export const stockMovements = pgTable(
   (t) => [
     index('stock_movements_product_idx').on(t.unitId, t.productId, t.createdAt),
     index('stock_movements_sale_idx').on(t.saleId),
+    index('stock_movements_purchase_idx').on(t.purchaseId),
     check(
       'stock_movements_ck',
       sql`${t.onHandAfter} >= 0 and ${t.shortfall} >= 0 and ${t.shortfallAfter} >= 0
         and (${t.kind} not in ('sale', 'sale_return') or ${t.saleId} is not null)
-        and (${t.kind} <> 'sale' or ${t.quantity} < 0)
-        and (${t.kind} not in ('entry', 'sale_return') or ${t.quantity} > 0)`,
+        and (${t.kind} not in ('purchase', 'purchase_cancel') or ${t.purchaseId} is not null)
+        and (${t.kind} not in ('sale', 'purchase_cancel') or ${t.quantity} < 0)
+        and (${t.kind} not in ('entry', 'sale_return', 'purchase') or ${t.quantity} > 0)`,
     ),
   ],
 );
@@ -1660,7 +1665,7 @@ export const financialEntries = pgTable(
     kind: text('kind', { enum: ['income', 'expense', 'transfer'] }).notNull(),
     direction: text('direction', { enum: ['in', 'out'] }).notNull(),
     origin: text('origin', {
-      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer'],
+      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer', 'purchase'],
     }).notNull(),
     status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
     description: text('description').notNull(),
@@ -1676,6 +1681,7 @@ export const financialEntries = pgTable(
     saleReceivableId: uuid('sale_receivable_id').references(() => saleReceivables.id),
     transferId: uuid('transfer_id'),
     cardSettlementId: uuid('card_settlement_id').references((): AnyPgColumn => cardSettlements.id),
+    purchaseId: uuid('purchase_id').references((): AnyPgColumn => purchases.id),
     groupId: uuid('group_id'),
     installmentNumber: smallint('installment_number'),
     installmentTotal: smallint('installment_total'),
@@ -1705,6 +1711,7 @@ export const financialEntries = pgTable(
     index('financial_entries_group_idx').on(t.groupId),
     index('financial_entries_transfer_idx').on(t.transferId),
     index('financial_entries_settlement_idx').on(t.cardSettlementId),
+    index('financial_entries_purchase_idx').on(t.purchaseId),
     uniqueIndex('financial_entries_receivable_uq')
       .on(t.saleReceivableId, t.origin)
       .where(sql`${t.saleReceivableId} is not null`),
@@ -1772,4 +1779,148 @@ export const cardSettlements = pgTable(
         and ${t.receivedNet} > 0`,
     ),
   ],
+);
+
+/**
+ * Compra por nota [p.17]: rascunho editável (digitado ou importado do XML da NF-e) que, ao ser
+ * confirmado, dá entrada no estoque com lote e validade, atualiza o custo dos produtos e lança
+ * as parcelas a pagar. Cancelar a compra confirmada desfaz a entrada e as parcelas em aberto.
+ */
+export const purchases = pgTable(
+  'purchases',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    status: text('status', { enum: ['draft', 'confirmed', 'cancelled'] }).notNull(),
+    source: text('source', { enum: ['manual', 'xml'] }).notNull(),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    invoiceNumber: text('invoice_number').notNull().default(''),
+    invoiceSeries: text('invoice_series').notNull().default(''),
+    /** Chave de acesso da NF-e (44 dígitos), vazia na compra digitada sem nota eletrônica. */
+    invoiceKey: text('invoice_key').notNull().default(''),
+    issuedOn: date('issued_on'),
+    enteredOn: date('entered_on').notNull(),
+    freight: money('freight').notNull().default(0),
+    /** Seguro, outras despesas e impostos fora do valor dos itens (IPI, ST). */
+    otherCosts: money('other_costs').notNull().default(0),
+    discount: money('discount').notNull().default(0),
+    itemsTotal: money('items_total').notNull(),
+    total: money('total').notNull(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccounts.id),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => financialCategories.id),
+    notes: text('notes').notNull().default(''),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    confirmedBy: uuid('confirmed_by').references(() => users.id),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelReason: text('cancel_reason'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('purchases_org_code_uq').on(t.organizationId, t.code),
+    // A mesma nota não entra duas vezes; a compra cancelada libera a chave.
+    uniqueIndex('purchases_org_key_uq')
+      .on(t.organizationId, t.invoiceKey)
+      .where(sql`${t.invoiceKey} <> '' and ${t.status} <> 'cancelled'`),
+    index('purchases_org_date_idx').on(t.organizationId, t.enteredOn),
+    check(
+      'purchases_values_ck',
+      sql`${t.freight} >= 0 and ${t.otherCosts} >= 0 and ${t.discount} >= 0
+        and ${t.itemsTotal} >= 0 and ${t.total} >= 0
+        and ${t.total} = ${t.itemsTotal} + ${t.freight} + ${t.otherCosts} - ${t.discount}`,
+    ),
+    check(
+      'purchases_status_ck',
+      sql`(${t.status} <> 'confirmed' or ${t.confirmedAt} is not null)
+        and (${t.status} <> 'cancelled' or (${t.cancelledAt} is not null and ${t.cancelReason} is not null))`,
+    ),
+  ],
+);
+
+/** Item da nota: o produto da clínica (escolhido ou reconhecido) e o que veio do fornecedor. */
+export const purchaseItems = pgTable(
+  'purchase_items',
+  {
+    id: uuid('id').primaryKey(),
+    purchaseId: uuid('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade' }),
+    position: smallint('position').notNull(),
+    productId: uuid('product_id').references(() => products.id),
+    /** Descrição, código, EAN e unidade como o fornecedor mandou. */
+    description: text('description').notNull(),
+    supplierCode: text('supplier_code').notNull().default(''),
+    ean: text('ean').notNull().default(''),
+    supplierUnit: text('supplier_unit').notNull().default(''),
+    quantity: quantity('quantity').notNull(),
+    /** Unidades do produto em cada unidade do fornecedor (ex. caixa com 10). */
+    factor: quantity('factor').notNull().default(1),
+    total: money('total').notNull(),
+    lotCode: text('lot_code'),
+    expiresOn: date('expires_on'),
+  },
+  (t) => [
+    uniqueIndex('purchase_items_position_uq').on(t.purchaseId, t.position),
+    index('purchase_items_product_idx').on(t.productId),
+    check(
+      'purchase_items_values_ck',
+      sql`${t.quantity} > 0 and ${t.factor} > 0 and ${t.total} >= 0
+        and (${t.lotCode} is null) = (${t.expiresOn} is null)`,
+    ),
+  ],
+);
+
+/** Parcelas a pagar previstas na compra (duplicatas da nota ou digitadas). */
+export const purchaseInstallments = pgTable(
+  'purchase_installments',
+  {
+    purchaseId: uuid('purchase_id')
+      .notNull()
+      .references(() => purchases.id, { onDelete: 'cascade' }),
+    number: smallint('number').notNull(),
+    dueDate: date('due_date').notNull(),
+    amount: money('amount').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.purchaseId, t.number] }),
+    check('purchase_installments_ck', sql`${t.amount} > 0`),
+  ],
+);
+
+/**
+ * O que a clínica aprendeu de cada fornecedor: o código do item na nota leva ao produto e ao
+ * fator de conversão, para a próxima importação já vir casada.
+ */
+export const supplierProducts = pgTable(
+  'supplier_products',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    supplierId: uuid('supplier_id')
+      .notNull()
+      .references(() => suppliers.id),
+    supplierCode: text('supplier_code').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    factor: quantity('factor').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.supplierId, t.supplierCode] })],
 );

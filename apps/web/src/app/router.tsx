@@ -1,6 +1,7 @@
 import {
   messageTriggers,
   productKinds,
+  purchaseSituations,
   saleStatuses,
   vaccineKinds,
   type Permission,
@@ -148,6 +149,15 @@ const StatementPage = lazy(() =>
 );
 const CashFlowPage = lazy(() =>
   import('../features/finance/reports-pages').then((m) => ({ default: m.CashFlowPage })),
+);
+const PurchasesPage = lazy(() =>
+  import('../features/purchases/purchase-pages').then((m) => ({ default: m.PurchasesPage })),
+);
+const PurchaseNewPage = lazy(() =>
+  import('../features/purchases/purchase-pages').then((m) => ({ default: m.PurchaseNewPage })),
+);
+const PurchasePage = lazy(() =>
+  import('../features/purchases/purchase-pages').then((m) => ({ default: m.PurchasePage })),
 );
 const AccountsPage = lazy(() =>
   import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
@@ -951,6 +961,57 @@ const productGroupsRoute = createRoute({
   ),
 });
 
+const purchasesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/compras',
+  validateSearch: z.object({
+    situacao: z.enum(purchaseSituations).optional().catch(undefined),
+    q: z.string().max(100).optional().catch(undefined),
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function Purchases() {
+    const s = purchasesRoute.useSearch();
+    return (
+      <RequirePermission permission="purchases.view">
+        <PurchasesPage
+          search={{
+            situacao: s.situacao ?? 'todas',
+            q: s.q ?? '',
+            de: s.de,
+            ate: s.ate,
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const purchaseNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/compras/nova',
+  component: () => (
+    <RequirePermission permission="purchases.manage">
+      <PurchaseNewPage />
+    </RequirePermission>
+  ),
+});
+
+const purchaseRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/compras/$purchaseId',
+  component: function Purchase() {
+    const { purchaseId } = purchaseRoute.useParams();
+    return (
+      <RequirePermission permission="purchases.view">
+        <PurchasePage key={purchaseId} purchaseId={purchaseId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const productBrandsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/estoque/marcas',
@@ -1127,6 +1188,9 @@ const routeTree = rootRoute.addChildren([
     productRoute,
     productGroupsRoute,
     productBrandsRoute,
+    purchasesRoute,
+    purchaseNewRoute,
+    purchaseRoute,
     pdvRoute,
     salesSettingsRoute,
     paymentMethodsRoute,

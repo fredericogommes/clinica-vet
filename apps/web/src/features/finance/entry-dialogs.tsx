@@ -658,7 +658,8 @@ export function EntryDetailDialog({
   onClose: () => void;
 }) {
   const can = useCan();
-  const fromSale = entry.origin === 'sale' || entry.origin === 'card_fee';
+  const fromSale =
+    entry.origin === 'sale' || entry.origin === 'card_fee' || entry.origin === 'purchase';
   const adjustment = entry.origin === 'card_adjustment';
   const status = entryStatus(entry);
   const { mutation: reopen, generalError } = useFinanceMutation(
@@ -804,6 +805,22 @@ export function EntryDetailDialog({
                   },
                 ]
               : []),
+            ...(entry.purchase
+              ? [
+                  {
+                    label: 'Compra',
+                    value: (
+                      <Link
+                        to="/estoque/compras/$purchaseId"
+                        params={{ purchaseId: entry.purchase.id }}
+                        className="text-sage-700 hover:underline"
+                      >
+                        Compra {entry.purchase.code}
+                      </Link>
+                    ),
+                  },
+                ]
+              : []),
             ...(entry.costCenter
               ? [{ label: 'Centro de custo', value: entry.costCenter.name }]
               : []),
@@ -816,7 +833,9 @@ export function EntryDetailDialog({
         />
         {fromSale && entry.status !== 'cancelled' ? (
           <p className="text-xs text-ink-muted">
-            Lançado pela venda. Para cancelar, estorne a venda.
+            {entry.origin === 'purchase'
+              ? 'Lançado pela compra. Para cancelar, cancele a compra.'
+              : 'Lançado pela venda. Para cancelar, estorne a venda.'}
           </p>
         ) : null}
       </div>
