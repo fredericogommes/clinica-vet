@@ -51,6 +51,8 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'products.manage',
       'products.view_cost',
       'inventory.adjust',
+      'inventory.exits',
+      'inventory.counts',
       'purchases.view',
       'purchases.manage',
       'catalogs.manage',

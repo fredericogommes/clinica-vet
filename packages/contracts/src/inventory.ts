@@ -12,6 +12,8 @@ export const stockMovementKinds = [
   'sale_return',
   'purchase',
   'purchase_cancel',
+  'exit',
+  'exit_cancel',
 ] as const;
 export type StockMovementKind = (typeof stockMovementKinds)[number];
 export const stockMovementLabels: Record<StockMovementKind, string> = {
@@ -21,6 +23,8 @@ export const stockMovementLabels: Record<StockMovementKind, string> = {
   sale_return: 'Estorno de venda',
   purchase: 'Compra',
   purchase_cancel: 'Compra cancelada',
+  exit: 'Saída',
+  exit_cancel: 'Saída cancelada',
 };
 
 /** Quantidades em milésimos, para somar e comparar sem erro de ponto flutuante. */
@@ -91,6 +95,8 @@ export const stockMovementSchema = z.object({
   notes: z.string(),
   sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
   purchase: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+  exit: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+  count: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
   /** Quanto entrou ou saiu de cada lote neste movimento. */
   lots: z.array(z.object({ code: z.string(), quantity: z.number() })),
   by: z.string(),
@@ -151,6 +157,7 @@ export const lotTraceSchema = z.object({
       /** Venda, animal e tutor aparecem só para quem pode vê-los. */
       sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
       purchase: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+      exit: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
       patient: z.object({ id: z.uuid(), name: z.string() }).nullable(),
       client: z.object({ id: z.uuid(), name: z.string() }).nullable(),
       by: z.string(),

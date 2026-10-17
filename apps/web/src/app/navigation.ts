@@ -21,7 +21,9 @@ import {
   FolderTree,
   House,
   Package,
+  PackageMinus,
   PackagePlus,
+  ClipboardCheck,
   MessageCircle,
   Palette,
   PawPrint,
@@ -191,6 +193,18 @@ export const navigation: NavSection[] = [
         to: '/estoque/compras',
         icon: PackagePlus,
         permission: 'purchases.view',
+      },
+      {
+        label: 'Outras saídas',
+        to: '/estoque/saidas',
+        icon: PackageMinus,
+        permission: 'inventory.exits',
+      },
+      {
+        label: 'Inventário',
+        to: '/estoque/inventario',
+        icon: ClipboardCheck,
+        permission: 'inventory.counts',
       },
       {
         label: 'Grupos de produtos',
