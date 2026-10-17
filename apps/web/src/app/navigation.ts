@@ -8,6 +8,7 @@ import {
   CreditCard,
   Dna,
   FileText,
+  FlaskConical,
   FolderTree,
   House,
   Package,
@@ -164,6 +165,12 @@ export const navigation: NavSection[] = [
         label: 'Patologias',
         to: '/cadastros/patologias',
         icon: Activity,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Exames',
+        to: '/cadastros/exames',
+        icon: FlaskConical,
         permission: 'catalogs.manage',
       },
       {

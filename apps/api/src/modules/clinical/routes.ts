@@ -4,6 +4,9 @@ import {
   clinicalRecordSchema,
   clinicalSearchItemSchema,
   clinicalSearchQuerySchema,
+  examFormSchema,
+  examSeriesQuerySchema,
+  examSeriesSchema,
   pageSchema,
   PHOTO_MAX_BYTES,
   photoContentTypes,
@@ -38,6 +41,43 @@ export const clinicalRoutes: FastifyPluginAsyncZod<{ clinical: ClinicalService }
     (_request, body, done) => {
       done(null, body);
     },
+  );
+
+  app.get(
+    '/patients/:patientId/exam-form/:examId',
+    {
+      config: { access: { kind: 'permission', permission: 'clinical.record' } },
+      schema: {
+        params: z.object({ patientId: z.uuid(), examId: z.uuid() }),
+        querystring: z.object({ occurredAt: z.iso.datetime({ offset: true }).optional() }),
+        response: { 200: examFormSchema },
+      },
+    },
+    async (request) =>
+      clinical.examForm(
+        requireAuth(request),
+        request.params.patientId,
+        request.params.examId,
+        request.query.occurredAt,
+      ),
+  );
+
+  app.get(
+    '/patients/:patientId/exam-series',
+    {
+      config: { access: { kind: 'permission', permission: 'clinical.view' } },
+      schema: {
+        params: patientParams,
+        querystring: examSeriesQuerySchema,
+        response: { 200: examSeriesSchema },
+      },
+    },
+    async (request) =>
+      clinical.examSeries(
+        requireAuth(request),
+        request.params.patientId,
+        request.query.attributeId,
+      ),
   );
 
   app.get(

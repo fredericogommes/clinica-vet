@@ -8,6 +8,8 @@ import {
   type ClinicalEventData,
   type ClinicalRecord,
   type ClinicalSearchItem,
+  type ExamForm,
+  type ExamSeries,
   type Patient,
   type Permission,
   type TemplatePlaceholder,
@@ -50,9 +52,12 @@ import {
   clients,
   clinicalEventPathologies,
   clinicalEvents,
+  clinicalExamResults,
+  clinicalExamValues,
   clinicalFiles,
   clinicalTemplates,
   clinicalVitals,
+  exams,
   pathologies,
   patients,
   products,
@@ -62,6 +67,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import type { ExamService } from '../exams/service.js';
 import type { PatientService } from '../patients/service.js';
 import type { SaleService } from '../sales/service.js';
 import type { AppointmentService } from '../scheduling/appointment-service.js';
@@ -90,6 +96,7 @@ export class ClinicalService {
     private readonly patients: PatientService,
     private readonly appointments: AppointmentService,
     private readonly sales: SaleService,
+    private readonly exams: ExamService,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -214,6 +221,34 @@ export class ClinicalService {
     };
   }
 
+  /** Formulário de resultado de exame com a faixa que vale para o animal na data [RN-33]. */
+  async examForm(
+    auth: AuthContext,
+    patientId: string,
+    examId: string,
+    occurredAt: string | undefined,
+  ): Promise<ExamForm> {
+    const [patient] = await this.db
+      .select({
+        speciesId: patients.speciesId,
+        speciesName: species.name,
+        birthDate: patients.birthDate,
+      })
+      .from(patients)
+      .leftJoin(species, eq(species.id, patients.speciesId))
+      .where(and(eq(patients.id, patientId), eq(patients.organizationId, auth.organizationId)));
+    if (!patient) throw notFound('Animal');
+    const tz = await unitTimeZone(this.db, auth.unitId);
+    const on = instantToZoned(occurredAt ? new Date(occurredAt) : this.now(), tz).date;
+    return this.exams.form(auth, examId, patient, on);
+  }
+
+  /** Evolução de um campo de exame no animal [p.14]. */
+  async examSeries(auth: AuthContext, patientId: string, attributeId: string): Promise<ExamSeries> {
+    await this.assertPatient(this.db, auth, patientId);
+    return this.exams.series(auth, patientId, attributeId);
+  }
+
   /** Linha do tempo com filtros aplicados no servidor e paginação por cursor [p.4]. */
   async timeline(
     auth: AuthContext,
@@ -309,6 +344,7 @@ export class ClinicalService {
       const now = this.now();
       const publish = !('publish' in input) || input.publish;
       const refs = await this.resolveRefs(tx, auth, patientId, input, null);
+      const occurredAt = this.occurredAt(auth, input.occurredAt, null);
       await tx.insert(clinicalEvents).values({
         id,
         organizationId: auth.organizationId,
@@ -316,7 +352,7 @@ export class ClinicalService {
         patientId,
         kind: input.kind,
         status: publish ? 'published' : 'draft',
-        occurredAt: this.occurredAt(auth, input.occurredAt, null),
+        occurredAt,
         authorId: auth.userId,
         appointmentId: refs.appointmentId,
         appointmentTypeId: refs.typeId,
@@ -328,7 +364,8 @@ export class ClinicalService {
         updatedAt: now,
       });
       await this.writeDetails(tx, id, input, refs.pathologyIds);
-      if (publish) await this.charge(tx, auth, id, patientId, input.kind, refs.typeId, auth.userId);
+      await this.writeExam(tx, auth, id, patientId, input, occurredAt, null);
+      if (publish) await this.charge(tx, auth, id, patientId, input, refs.typeId, auth.userId);
       const after = await this.get(auth, id, tx);
       await recordAudit(tx, actorOf(auth), {
         entity: 'clinical_event',
@@ -353,11 +390,12 @@ export class ClinicalService {
       const publish = row.status === 'published' || !('publish' in input) || input.publish;
       const refs = await this.resolveRefs(tx, auth, row.patientId, input, row);
       const now = this.now();
+      const occurredAt = this.occurredAt(auth, input.occurredAt, row.occurredAt);
       await tx
         .update(clinicalEvents)
         .set({
           status: publish ? 'published' : 'draft',
-          occurredAt: this.occurredAt(auth, input.occurredAt, row.occurredAt),
+          occurredAt,
           appointmentId: refs.appointmentId,
           appointmentTypeId: refs.typeId,
           templateId: refs.templateId,
@@ -368,8 +406,9 @@ export class ClinicalService {
         })
         .where(eq(clinicalEvents.id, id));
       await this.writeDetails(tx, id, input, refs.pathologyIds);
+      await this.writeExam(tx, auth, id, row.patientId, input, occurredAt, before);
       if (row.status === 'draft' && publish) {
-        await this.charge(tx, auth, id, row.patientId, row.kind, refs.typeId, row.authorId);
+        await this.charge(tx, auth, id, row.patientId, input, refs.typeId, row.authorId);
       }
       const after = await this.get(auth, id, tx);
       await recordAudit(tx, actorOf(auth), {
@@ -384,29 +423,42 @@ export class ClinicalService {
   }
 
   /**
-   * Atendimento finalizado lança o serviço do seu tipo na venda aberta do animal, com o autor
-   * como profissional [RN-19]. Uma vez só por evento; serviço arquivado, de consumo interno ou
-   * autor inativo não bloqueiam o prontuário: o lançamento é que não acontece.
+   * Atendimento finalizado lança o serviço do seu tipo, e resultado de exame o serviço do exame,
+   * na venda aberta do animal, com o autor como profissional [RN-19]. Uma vez só por evento;
+   * serviço arquivado, de consumo interno ou autor inativo não bloqueiam o prontuário: o
+   * lançamento é que não acontece.
    */
   private async charge(
     tx: Executor,
     auth: AuthContext,
     eventId: string,
     patientId: string,
-    kind: string,
+    input: ClinicalEventData,
     typeId: string | null,
     authorId: string,
   ): Promise<void> {
-    if (kind !== 'encounter' || !typeId) return;
-    const [type] = await tx
-      .select({
-        serviceId: appointmentTypes.serviceId,
-        archivedAt: products.archivedAt,
-        purpose: products.purpose,
-      })
-      .from(appointmentTypes)
-      .innerJoin(products, eq(products.id, appointmentTypes.serviceId))
-      .where(eq(appointmentTypes.id, typeId));
+    let type: { serviceId: string | null; archivedAt: Date | null; purpose: string } | undefined;
+    if (input.kind === 'encounter' && typeId) {
+      [type] = await tx
+        .select({
+          serviceId: appointmentTypes.serviceId,
+          archivedAt: products.archivedAt,
+          purpose: products.purpose,
+        })
+        .from(appointmentTypes)
+        .innerJoin(products, eq(products.id, appointmentTypes.serviceId))
+        .where(eq(appointmentTypes.id, typeId));
+    } else if (input.kind === 'exam') {
+      [type] = await tx
+        .select({
+          serviceId: exams.serviceId,
+          archivedAt: products.archivedAt,
+          purpose: products.purpose,
+        })
+        .from(exams)
+        .innerJoin(products, eq(products.id, exams.serviceId))
+        .where(eq(exams.id, input.examId));
+    }
     if (!type?.serviceId || type.archivedAt || type.purpose === 'internal') return;
     const [author] = await tx
       .select({ active: users.active })
@@ -800,6 +852,78 @@ export class ClinicalService {
     }
   }
 
+  /**
+   * Resultado de exame [RN-33]: valores convertidos pelo tipo e marcados contra a faixa do
+   * animal na data do evento, com tudo copiado no resultado.
+   */
+  private async writeExam(
+    tx: Executor,
+    auth: AuthContext,
+    eventId: string,
+    patientId: string,
+    input: ClinicalEventData,
+    occurredAt: Date,
+    before: ClinicalEvent | null,
+  ): Promise<void> {
+    if (input.kind !== 'exam') return;
+    const [patient] = await tx
+      .select({
+        speciesId: patients.speciesId,
+        speciesName: species.name,
+        birthDate: patients.birthDate,
+      })
+      .from(patients)
+      .leftJoin(species, eq(species.id, patients.speciesId))
+      .where(eq(patients.id, patientId));
+    const on = instantToZoned(occurredAt, await unitTimeZone(tx, auth.unitId)).date;
+    const previous =
+      before?.data.kind === 'exam'
+        ? {
+            examId: before.data.exam.id,
+            attributeIds: before.data.values.map((v) => v.attributeId),
+          }
+        : null;
+    const result = await this.exams.buildResult(
+      tx,
+      auth,
+      input,
+      {
+        speciesId: patient?.speciesId ?? null,
+        speciesName: patient?.speciesName ?? null,
+        birthDate: patient?.birthDate ?? null,
+      },
+      on,
+      previous,
+    );
+    if ((input.publish || before?.status === 'published') && result.values.length === 0) {
+      throw invalid('values', 'Preencha ao menos um resultado para finalizar');
+    }
+    await tx.delete(clinicalExamResults).where(eq(clinicalExamResults.eventId, eventId));
+    await tx.insert(clinicalExamResults).values({
+      eventId,
+      examId: input.examId,
+      referenceLabel: result.referenceLabel,
+    });
+    if (result.values.length) {
+      await tx.insert(clinicalExamValues).values(
+        result.values.map((v, position) => ({
+          eventId,
+          attributeId: v.attributeId,
+          position,
+          section: v.section,
+          name: v.name,
+          unit: v.unit,
+          dataType: v.dataType,
+          numericValue: typeof v.value === 'number' ? v.value : null,
+          textValue: typeof v.value === 'string' ? v.value : null,
+          low: v.low,
+          high: v.high,
+          flag: v.flag,
+        })),
+      );
+    }
+  }
+
   /** Publicados e invalidados de todos; rascunhos só do próprio autor. */
   private visibleTo(auth: AuthContext, patientId: string): SQL {
     return and(
@@ -853,6 +977,23 @@ export class ClinicalService {
       })
       .from(clinicalFiles)
       .where(inArray(clinicalFiles.eventId, ids));
+    const examRows = await db
+      .select({
+        eventId: clinicalExamResults.eventId,
+        examId: clinicalExamResults.examId,
+        examName: exams.name,
+        referenceLabel: clinicalExamResults.referenceLabel,
+      })
+      .from(clinicalExamResults)
+      .innerJoin(exams, eq(exams.id, clinicalExamResults.examId))
+      .where(inArray(clinicalExamResults.eventId, ids));
+    const examValueRows = examRows.length
+      ? await db
+          .select()
+          .from(clinicalExamValues)
+          .where(inArray(clinicalExamValues.eventId, ids))
+          .orderBy(asc(clinicalExamValues.position))
+      : [];
     const byId = new Map(
       rows.map(({ e, authorName, voiderName, typeName, templateName, patientArchivedAt }) => {
         const own = e.authorId === auth.userId;
@@ -901,6 +1042,10 @@ export class ClinicalService {
             file: fileRows.find((f) => f.eventId === e.id) ?? null,
             typeName,
             templateName,
+            exam: examResultOf(
+              examRows.find((r) => r.eventId === e.id),
+              examValueRows.filter((v) => v.eventId === e.id),
+            ),
           }),
         };
         return [e.id, event] as const;
@@ -962,6 +1107,8 @@ function payloadOf(input: ClinicalEventData): Record<string, string> {
     case 'document':
     case 'prescription':
       return { title: input.title, body: input.body };
+    case 'exam':
+      return { notes: input.notes };
   }
 }
 
@@ -973,6 +1120,7 @@ function contentOf(
     file: { id: string; contentType: string; byteSize: number } | null;
     typeName: string | null;
     templateName: string | null;
+    exam: Omit<Extract<ClinicalEventContent, { kind: 'exam' }>, 'kind' | 'notes'> | null;
   },
 ): ClinicalEventContent {
   const p = (e.payload ?? {}) as Record<string, unknown>;
@@ -1019,7 +1167,32 @@ function contentOf(
         title: str('title'),
         body: str('body'),
       };
+    case 'exam':
+      if (!related.exam) throw new Error(`Evento ${e.id} de exame sem resultado.`);
+      return { kind: 'exam', ...related.exam, notes: str('notes') };
   }
+}
+
+function examResultOf(
+  result: { examId: string; examName: string; referenceLabel: string | null } | undefined,
+  values: (typeof clinicalExamValues.$inferSelect)[],
+): Omit<Extract<ClinicalEventContent, { kind: 'exam' }>, 'kind' | 'notes'> | null {
+  if (!result) return null;
+  return {
+    exam: { id: result.examId, name: result.examName },
+    referenceLabel: result.referenceLabel,
+    values: values.map((v) => ({
+      attributeId: v.attributeId,
+      section: v.section,
+      name: v.name,
+      unit: v.unit,
+      dataType: v.dataType,
+      value: v.dataType === 'text' ? (v.textValue ?? '') : (v.numericValue ?? 0),
+      low: v.low,
+      high: v.high,
+      flag: v.flag,
+    })),
+  };
 }
 
 /** Campos planos, para o log mostrar "campo: antes → depois" (sinais vitais um a um). */
@@ -1030,6 +1203,12 @@ function snapshot(e: ClinicalEvent, patientId: string) {
   if ('vitals' in content) {
     delete flat.vitals;
     Object.assign(flat, content.vitals);
+  }
+  if (content.kind === 'exam') {
+    flat.exam = content.exam.name;
+    flat.values = content.values
+      .map((v) => `${v.name}: ${String(v.value)}${v.unit ? ` ${v.unit}` : ''}`)
+      .join('; ');
   }
   return {
     patientId,

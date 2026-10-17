@@ -1,13 +1,11 @@
 import {
   appointmentTypeInputSchema,
   appointmentTypeSchema,
-  pageSchema,
-  productListItemSchema,
   type AppointmentType,
   type AppointmentTypeInput,
 } from '@clinica/contracts';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Stethoscope } from 'lucide-react';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
@@ -22,27 +20,7 @@ import { api, errorMessage } from '../../lib/api';
 import { applyFieldErrors } from '../../lib/forms';
 import { appointmentTypesQuery } from '../schedule/queries';
 import { PlaceholderHelp } from './clinical-catalog-pages';
-
-/**
- * Serviços ativos, para ligar ao tipo de atendimento [RN-19]. Busca todas as páginas: a lista
- * aceita no máximo 100 por vez, e a clínica pode ter mais serviços que isso.
- */
-const servicesQuery = queryOptions({
-  queryKey: ['products', 'list', 'services-for-types'],
-  queryFn: async () => {
-    const items = [];
-    for (let page = 1; ; page++) {
-      const result = await api(
-        'GET',
-        `/products?kind=service&pageSize=100&page=${String(page)}`,
-        pageSchema(productListItemSchema),
-      );
-      items.push(...result.items);
-      if (result.items.length === 0 || items.length >= result.total) return items;
-    }
-  },
-  retry: false,
-});
+import { servicesQuery } from './queries';
 
 const durations = Array.from({ length: 16 }, (_, i) => (i + 1) * 15);
 

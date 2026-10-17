@@ -3,6 +3,9 @@ import {
   clinicalRecordSchema,
   clinicalSearchItemSchema,
   clinicalTemplateSchema,
+  examFormSchema,
+  examListItemSchema,
+  examSeriesSchema,
   pageSchema,
   pathologySchema,
   renderedTemplateSchema,
@@ -96,3 +99,36 @@ export const renderTemplate = (
     renderedTemplateSchema,
   );
 };
+
+/** Exames ativos para o registro de resultado; o cadastro completo fica em Cadastros. */
+export const examsQuery = queryOptions({
+  queryKey: ['catalogs', 'exams'],
+  queryFn: () => api('GET', '/exams', z.array(examListItemSchema)),
+  staleTime: 60_000,
+});
+
+/** Campos do exame e a faixa de referência que vale para o animal na data do resultado. */
+export const examFormQuery = (patientId: string, examId: string, occurredAt: string) =>
+  queryOptions({
+    queryKey: ['clinical', 'exam-form', patientId, examId, occurredAt],
+    queryFn: () => {
+      const search = occurredAt ? `?${new URLSearchParams({ occurredAt }).toString()}` : '';
+      return api(
+        'GET',
+        `/clinical/patients/${patientId}/exam-form/${examId}${search}`,
+        examFormSchema,
+      );
+    },
+    enabled: examId !== '',
+  });
+
+export const examSeriesQuery = (patientId: string, attributeId: string) =>
+  queryOptions({
+    queryKey: ['clinical', 'timeline', patientId, 'exam-series', attributeId],
+    queryFn: () =>
+      api(
+        'GET',
+        `/clinical/patients/${patientId}/exam-series?attributeId=${attributeId}`,
+        examSeriesSchema,
+      ),
+  });

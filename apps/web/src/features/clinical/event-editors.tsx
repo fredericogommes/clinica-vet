@@ -1,6 +1,8 @@
 import {
   clinicalEventInputSchema,
   clinicalEventSchema,
+  examFlag,
+  parseExamValue,
   PHOTO_MAX_BYTES,
   photoContentTypes,
   vitalKeys,
@@ -10,10 +12,12 @@ import {
   type ClinicalEventInput,
   type ClinicalEventKind,
   type ClinicalRecord,
+  type ExamAttribute,
   type VitalKey,
 } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { clsx } from 'clsx';
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '../../design-system/button';
@@ -23,8 +27,15 @@ import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { useCan } from '../../lib/session';
 import { appointmentTypesQuery } from '../schedule/queries';
+import { FlagBadge, formatRange } from './exam-result';
 import { isoToLocalInput, kindLabel, localInputToIso, zoned } from './labels';
-import { clinicalTemplatesQuery, pathologiesQuery, renderTemplate } from './queries';
+import {
+  clinicalTemplatesQuery,
+  examFormQuery,
+  examsQuery,
+  pathologiesQuery,
+  renderTemplate,
+} from './queries';
 
 export interface EditorState {
   kind: ClinicalEventKind;
@@ -63,6 +74,8 @@ export function EventEditor({
       return <EncounterEditor state={state} record={record} onClose={onClose} />;
     case 'photo':
       return <PhotoEditor record={record} onClose={onClose} />;
+    case 'exam':
+      return <ExamEditor event={state.event} record={record} onClose={onClose} />;
     case 'document':
     case 'prescription':
       return (
@@ -566,7 +579,7 @@ function SimpleEditor({
   record,
   onClose,
 }: {
-  kind: Exclude<ClinicalEventKind, 'encounter' | 'photo' | 'document' | 'prescription'>;
+  kind: Exclude<ClinicalEventKind, 'encounter' | 'photo' | 'document' | 'prescription' | 'exam'>;
   event: ClinicalEvent | null;
   record: ClinicalRecord;
   onClose: () => void;
@@ -836,6 +849,292 @@ function DocumentEditor({
         />
         {occurred.field(errors.occurredAt)}
       </div>
+    </EditorDialog>
+  );
+}
+
+// Exame ---------------------------------------------------------------------------------------
+
+/** Linha do formulário de resultado: título de seção ou campo com seu tipo. */
+type ExamRow =
+  { kind: 'section'; id: string; name: string } | { kind: 'field'; attribute: ExamAttribute };
+
+/**
+ * Resultado de exame [RN-33, p.13–14]: campos do cadastro na ordem, com a faixa que vale para o
+ * animal na data. A marcação ao lado é só uma prévia; quem decide é o servidor, que copia a faixa
+ * no resultado.
+ */
+function ExamEditor({
+  event,
+  record,
+  onClose,
+}: {
+  event: ClinicalEvent | null;
+  record: ClinicalRecord;
+  onClose: () => void;
+}) {
+  const d = event?.data.kind === 'exam' ? event.data : null;
+  const exams = useQuery(examsQuery);
+  const save = useSaveEvent(record, event, onClose);
+  const occurred = useOccurredAt(record, event);
+  const [examId, setExamId] = useState(d?.exam.id ?? '');
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (d?.values ?? []).map((v) => [
+        v.attributeId,
+        typeof v.value === 'number' ? fromNumber(v.value) : v.value,
+      ]),
+    ),
+  );
+  const [notes, setNotes] = useState(d?.notes ?? '');
+  const [errors, setErrors] = useState<Errors>({});
+  const form = useQuery(
+    examFormQuery(record.patient.id, examId, occurred.iso ?? event?.occurredAt ?? ''),
+  );
+
+  // Campos ativos do cadastro e, numa correção, os que saíram do cadastro mas estão no resultado.
+  const rows = useMemo<ExamRow[]>(() => {
+    if (!form.data) return [];
+    const out: ExamRow[] = form.data.exam.attributes.map((a) =>
+      a.kind === 'section'
+        ? { kind: 'section', id: a.id, name: a.name }
+        : { kind: 'field', attribute: a },
+    );
+    const known = new Set(form.data.exam.attributes.map((a) => a.id));
+    for (const v of d?.values ?? []) {
+      if (known.has(v.attributeId)) continue;
+      out.push({
+        kind: 'field',
+        attribute: {
+          id: v.attributeId,
+          kind: 'field',
+          name: v.name,
+          unit: v.unit,
+          dataType: v.dataType,
+          decimals: v.dataType === 'decimal' ? 4 : null,
+          maxLength: v.dataType === 'text' ? 200 : null,
+        },
+      });
+    }
+    return out;
+  }, [form.data, d]);
+  const fields = rows.flatMap((r) => (r.kind === 'field' ? [r.attribute] : []));
+  const ranges = new Map((form.data?.reference?.ranges ?? []).map((r) => [r.attributeId, r]));
+
+  const input = (publish: boolean): ClinicalEventInput => ({
+    kind: 'exam',
+    occurredAt: occurred.iso,
+    examId,
+    values: fields.map((a) => ({ attributeId: a.id, value: values[a.id] ?? '' })),
+    notes,
+    publish,
+  });
+  const dirty = useDirty([examId, values, notes, occurred.value]);
+  const submit = (publish: boolean) => {
+    const local: Errors = { ...validate(input(publish)) };
+    fields.forEach((a, i) => {
+      const raw = values[a.id]?.trim() ?? '';
+      if (raw === '') return;
+      const parsed = parseExamValue(a, raw);
+      if (!parsed.ok) local[`values.${String(i)}.value`] = parsed.message;
+    });
+    if (publish && !fields.some((a) => (values[a.id]?.trim() ?? '') !== '')) {
+      local.values = 'Preencha ao menos um resultado para finalizar';
+    }
+    setErrors(local);
+    if (Object.keys(local).length === 0) {
+      save.mutate(input(publish), {
+        onError: (error) => {
+          setErrors(errorsOf(error));
+        },
+      });
+    }
+  };
+  const options = (exams.data ?? [])
+    .filter((e) => !e.archived || e.id === examId)
+    .map((e) => ({ value: e.id, label: e.name }));
+  const isDraft = !event || event.status === 'draft';
+  const can = useCan();
+
+  return (
+    <EditorDialog
+      size="lg"
+      title={event ? `${isDraft ? 'Continuar' : 'Corrigir'} exame` : 'Resultado de exame'}
+      description={`${record.patient.name} · ${record.patient.speciesName ?? 'espécie não informada'}`}
+      dirty={dirty}
+      onClose={onClose}
+      actions={
+        examId ? (
+          <>
+            {isDraft ? (
+              <Button
+                variant="secondary"
+                disabled={save.isPending}
+                onClick={() => {
+                  submit(false);
+                }}
+              >
+                Salvar rascunho
+              </Button>
+            ) : null}
+            <Button
+              pending={save.isPending}
+              onClick={() => {
+                submit(true);
+              }}
+            >
+              {isDraft ? 'Finalizar exame' : 'Salvar correção'}
+            </Button>
+          </>
+        ) : null
+      }
+    >
+      <form
+        noValidate
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit(!isDraft);
+        }}
+      >
+        <FormError error={save.error} />
+        {exams.data && options.length === 0 ? (
+          <div className="rounded-control border border-dashed border-line-strong p-4 text-sm">
+            <p className="font-medium">Nenhum exame cadastrado</p>
+            <p className="mt-1 text-ink-muted">
+              {can('catalogs.manage') ? (
+                <>
+                  Cadastre os campos e as faixas de referência em{' '}
+                  <Link to="/cadastros/exames" className="text-sage-700 underline">
+                    Cadastros › Exames
+                  </Link>
+                  .
+                </>
+              ) : (
+                'Peça a quem administra a clínica para cadastrar os exames.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <SelectField
+            label="Exame"
+            value={examId}
+            placeholder="Selecione"
+            options={options}
+            disabled={event !== null}
+            error={errors.examId}
+            onChange={(e) => {
+              setExamId(e.target.value);
+              setValues({});
+              setErrors({});
+            }}
+          />
+        )}
+        {examId && form.isPending ? (
+          <p className="text-sm text-ink-muted">Carregando campos…</p>
+        ) : null}
+        {form.isError ? <FormError error={form.error} /> : null}
+        {form.data ? (
+          <>
+            <p
+              className={clsx(
+                'rounded-control px-3 py-2 text-sm',
+                form.data.reference ? 'bg-sage-50 text-sage-700' : 'bg-amber-50 text-amber-700',
+              )}
+            >
+              {form.data.reference
+                ? `Referência: ${form.data.reference.species}, ${form.data.reference.label}.`
+                : form.data.referenceNote}
+            </p>
+            {errors.values ? (
+              <p role="alert" className="text-sm text-danger-600">
+                {errors.values}
+              </p>
+            ) : null}
+            <div className="divide-y divide-line rounded-control border border-line">
+              {rows.map((row) => {
+                if (row.kind === 'section') {
+                  return (
+                    <h3
+                      key={row.id}
+                      className="bg-sunken px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.06em] text-ink-muted uppercase"
+                    >
+                      {row.name}
+                    </h3>
+                  );
+                }
+                const a = row.attribute;
+                const index = fields.indexOf(a);
+                const raw = values[a.id] ?? '';
+                const range = ranges.get(a.id);
+                const parsed = raw.trim() ? parseExamValue(a, raw) : null;
+                const flag =
+                  parsed?.ok && typeof parsed.value === 'number' && range
+                    ? examFlag(parsed.value, range.low, range.high)
+                    : null;
+                return (
+                  <div
+                    key={a.id}
+                    className="grid grid-cols-[1fr_8.5rem] items-start gap-x-3 gap-y-1 px-3 py-2 sm:grid-cols-[1fr_9rem_8rem_4.5rem]"
+                  >
+                    <label htmlFor={`exam-${a.id}`} className="pt-2 text-sm">
+                      {a.name}
+                      {a.unit ? (
+                        <span className="ml-1 text-xs text-ink-muted">({a.unit})</span>
+                      ) : null}
+                    </label>
+                    <div>
+                      <input
+                        id={`exam-${a.id}`}
+                        inputMode={a.dataType === 'text' ? 'text' : 'decimal'}
+                        autoComplete="off"
+                        maxLength={a.dataType === 'text' ? (a.maxLength ?? 200) : 24}
+                        value={raw}
+                        aria-invalid={errors[`values.${String(index)}.value`] ? true : undefined}
+                        aria-describedby={
+                          errors[`values.${String(index)}.value`] ? `exam-${a.id}-error` : undefined
+                        }
+                        onChange={(e) => {
+                          setValues((v) => ({ ...v, [a.id]: e.target.value }));
+                        }}
+                        className={clsx(
+                          'h-9 w-full rounded-control border bg-surface px-2.5 text-right font-mono text-sm outline-none focus:border-sage-500',
+                          a.dataType === 'text' && 'text-left font-sans',
+                          errors[`values.${String(index)}.value`]
+                            ? 'border-danger-600'
+                            : 'border-line-strong',
+                        )}
+                      />
+                      {errors[`values.${String(index)}.value`] ? (
+                        <p id={`exam-${a.id}-error`} className="mt-1 text-xs text-danger-600">
+                          {errors[`values.${String(index)}.value`]}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="col-start-1 font-mono text-xs text-ink-muted sm:col-start-auto sm:pt-2.5">
+                      {range ? formatRange(range.low, range.high) : ''}
+                    </span>
+                    <span className="sm:pt-2">
+                      <FlagBadge flag={flag} />
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <TextareaField
+              label="Observações"
+              placeholder="Opcional, ex. amostra hemolisada"
+              maxLength={2000}
+              value={notes}
+              error={errors.notes}
+              onChange={(e) => {
+                setNotes(e.target.value);
+              }}
+            />
+            {occurred.field(errors.occurredAt)}
+          </>
+        ) : null}
+      </form>
     </EditorDialog>
   );
 }

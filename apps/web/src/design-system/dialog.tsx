@@ -53,7 +53,7 @@ export function Dialog({
             </RadixDialog.Close>
           </div>
           <div className="overflow-y-auto px-5 py-4">{children}</div>
-          <div className="flex justify-end gap-2 border-t border-line bg-canvas/60 px-5 py-3">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-canvas/60 px-5 py-3">
             {footer}
           </div>
         </RadixDialog.Content>

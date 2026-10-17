@@ -15,3 +15,4 @@ export * from './sales.js';
 export * from './sales-reports.js';
 export * from './cash.js';
 export * from './dashboard.js';
+export * from './exams.js';

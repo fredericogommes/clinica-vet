@@ -5,6 +5,8 @@ import {
   breeds,
   clinicalTemplates,
   costCenters,
+  examAttributes,
+  exams,
   organizations,
   paymentMethods,
   rolePermissions,
@@ -21,6 +23,7 @@ import {
   consultationRecordTemplate,
   starterClinicalTemplates,
 } from '../clinical/starter-templates.js';
+import { starterExams } from '../exams/starter-exams.js';
 import { roleTemplates } from './role-templates.js';
 
 /** Cria ou atualiza os perfis-modelo de uma organização a partir do código. Idempotente. */
@@ -121,8 +124,8 @@ async function seedSpecies(tx: Executor, organizationId: string): Promise<void> 
 
 /**
  * Ponto de partida da agenda e do prontuário: Seg–Sáb 08:00–18:00, tipos de atendimento comuns
- * (a Consulta já com modelo de prontuário) e um modelo de receita e um de documento. A clínica
- * ajusta tudo em Configuração da agenda e em Cadastros.
+ * (a Consulta já com modelo de prontuário), um modelo de receita e um de documento e o Hemograma
+ * com os seus campos. A clínica ajusta tudo em Configuração da agenda e em Cadastros.
  */
 async function seedSchedule(tx: Executor, organizationId: string, unitId: string): Promise<void> {
   await tx
@@ -150,4 +153,11 @@ async function seedSchedule(tx: Executor, organizationId: string, unitId: string
   await tx
     .insert(clinicalTemplates)
     .values(starterClinicalTemplates.map((t) => ({ id: newId(), organizationId, ...t })));
+  for (const exam of starterExams) {
+    const examId = newId();
+    await tx.insert(exams).values({ id: examId, organizationId, name: exam.name });
+    await tx
+      .insert(examAttributes)
+      .values(exam.attributes.map((a, position) => ({ id: newId(), examId, position, ...a })));
+  }
 }
