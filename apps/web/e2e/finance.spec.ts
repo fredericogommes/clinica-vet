@@ -3,7 +3,8 @@ import { ADMIN_STATE, run, sidebar, toasts } from './helpers';
 
 test.use({ storageState: ADMIN_STATE });
 
-const tag = run.split('').reverse().join('');
+// Prefixo próprio: outros testes usam o mesmo sufixo invertido e a busca por ele os encontraria.
+const tag = `fin${run.split('').reverse().join('')}`;
 
 /** Dia `days` a partir de hoje no fuso da unidade (o do navegador nos testes), em AAAA-MM-DD. */
 function day(days: number) {

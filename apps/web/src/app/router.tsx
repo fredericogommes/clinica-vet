@@ -143,6 +143,12 @@ const ReconciliationPage = lazy(() =>
     default: m.ReconciliationPage,
   })),
 );
+const StatementPage = lazy(() =>
+  import('../features/finance/reports-pages').then((m) => ({ default: m.StatementPage })),
+);
+const CashFlowPage = lazy(() =>
+  import('../features/finance/reports-pages').then((m) => ({ default: m.CashFlowPage })),
+);
 const AccountsPage = lazy(() =>
   import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
 );
@@ -681,6 +687,57 @@ const reconciliationRoute = createRoute({
   },
 });
 
+const isoMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+const statementRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/demonstrativo',
+  validateSearch: z.object({
+    regime: z.enum(['caixa']).optional().catch(undefined),
+    de: isoMonth.optional().catch(undefined),
+    ate: isoMonth.optional().catch(undefined),
+    centro: z.uuid().optional().catch(undefined),
+  }),
+  component: function Statement() {
+    const s = statementRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.reports">
+        <StatementPage
+          search={{ regime: s.regime ?? 'competencia', de: s.de, ate: s.ate, centro: s.centro }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const cashFlowRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/fluxo-de-caixa',
+  validateSearch: z.object({
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+    conta: z.uuid().optional().catch(undefined),
+    tipo: z.enum(['receitas', 'despesas']).optional().catch(undefined),
+    situacao: z.enum(['realizado', 'previsto']).optional().catch(undefined),
+  }),
+  component: function CashFlow() {
+    const s = cashFlowRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.reports">
+        <CashFlowPage
+          search={{
+            de: s.de,
+            ate: s.ate,
+            conta: s.conta,
+            tipo: s.tipo ?? 'ambos',
+            situacao: s.situacao ?? 'todos',
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const accountsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/financeiro/contas',
@@ -1057,6 +1114,8 @@ const routeTree = rootRoute.addChildren([
     payableRoute,
     receivableRoute,
     reconciliationRoute,
+    statementRoute,
+    cashFlowRoute,
     accountsRoute,
     financeCategoriesRoute,
     suppliersRoute,

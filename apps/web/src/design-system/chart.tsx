@@ -3,13 +3,14 @@ import { clsx } from 'clsx';
 export interface ChartSeries {
   name: string;
   /** Cor da série, sempre dos tokens do tema. */
-  tone: 'sage' | 'amber' | 'sage-light';
+  tone: 'sage' | 'amber' | 'sage-light' | 'amber-light';
 }
 
 const barTones: Record<ChartSeries['tone'], string> = {
   sage: 'bg-sage-500',
   'sage-light': 'bg-sage-100',
   amber: 'bg-amber-500',
+  'amber-light': 'bg-amber-100',
 };
 
 /** Divisão "redonda" do eixo: 0, passo, 2×passo... até cobrir o maior valor. */
@@ -31,30 +32,33 @@ function DataTableSr({
   series: string[];
   values: number[][];
 }) {
+  // A tabela fica dentro de uma div: overflow não vale para tabelas e as linhas vazariam a página.
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Período</th>
-          {series.map((s) => (
-            <th key={s} scope="col">
-              {s}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {labels.map((label, i) => (
-          <tr key={label}>
-            <th scope="row">{label}</th>
-            {series.map((s, j) => (
-              <td key={s}>{values[i]?.[j] ?? 0}</td>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Período</th>
+            {series.map((s) => (
+              <th key={s} scope="col">
+                {s}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {labels.map((label, i) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              {series.map((s, j) => (
+                <td key={s}>{values[i]?.[j] ?? 0}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -78,6 +82,7 @@ export function BarChart({
   labels,
   series,
   values,
+  format = String,
 }: {
   caption: string;
   /** Rótulo curto de cada coluna (ex. "out"). */
@@ -85,15 +90,17 @@ export function BarChart({
   series: ChartSeries[];
   /** values[coluna][série]. */
   values: number[][];
+  /** Formato dos números do eixo e das dicas (ex. moeda). */
+  format?: (value: number) => string;
 }) {
   const max = niceMax(Math.max(0, ...values.flat()));
   return (
     <figure className="space-y-3">
       <div className="flex gap-2" aria-hidden>
         <div className="flex h-36 flex-col justify-between py-0 text-right font-mono text-[10px] text-ink-faint">
-          <span>{max}</span>
-          <span>{max / 2}</span>
-          <span>0</span>
+          <span>{format(max)}</span>
+          <span>{format(max / 2)}</span>
+          <span>{format(0)}</span>
         </div>
         <div className="relative flex h-36 flex-1 items-end gap-1 border-b border-line">
           <div className="pointer-events-none absolute inset-x-0 top-0 border-t border-dashed border-line" />
@@ -108,7 +115,7 @@ export function BarChart({
                 return (
                   <div
                     key={s.name}
-                    title={`${label}: ${String(v)} ${s.name}`}
+                    title={`${label}: ${s.name} ${format(v)}`}
                     className={clsx('min-w-0 max-w-10 flex-1 rounded-t-[3px]', barTones[s.tone])}
                     style={{ height: `${String((v / max) * 100)}%` }}
                   />
@@ -196,6 +203,137 @@ export function AreaChart({
         labels={labels}
         series={[name]}
         values={values.map((v) => [v])}
+      />
+    </figure>
+  );
+}
+
+export interface LineSeries {
+  name: string;
+  tone: 'sage' | 'amber';
+  /** Tracejada para valores projetados. */
+  dashed?: boolean;
+  /** Um valor por rótulo; nulo interrompe a linha. */
+  values: (number | null)[];
+}
+
+const lineTones: Record<LineSeries['tone'], { stroke: string; swatch: string }> = {
+  sage: { stroke: 'stroke-sage-600', swatch: 'bg-sage-600' },
+  amber: { stroke: 'stroke-amber-500', swatch: 'bg-amber-500' },
+};
+
+/** Linhas sobre o mesmo eixo, com valores negativos e a linha do zero marcada. */
+export function LineChart({
+  caption,
+  labels,
+  tickLabels,
+  series,
+  format = String,
+}: {
+  caption: string;
+  /** Rótulo de cada ponto, usado na tabela acessível. */
+  labels: string[];
+  /** Poucos rótulos para o eixo horizontal, distribuídos de ponta a ponta. */
+  tickLabels: string[];
+  series: LineSeries[];
+  format?: (value: number) => string;
+}) {
+  const all = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
+  const top = niceMax(Math.max(0, ...all));
+  const bottom = Math.min(0, ...all) < 0 ? -niceMax(-Math.min(...all)) : 0;
+  const span = top - bottom || 1;
+  const x = (i: number) => (labels.length <= 1 ? W / 2 : (i / (labels.length - 1)) * W);
+  const y = (v: number) => 4 + (1 - (v - bottom) / span) * (H - 8);
+  const path = (values: (number | null)[]) => {
+    let d = '';
+    let pen = false;
+    values.forEach((v, i) => {
+      if (v === null) {
+        pen = false;
+        return;
+      }
+      d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
+      pen = true;
+    });
+    return d.trim();
+  };
+  return (
+    <figure className="space-y-3">
+      <div className="flex gap-2" aria-hidden>
+        <div className="relative h-44 text-right font-mono text-[10px] text-ink-faint">
+          {/* O rótulo mais longo, invisível, dá a largura da coluna. */}
+          <span className="invisible block whitespace-nowrap">
+            {[format(top), format(bottom)].sort((p, q) => q.length - p.length)[0]}
+          </span>
+          {[...new Set([top, 0, bottom])].map((v) => (
+            <span
+              key={v}
+              className="absolute right-0 -translate-y-1/2 whitespace-nowrap"
+              style={{ top: `${String((y(v) / H) * 100)}%` }}
+            >
+              {format(v)}
+            </span>
+          ))}
+        </div>
+        <svg
+          viewBox={`0 0 ${String(W)} ${String(H)}`}
+          preserveAspectRatio="none"
+          className="h-44 min-w-0 flex-1 overflow-visible"
+        >
+          <line
+            x1={0}
+            x2={W}
+            y1={y(bottom)}
+            y2={y(bottom)}
+            className="stroke-line"
+            strokeWidth={1}
+          />
+          <line
+            x1={0}
+            x2={W}
+            y1={y(0)}
+            y2={y(0)}
+            className="stroke-line-strong"
+            strokeDasharray={bottom < 0 ? undefined : '4 4'}
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+          {series.map((s) => (
+            <path
+              key={s.name}
+              d={path(s.values)}
+              fill="none"
+              className={lineTones[s.tone].stroke}
+              strokeWidth={2}
+              strokeDasharray={s.dashed ? '5 4' : undefined}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </svg>
+      </div>
+      <div
+        className="ml-7 flex justify-between gap-1 font-mono text-[10px] text-ink-faint"
+        aria-hidden
+      >
+        {tickLabels.map((label) => (
+          <span key={label} className="truncate">
+            {label}
+          </span>
+        ))}
+      </div>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted" aria-hidden>
+        {series.map((s) => (
+          <li key={s.name} className="flex items-center gap-1.5">
+            <span className={clsx('h-0.5 w-4 rounded-full', lineTones[s.tone].swatch)} />
+            {s.name}
+          </li>
+        ))}
+      </ul>
+      <DataTableSr
+        caption={caption}
+        labels={labels}
+        series={series.map((s) => s.name)}
+        values={labels.map((_, i) => series.map((s) => s.values[i] ?? 0))}
       />
     </figure>
   );
