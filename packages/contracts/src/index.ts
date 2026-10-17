@@ -17,3 +17,4 @@ export * from './cash.js';
 export * from './dashboard.js';
 export * from './exams.js';
 export * from './vaccines.js';
+export * from './messaging.js';

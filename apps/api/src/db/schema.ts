@@ -1472,3 +1472,92 @@ export const vaccineProtocolClosures = pgTable(
   },
   (t) => [primaryKey({ columns: [t.patientId, t.vaccineId] })],
 );
+
+/**
+ * Mensagem automática por gatilho [RN-34]: ligada por padrão. A linha nasce na primeira leitura
+ * da configuração; `active_since` impede que boas-vindas e resultados anteriores gerem mensagem.
+ */
+export const messageSettings = pgTable(
+  'message_settings',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    trigger: text('trigger', {
+      enum: [
+        'vaccine_reminder',
+        'appointment_reminder',
+        'exam_result',
+        'welcome_client',
+        'welcome_patient',
+        'patient_birthday',
+        'client_birthday',
+      ],
+    }).notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    offset: smallint('offset'),
+    template: text('template').notNull(),
+    providerTemplate: text('provider_template').notNull().default(''),
+    activeSince: timestamp('active_since', { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.trigger] })],
+);
+
+/**
+ * Fila e histórico de mensagens. `dedupe_key` garante uma mensagem por fato (a dose de um
+ * protocolo, um agendamento, um aniversário por ano), mesmo com a geração rodando várias vezes.
+ */
+export const messages = pgTable(
+  'messages',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    trigger: text('trigger', {
+      enum: [
+        'vaccine_reminder',
+        'appointment_reminder',
+        'exam_result',
+        'welcome_client',
+        'welcome_patient',
+        'patient_birthday',
+        'client_birthday',
+      ],
+    }).notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    patientId: uuid('patient_id').references(() => patients.id, { onDelete: 'cascade' }),
+    phone: text('phone'),
+    body: text('body').notNull(),
+    /** Valores das variáveis na ordem do texto: parâmetros do modelo aprovado na Meta. */
+    params: text('params')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    status: text('status', {
+      enum: ['pending', 'sent', 'failed', 'skipped', 'cancelled'],
+    }).notNull(),
+    skipReason: text('skip_reason', { enum: ['no_phone', 'no_consent'] }),
+    channel: text('channel', { enum: ['api', 'manual'] }),
+    attempts: smallint('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    providerMessageId: text('provider_message_id'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sentBy: uuid('sent_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('messages_org_dedupe_uq').on(t.organizationId, t.dedupeKey),
+    index('messages_org_status_idx').on(t.organizationId, t.status, t.createdAt),
+    check(
+      'messages_status_ck',
+      sql`(${t.status} = 'skipped') = (${t.skipReason} is not null)
+        and (${t.status} = 'sent') = (${t.sentAt} is not null and ${t.channel} is not null)`,
+    ),
+  ],
+);
