@@ -28,6 +28,7 @@ import {
   gte,
   inArray,
   isNull,
+  lt,
   ne,
   or,
   sql,
@@ -40,7 +41,7 @@ import { nextCounter } from '../../core/counters.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import { containsText } from '../../core/search.js';
-import { addDays, instantToZoned } from '../../core/zoned-time.js';
+import { addDays, instantToZoned, zonedToInstant } from '../../core/zoned-time.js';
 import type { Database, Executor } from '../../db/client.js';
 import {
   cashMovements,
@@ -59,6 +60,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import { unitTimeZone } from '../scheduling/availability.js';
 import type { CashService } from '../cash/service.js';
 import type { InventoryService } from '../inventory/service.js';
 import type { PaymentMethodService } from '../payments/service.js';
@@ -87,6 +89,24 @@ const stockOf = (s: StockSummary | undefined): StockSummary | null =>
       }
     : null;
 const pct = (value: number) => `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+
+/** Data da venda; o orçamento, que ainda não foi vendido, entra pela criação. */
+const saleDate = sql<Date>`coalesce(${sales.soldAt}, ${sales.createdAt})`;
+
+const listItem = (r: {
+  id: string;
+  code: number;
+  status: SaleListItem['status'];
+  clientName: string | null;
+  patientName: string | null;
+  netTotal: number;
+  createdAt: Date;
+  soldAt: Date | null;
+}): SaleListItem => ({
+  ...r,
+  createdAt: r.createdAt.toISOString(),
+  soldAt: r.soldAt?.toISOString() ?? null,
+});
 
 /**
  * PDV [RN-23..26, RN-28, RN-30]: venda e orçamento na mesma entidade, profissional por item,
@@ -224,6 +244,11 @@ export class SaleService {
     if (query.sinceHours) {
       filters.push(gte(sales.createdAt, new Date(Date.now() - query.sinceHours * 3_600_000)));
     }
+    if (query.from || query.to) {
+      const tz = await unitTimeZone(this.db, auth.unitId);
+      if (query.from) filters.push(gte(saleDate, zonedToInstant(query.from, 0, tz)));
+      if (query.to) filters.push(lt(saleDate, zonedToInstant(addDays(query.to, 1), 0, tz)));
+    }
     if (query.q) {
       const matches: SQL[] = [
         containsText(clients.name, query.q),
@@ -244,12 +269,13 @@ export class SaleService {
           patientName: patients.name,
           netTotal: sales.netTotal,
           createdAt: sales.createdAt,
+          soldAt: sales.soldAt,
         })
         .from(sales)
         .leftJoin(clients, eq(clients.id, sales.clientId))
         .leftJoin(patients, eq(patients.id, sales.patientId))
         .where(where)
-        .orderBy(desc(sales.createdAt), desc(sales.code))
+        .orderBy(desc(saleDate), desc(sales.code))
         .limit(query.pageSize)
         .offset((query.page - 1) * query.pageSize),
       this.db
@@ -260,7 +286,7 @@ export class SaleService {
         .where(where),
     ]);
     return {
-      items: rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+      items: rows.map(listItem),
       total: totals[0]?.n ?? 0,
     };
   }
@@ -399,6 +425,7 @@ export class SaleService {
       costCenterId: costCenter?.id ?? null,
       code,
       status: input.kind === 'quote' ? 'quote' : 'open',
+      soldAt: input.kind === 'quote' ? null : new Date(),
       createdBy: auth.userId,
       ...prepared.sale,
     });
@@ -435,6 +462,7 @@ export class SaleService {
         patientName: patients.name,
         netTotal: sales.netTotal,
         createdAt: sales.createdAt,
+        soldAt: sales.soldAt,
       })
       .from(sales)
       .leftJoin(clients, eq(clients.id, sales.clientId))
@@ -444,7 +472,7 @@ export class SaleService {
       .limit(10);
     return {
       open: open ? await this.get(auth, open.id) : null,
-      recent: recent.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+      recent: recent.map(listItem),
     };
   }
 
@@ -593,6 +621,8 @@ export class SaleService {
         .set({
           ...prepared.sale,
           status: input.kind === 'quote' ? 'quote' : 'open',
+          // A data da venda é a da conversão; editar a venda aberta não a muda.
+          soldAt: input.kind === 'quote' ? null : (current.soldAt ?? new Date()),
           updatedAt: new Date(),
         })
         .where(eq(sales.id, id));

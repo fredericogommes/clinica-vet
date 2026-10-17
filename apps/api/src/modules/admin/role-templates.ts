@@ -53,6 +53,8 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.receive',
       'sales.reverse',
       'sales.configure',
+      'sales.reports',
+      'sales.view_own',
       'cash.operate',
       'cash.supervise',
     ],
@@ -72,6 +74,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'products.view',
       'sales.view',
       'sales.manage',
+      'sales.view_own',
     ],
   },
   {
@@ -90,6 +93,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.view',
       'sales.manage',
       'sales.receive',
+      'sales.view_own',
       'cash.operate',
     ],
   },
@@ -106,6 +110,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'products.view',
       'sales.view',
       'sales.manage',
+      'sales.view_own',
     ],
   },
 ];

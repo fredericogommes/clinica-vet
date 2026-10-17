@@ -163,6 +163,9 @@ export const saleListQuerySchema = z.object({
   status: z.enum(saleStatuses).optional(),
   /** Últimas N horas, para o painel do PDV. */
   sinceHours: z.coerce.number().int().min(1).max(720).optional(),
+  /** Período pela data da venda (ou da criação, no orçamento), no fuso da unidade. */
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
@@ -176,6 +179,8 @@ export const saleListItemSchema = z.object({
   patientName: z.string().nullable(),
   netTotal: z.number(),
   createdAt: z.iso.datetime({ offset: true }),
+  /** Quando virou venda; nulo no orçamento. */
+  soldAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type SaleListItem = z.infer<typeof saleListItemSchema>;
 

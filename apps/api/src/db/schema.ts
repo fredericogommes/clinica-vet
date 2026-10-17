@@ -833,6 +833,8 @@ export const sales = pgTable(
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
+    /** Quando virou venda (lançada como venda ou orçamento convertido); nulo no orçamento. */
+    soldAt: timestamp('sold_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closedBy: uuid('closed_by').references(() => users.id),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
@@ -843,6 +845,7 @@ export const sales = pgTable(
   (t) => [
     uniqueIndex('sales_org_code_uq').on(t.organizationId, t.code),
     index('sales_org_created_idx').on(t.organizationId, t.createdAt),
+    index('sales_unit_sold_idx').on(t.unitId, t.soldAt),
     index('sales_patient_idx').on(t.patientId),
     index('sales_client_idx').on(t.clientId),
     check('sales_patient_client_ck', sql`${t.patientId} is null or ${t.clientId} is not null`),
@@ -857,6 +860,11 @@ export const sales = pgTable(
       sql`(${t.closedAt} is null) = (${t.closedBy} is null)
         and (${t.status} <> 'closed' or ${t.closedAt} is not null)
         and (${t.status} not in ('quote', 'open') or ${t.closedAt} is null)`,
+    ),
+    check(
+      'sales_sold_ck',
+      sql`(${t.status} <> 'quote' or ${t.soldAt} is null)
+        and (${t.status} not in ('open', 'closed') or ${t.soldAt} is not null)`,
     ),
     check(
       'sales_cancel_ck',

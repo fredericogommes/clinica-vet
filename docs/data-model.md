@@ -96,6 +96,8 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 
 `sales.closed_at`/`closed_by` marcam a baixa; CHECK garante que só venda baixada os tem (migração 0007, que também cria Dinheiro e PIX nas organizações existentes).
 
+`sales.sold_at` é a data da venda para os relatórios: nula no orçamento, preenchida ao criar a venda ou converter o orçamento; CHECK garante isso e o índice `(unit_id, sold_at)` atende a Consulta vendas (migração 0011, que preenche as vendas antigas com `created_at`).
+
 `sale_items.clinical_event_id` liga o item ao atendimento que o lançou (migração 0006); o índice único parcial impede cobrar o mesmo atendimento duas vezes [RN-19].
 
 A busca usa a extensão `unaccent` do PostgreSQL (criada na migração 0001) para ignorar acentos.

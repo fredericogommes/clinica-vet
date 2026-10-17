@@ -1,4 +1,5 @@
-import { productKinds, type Permission } from '@clinica/contracts';
+import { productKinds, saleStatuses, type Permission } from '@clinica/contracts';
+import { defaultPeriod, reportTabs } from '../features/sales/report-search';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   createRootRouteWithContext,
@@ -60,6 +61,12 @@ const PdvPage = lazy(() =>
 );
 const SalePage = lazy(() =>
   import('../features/sales/sale-pages').then((m) => ({ default: m.SalePage })),
+);
+const SalesReportPage = lazy(() =>
+  import('../features/sales/reports-page').then((m) => ({ default: m.SalesReportPage })),
+);
+const MySalesPage = lazy(() =>
+  import('../features/sales/reports-page').then((m) => ({ default: m.MySalesPage })),
 );
 const CashListPage = lazy(() =>
   import('../features/cash/cash-pages').then((m) => ({ default: m.CashListPage })),
@@ -657,6 +664,57 @@ const paymentMethodsRoute = createRoute({
   ),
 });
 
+const optionalDate = z.iso.date().optional().catch(undefined);
+
+/** Período, aba e filtros na URL: o link copiado abre a mesma consulta. */
+const salesReportRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/consulta',
+  validateSearch: z.object({
+    aba: z.enum(reportTabs).optional().catch(undefined),
+    de: optionalDate,
+    ate: optionalDate,
+    tipo: z.enum(productKinds).optional().catch(undefined),
+    situacao: z.enum(saleStatuses).optional().catch(undefined),
+    q: z.string().max(100).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function SalesReport() {
+    const s = salesReportRoute.useSearch();
+    const period = defaultPeriod();
+    return (
+      <RequirePermission permission="sales.reports">
+        <SalesReportPage
+          search={{
+            tab: s.aba ?? 'resumo',
+            from: s.de ?? period.from,
+            to: s.ate ?? period.to,
+            kind: s.tipo,
+            status: s.situacao,
+            q: s.q ?? '',
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const mySalesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/minhas',
+  validateSearch: z.object({ de: optionalDate, ate: optionalDate }),
+  component: function MySales() {
+    const s = mySalesRoute.useSearch();
+    const period = defaultPeriod();
+    return (
+      <RequirePermission permission="sales.view_own">
+        <MySalesPage from={s.de ?? period.from} to={s.ate ?? period.to} />
+      </RequirePermission>
+    );
+  },
+});
+
 const cashListRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vendas/caixas',
@@ -723,6 +781,8 @@ const routeTree = rootRoute.addChildren([
     pdvRoute,
     salesSettingsRoute,
     paymentMethodsRoute,
+    salesReportRoute,
+    mySalesRoute,
     cashListRoute,
     cashRoute,
     saleRoute,

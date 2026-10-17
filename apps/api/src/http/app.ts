@@ -29,6 +29,7 @@ import { InventoryService } from '../modules/inventory/service.js';
 import { CashService } from '../modules/cash/service.js';
 import { paymentMethodRoutes } from '../modules/payments/routes.js';
 import { PaymentMethodService } from '../modules/payments/service.js';
+import { SalesReportService } from '../modules/sales/reports.js';
 import { saleRoutes } from '../modules/sales/routes.js';
 import { SaleService } from '../modules/sales/service.js';
 import { AppointmentService } from '../modules/scheduling/appointment-service.js';
@@ -109,7 +110,11 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     products: new ProductService(db),
     inventory,
   });
-  await app.register(saleRoutes, { prefix: '/api/sales', sales });
+  await app.register(saleRoutes, {
+    prefix: '/api/sales',
+    sales,
+    reports: new SalesReportService(db),
+  });
   await app.register(paymentMethodRoutes, {
     prefix: '/api/payment-methods',
     methods: paymentMethods,

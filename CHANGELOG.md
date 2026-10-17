@@ -27,6 +27,7 @@
 - Lote e validade por entrada para produtos que controlam lote: a venda sai do lote que vence antes e nunca de lote vencido, a contagem é por lote, a ficha mostra os lotes com aviso de vencimento e o saldo vencido, e cada lote é rastreável até a venda, o animal e o tutor; a lista avisa lote vencido ou validade próxima.
 - Caixa por operador: abertura com troco, recebimentos só com caixa aberto, suprimento e sangria, fechamento com dinheiro contado e diferença explicada, totais por forma de recebimento, lista de caixas com filtro e supervisão. Venda baixada pode ser estornada: a devolução sai do caixa na forma recebida e a venda fica cancelada.
 - Venda pela ficha clínica: o tipo de atendimento aponta o serviço cobrado, o atendimento finalizado lança esse serviço na venda aberta do animal e a coluna "Venda" da ficha mostra o carrinho, lança produtos e serviços e leva ao PDV.
+- Consulta vendas por período: resumo com venda bruta, desconto, líquido, ticket médio, recebido e em aberto, quebras por dia, forma de recebimento, profissional e tipo; totais por produto e serviço; lista de vendas com busca e situação. Minhas vendas mostra ao profissional os itens que vendeu.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Segurança

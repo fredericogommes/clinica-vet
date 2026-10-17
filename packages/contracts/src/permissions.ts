@@ -89,6 +89,14 @@ export const permissionCatalog = {
     group: 'Vendas',
     label: 'Estornar vendas baixadas, devolvendo pelo caixa',
   },
+  'sales.reports': {
+    group: 'Vendas',
+    label: 'Consultar vendas da unidade: resumo, totais por produto e serviço e lista',
+  },
+  'sales.view_own': {
+    group: 'Vendas',
+    label: 'Ver as próprias vendas (Minhas vendas)',
+  },
   'cash.operate': {
     group: 'Caixa',
     label: 'Abrir e fechar o próprio caixa, lançar sangria e suprimento',
