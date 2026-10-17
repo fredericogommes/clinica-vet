@@ -111,9 +111,10 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     sessions,
     secureCookies: config.NODE_ENV === 'production',
   });
+  const appointments = new AppointmentService(db);
   await app.register(portalRoutes, {
     prefix: '/api/portal',
-    portal: new PortalService(db, portalSessions),
+    portal: new PortalService(db, portalSessions, appointments),
     sessions: portalSessions,
     secureCookies: config.NODE_ENV === 'production',
   });
@@ -126,7 +127,6 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(clientRoutes, { prefix: '/api/clients', clients: new ClientService(db) });
   const patients = new PatientService(db);
   await app.register(patientRoutes, { prefix: '/api/patients', patients });
-  const appointments = new AppointmentService(db);
   await app.register(scheduleRoutes, {
     prefix: '/api/schedule',
     config: new ScheduleConfigService(db),

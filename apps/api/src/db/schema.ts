@@ -530,6 +530,10 @@ export const appointments = pgTable(
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     cancelReason: text('cancel_reason'),
     createdBy: uuid('created_by').references(() => users.id),
+    /** Quem marcou: a equipe ou o tutor pelo portal (sem usuário em `created_by`). */
+    origin: text('origin', { enum: ['staff', 'portal'] })
+      .notNull()
+      .default('staff'),
     ...timestamps,
   },
   (t) => [
@@ -2237,18 +2241,35 @@ export const commissionStatementLines = pgTable(
 );
 
 /** Portal do tutor [p.20–21, RN-44]: desligado até a clínica decidir o que o tutor vê. */
-export const portalSettings = pgTable('portal_settings', {
-  organizationId: uuid('organization_id')
-    .primaryKey()
-    .references(() => organizations.id),
-  enabled: boolean('enabled').notNull().default(false),
-  showAppointments: boolean('show_appointments').notNull().default(true),
-  showWeight: boolean('show_weight').notNull().default(true),
-  showVaccines: boolean('show_vaccines').notNull().default(true),
-  showExams: boolean('show_exams').notNull().default(false),
-  showPrescriptions: boolean('show_prescriptions').notNull().default(false),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const portalSettings = pgTable(
+  'portal_settings',
+  {
+    organizationId: uuid('organization_id')
+      .primaryKey()
+      .references(() => organizations.id),
+    enabled: boolean('enabled').notNull().default(false),
+    showAppointments: boolean('show_appointments').notNull().default(true),
+    showWeight: boolean('show_weight').notNull().default(true),
+    showVaccines: boolean('show_vaccines').notNull().default(true),
+    showExams: boolean('show_exams').notNull().default(false),
+    showPrescriptions: boolean('show_prescriptions').notNull().default(false),
+    /** Agendamento online: os tipos que o tutor pode marcar, antecedência e alcance. */
+    bookingEnabled: boolean('booking_enabled').notNull().default(false),
+    bookingTypeIds: uuid('booking_type_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    bookingLeadHours: smallint('booking_lead_hours').notNull().default(2),
+    bookingWindowDays: smallint('booking_window_days').notNull().default(30),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'portal_settings_booking_ck',
+      sql`${t.bookingLeadHours} between 0 and 168 and ${t.bookingWindowDays} between 1 and 180`,
+    ),
+  ],
+);
 
 /**
  * Acesso de um cliente ao portal. O e-mail é o login e vale para uma conta só no sistema. Sem

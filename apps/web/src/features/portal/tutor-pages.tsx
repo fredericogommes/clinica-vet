@@ -3,7 +3,12 @@ import {
   portalLoginSchema,
   portalSetPasswordSchema,
   vaccineKindLabels,
+  portalBookSchema,
+  type PortalBook,
+  type PortalBookingOptions,
+  type PortalHome,
   type PortalLogin,
+  type PortalSlots,
   type PortalPatient,
   type PortalSetPassword,
 } from '@clinica/contracts';
@@ -12,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import {
   CalendarClock,
+  CalendarPlus,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -22,10 +28,15 @@ import {
   PawPrint,
   Syringe,
 } from 'lucide-react';
-import { Suspense, type ReactNode } from 'react';
+import { clsx } from 'clsx';
+import { Suspense, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { Button, buttonClasses } from '../../design-system/button';
-import { TextField } from '../../design-system/field';
+import { Checkbox } from '../../design-system/checkbox';
+import { Dialog } from '../../design-system/dialog';
+import { SelectField, TextareaField, TextField } from '../../design-system/field';
+import { useToast } from '../../design-system/toast';
+import { formatCalendarDate } from '../../lib/format';
 import { Badge, Section } from '../../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states';
 import { errorMessage, portalApiVoid, setPortalCsrfToken } from '../../lib/api';
@@ -33,8 +44,10 @@ import { ExamValuesTable } from '../clinical/exam-result';
 import { zoned } from '../clinical/labels';
 import { WeightChart } from '../clinical/weight-chart';
 import {
+  portalBookingQuery,
   portalHomeQuery,
   portalLinkQuery,
+  portalSlotsQuery,
   portalPatientQuery,
   portalSessionQuery,
   usePortalSession,
@@ -110,14 +123,14 @@ function AccessFrame({
   );
 }
 
-function FormError({ error }: { error: unknown }) {
+function FormError({ message }: { message: string }) {
   return (
     <div
       role="alert"
       className="flex items-start gap-2 rounded-control border border-danger-600/25 bg-danger-50 px-3 py-2.5 text-sm text-danger-600"
     >
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-      {errorMessage(error)}
+      {message}
     </div>
   );
 }
@@ -149,7 +162,7 @@ export function PortalLoginPage() {
           login.mutate(values);
         })}
       >
-        {login.isError ? <FormError error={login.error} /> : null}
+        {login.isError ? <FormError message={errorMessage(login.error)} /> : null}
         <TextField
           label="E-mail"
           type="email"
@@ -225,7 +238,7 @@ export function PortalLinkPage({ token }: { token: string }) {
           save.mutate(values);
         })}
       >
-        {save.isError ? <FormError error={save.error} /> : null}
+        {save.isError ? <FormError message={errorMessage(save.error)} /> : null}
         {/* Campo de usuário oculto para o gerenciador de senhas guardar o par certo. */}
         <input type="email" value={email} autoComplete="username" readOnly hidden />
         <TextField
@@ -255,6 +268,22 @@ export function PortalLinkPage({ token }: { token: string }) {
 export function PortalHomePage() {
   const session = usePortalSession();
   const home = useQuery(portalHomeQuery);
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [cancelling, setCancelling] = useState<
+    NonNullable<PortalHome['appointments']>[number] | null
+  >(null);
+  const cancel = useMutation({
+    mutationFn: (id: string) => portalApiVoid('POST', `/appointments/${id}/cancel`),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal'] });
+      toast.success('Agendamento cancelado.');
+      setCancelling(null);
+    },
+    onError: (e) => {
+      toast.error(errorMessage(e));
+    },
+  });
   if (home.isPending) return <SkeletonRows />;
   if (home.isError) {
     return <ErrorState message={errorMessage(home.error)} onRetry={() => void home.refetch()} />;
@@ -263,9 +292,17 @@ export function PortalHomePage() {
   const { patients, appointments } = home.data;
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">
-        Seus animais
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">
+          Seus animais
+        </h1>
+        {session.booking && patients.some((p) => !p.deceased) ? (
+          <Link to="/portal/agendar" className={buttonClasses()}>
+            <CalendarPlus className="size-4" aria-hidden />
+            Agendar horário
+          </Link>
+        ) : null}
+      </div>
       {patients.length === 0 ? (
         <Section title="Animais">
           <EmptyState
@@ -321,14 +358,325 @@ export function PortalHomePage() {
                       {a.professional} · {a.unit}
                     </p>
                   </div>
-                  <p className="font-mono text-[13px] text-ink">{z.dateTime(a.startsAt)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-mono text-[13px] text-ink">{z.dateTime(a.startsAt)}</p>
+                    {a.cancellable ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Cancelar ${a.type} de ${z.dateTime(a.startsAt)}`}
+                        onClick={() => {
+                          setCancelling(a);
+                        }}
+                      >
+                        Cancelar
+                      </Button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </Section>
       ) : null}
+      <Dialog
+        open={cancelling !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancelling(null);
+        }}
+        title="Cancelar o agendamento?"
+        description={
+          cancelling
+            ? `${cancelling.type} em ${z.dateTime(cancelling.startsAt)}. O horário fica livre para outra pessoa.`
+            : ''
+        }
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCancelling(null);
+              }}
+            >
+              Manter
+            </Button>
+            <Button
+              variant="danger"
+              pending={cancel.isPending}
+              onClick={() => {
+                if (cancelling) cancel.mutate(cancelling.id);
+              }}
+            >
+              Cancelar agendamento
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-muted">Para remarcar, cancele e agende de novo.</p>
+      </Dialog>
     </div>
+  );
+}
+
+/** Agendar pelo portal: animal, atendimento, dia e um horário livre da escala. */
+export function PortalBookingPage() {
+  const options = useQuery(portalBookingQuery);
+  if (options.isPending) return <SkeletonRows />;
+  if (options.isError) {
+    return (
+      <ErrorState message={errorMessage(options.error)} onRetry={() => void options.refetch()} />
+    );
+  }
+  return <BookingForm options={options.data} />;
+}
+
+function BookingForm({ options }: { options: PortalBookingOptions }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [patientIds, setPatientIds] = useState<string[]>(
+    options.patients.length === 1 && options.patients[0] ? [options.patients[0].id] : [],
+  );
+  const [unitId, setUnitId] = useState(options.units[0]?.id ?? '');
+  const [typeId, setTypeId] = useState(
+    options.types.length === 1 ? (options.types[0]?.id ?? '') : '',
+  );
+  const [date, setDate] = useState('');
+  const [slot, setSlot] = useState<PortalSlots[number] | null>(null);
+  const [professionalId, setProfessionalId] = useState('');
+  const [notes, setNotes] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const slots = useQuery(portalSlotsQuery(unitId, typeId, date));
+  const book = useMutation({
+    mutationFn: (body: PortalBook) => portalApiVoid('POST', '/appointments', body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal'] });
+      toast.success('Horário agendado. A clínica já vê o seu agendamento.');
+      await navigate({ to: '/portal' });
+    },
+    onError: async (e) => {
+      setProblem(errorMessage(e));
+      setSlot(null);
+      await slots.refetch();
+    },
+  });
+  const type = options.types.find((t) => t.id === typeId);
+  // Um botão por horário: sem preferência, o horário fica com o primeiro profissional livre.
+  const free = slots.data ?? [];
+  const professionals = [...new Map(free.map((s) => [s.professionalId, s.professionalName]))];
+  const chosen = professionals.some(([id]) => id === professionalId) ? professionalId : '';
+  const shown = chosen
+    ? free.filter((s) => s.professionalId === chosen)
+    : free.filter((s, i) => free.findIndex((o) => o.start === s.start) === i);
+  return (
+    <form
+      noValidate
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        // Avisa o que falta na ordem em que aparece na tela.
+        const missing =
+          patientIds.length === 0
+            ? 'Escolha ao menos um animal'
+            : typeId === ''
+              ? 'Escolha o atendimento'
+              : date === ''
+                ? 'Escolha o dia'
+                : slot === null
+                  ? 'Escolha um horário'
+                  : null;
+        if (missing) {
+          setProblem(missing);
+          return;
+        }
+        const parsed = portalBookSchema.safeParse({
+          unitId,
+          typeId,
+          patientIds,
+          date,
+          start: slot?.start ?? '',
+          professionalId: slot?.professionalId ?? '',
+          notes,
+        });
+        if (!parsed.success) {
+          setProblem(parsed.error.issues[0]?.message ?? 'Confira os dados do agendamento.');
+          return;
+        }
+        setProblem(null);
+        book.mutate(parsed.data);
+      }}
+    >
+      <div>
+        <Link
+          to="/portal"
+          className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink"
+        >
+          <ChevronLeft className="size-4" aria-hidden />
+          Seus animais
+        </Link>
+        <h1 className="mt-2 font-display text-[26px] leading-tight font-semibold text-ink">
+          Agendar horário
+        </h1>
+        <p className="mt-0.5 text-sm text-ink-muted">
+          Horários de {formatCalendarDate(options.firstDate)} a{' '}
+          {formatCalendarDate(options.lastDate)}
+          {options.leadHours > 0
+            ? `, com pelo menos ${String(options.leadHours)} ${options.leadHours === 1 ? 'hora' : 'horas'} de antecedência`
+            : ''}
+          .
+        </p>
+      </div>
+      {problem ? <FormError message={problem} /> : null}
+      <Section title="Para quem">
+        <div className="space-y-3">
+          {options.patients.map((p) => (
+            <Checkbox
+              key={p.id}
+              label={p.name}
+              checked={patientIds.includes(p.id)}
+              onCheckedChange={(on) => {
+                setPatientIds(on ? [...patientIds, p.id] : patientIds.filter((id) => id !== p.id));
+              }}
+            />
+          ))}
+        </div>
+      </Section>
+      <Section title="Atendimento e dia">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {options.units.length > 1 ? (
+            <SelectField
+              label="Unidade"
+              value={unitId}
+              options={options.units.map((u) => ({ value: u.id, label: u.name }))}
+              onChange={(e) => {
+                setUnitId(e.target.value);
+                setSlot(null);
+              }}
+            />
+          ) : null}
+          <SelectField
+            label="Atendimento"
+            value={typeId}
+            placeholder="Selecione"
+            options={options.types.map((t) => ({
+              value: t.id,
+              label: `${t.name} (${String(t.durationMinutes)} min)`,
+            }))}
+            onChange={(e) => {
+              setTypeId(e.target.value);
+              setSlot(null);
+            }}
+          />
+          <TextField
+            label="Dia"
+            type="date"
+            min={options.firstDate}
+            max={options.lastDate}
+            value={date}
+            onChange={(e) => {
+              setDate(e.target.value);
+              setSlot(null);
+            }}
+          />
+        </div>
+      </Section>
+      <Section
+        title="Horário"
+        description={
+          type && date
+            ? `${type.name} em ${formatCalendarDate(date)}`
+            : 'Escolha o atendimento e o dia.'
+        }
+      >
+        {!type || !date ? (
+          <p className="text-sm text-ink-muted">Os horários livres aparecem aqui.</p>
+        ) : slots.isPending ? (
+          <SkeletonRows rows={2} columns={4} />
+        ) : slots.isError ? (
+          <ErrorState message={errorMessage(slots.error)} onRetry={() => void slots.refetch()} />
+        ) : slots.data.length === 0 ? (
+          <EmptyState
+            icon={CalendarClock}
+            title="Nenhum horário livre neste dia"
+            description="Tente outro dia ou fale com a clínica."
+          />
+        ) : (
+          <div className="space-y-4">
+            {professionals.length > 1 ? (
+              <div className="sm:max-w-xs">
+                <SelectField
+                  label="Profissional"
+                  value={chosen}
+                  options={[
+                    { value: '', label: 'Sem preferência' },
+                    ...professionals.map(([id, name]) => ({ value: id, label: name })),
+                  ]}
+                  onChange={(e) => {
+                    setProfessionalId(e.target.value);
+                    setSlot(null);
+                  }}
+                />
+              </div>
+            ) : null}
+            <div
+              role="radiogroup"
+              aria-label="Horários livres"
+              className="grid grid-cols-3 gap-2 sm:grid-cols-6"
+            >
+              {shown.map((s) => {
+                const selected =
+                  slot?.start === s.start && slot.professionalId === s.professionalId;
+                return (
+                  <button
+                    key={`${s.start}-${s.professionalId}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={
+                      chosen || professionals.length === 1
+                        ? `${s.start} com ${s.professionalName}`
+                        : s.start
+                    }
+                    onClick={() => {
+                      setSlot(s);
+                    }}
+                    className={clsx(
+                      'rounded-control border px-3 py-2 text-center transition-colors',
+                      selected
+                        ? 'border-sage-600 bg-sage-50 text-sage-700'
+                        : 'border-line bg-surface hover:border-sage-600',
+                    )}
+                  >
+                    <span className="font-mono text-sm font-medium">{s.start}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Section>
+      <Section title="Recado para a clínica">
+        <TextareaField
+          label="Observações (opcional)"
+          rows={3}
+          maxLength={500}
+          value={notes}
+          onChange={(e) => {
+            setNotes(e.target.value);
+          }}
+        />
+      </Section>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {slot && type && date ? (
+          <p className="text-sm text-ink-muted">
+            {type.name} em {formatCalendarDate(date)} às {slot.start} com {slot.professionalName}
+          </p>
+        ) : null}
+        <Button type="submit" pending={book.isPending}>
+          Confirmar agendamento
+        </Button>
+      </div>
+    </form>
   );
 }
 

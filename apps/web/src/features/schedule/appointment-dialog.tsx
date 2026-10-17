@@ -140,6 +140,7 @@ export function AppointmentDialog({
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={statusTone(current)}>{statusLabel(current)}</Badge>
           {current.fitIn ? <Badge tone="amber">Encaixe</Badge> : null}
+          {current.bookedOnline ? <Badge tone="sage">Pelo portal</Badge> : null}
           {current.seriesId ? (
             <Badge>
               <Repeat className="mr-1 size-3" aria-hidden />

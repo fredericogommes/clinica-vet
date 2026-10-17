@@ -1,4 +1,6 @@
 import {
+  portalBookingOptionsSchema,
+  portalSlotsSchema,
   portalAccountListSchema,
   portalAccountSchema,
   portalHomeSchema,
@@ -53,6 +55,24 @@ export const portalLinkQuery = (token: string) =>
     queryKey: ['portal', 'link', token],
     queryFn: () => portalApi('GET', `/link/${token}`, portalLinkInfoSchema),
     retry: false,
+  });
+
+export const portalBookingQuery = queryOptions({
+  queryKey: ['portal', 'booking'],
+  queryFn: () => portalApi('GET', '/booking', portalBookingOptionsSchema),
+});
+
+export const portalSlotsQuery = (unitId: string, typeId: string, date: string) =>
+  queryOptions({
+    queryKey: ['portal', 'slots', unitId, typeId, date],
+    queryFn: () =>
+      portalApi(
+        'GET',
+        `/booking/slots?unitId=${unitId}&typeId=${typeId}&date=${date}`,
+        portalSlotsSchema,
+      ),
+    enabled: unitId !== '' && typeId !== '' && date !== '',
+    staleTime: 0,
   });
 
 // Lado da equipe.

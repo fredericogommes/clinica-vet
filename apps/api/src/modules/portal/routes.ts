@@ -1,4 +1,8 @@
 import {
+  portalBookingOptionsSchema,
+  portalBookSchema,
+  portalSlotQuerySchema,
+  portalSlotsSchema,
   portalAccountListSchema,
   portalAccountSchema,
   portalHomeSchema,
@@ -156,5 +160,40 @@ export const portalRoutes: FastifyPluginAsyncZod<{
       schema: { params: z.object({ id: z.uuid() }), response: { 200: portalPatientSchema } },
     },
     async (request) => service.patient(requirePortal(request), request.params.id),
+  );
+  app.get(
+    '/booking',
+    { config: portal, schema: { response: { 200: portalBookingOptionsSchema } } },
+    async (request) => service.bookingOptions(requirePortal(request)),
+  );
+  app.get(
+    '/booking/slots',
+    {
+      config: portal,
+      schema: { querystring: portalSlotQuerySchema, response: { 200: portalSlotsSchema } },
+    },
+    async (request) => service.bookingSlots(requirePortal(request), request.query),
+  );
+  app.post(
+    '/appointments',
+    {
+      config: { ...portal, rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: { body: portalBookSchema, response: { 204: z.null() } },
+    },
+    async (request, reply) => {
+      await service.book(requirePortal(request), request.body);
+      return reply.status(204).send(null);
+    },
+  );
+  app.post(
+    '/appointments/:id/cancel',
+    {
+      config: portal,
+      schema: { params: z.object({ id: z.uuid() }), response: { 204: z.null() } },
+    },
+    async (request, reply) => {
+      await service.cancel(requirePortal(request), request.params.id);
+      return reply.status(204).send(null);
+    },
   );
 };

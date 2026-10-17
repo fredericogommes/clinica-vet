@@ -24,6 +24,8 @@ async function seed(page: Page, suffix: string) {
       if (!r.ok) throw new Error(await r.text());
       return (await r.json()) as T;
     };
+    const types = await call<{ id: string; name: string }[]>('GET', '/catalogs/appointment-types');
+    const consulta = types.find((t) => t.name === 'Consulta');
     await call('PUT', '/portal-admin/settings', {
       enabled: true,
       sections: {
@@ -33,6 +35,25 @@ async function seed(page: Page, suffix: string) {
         exams: true,
         prescriptions: true,
       },
+      booking: {
+        enabled: true,
+        typeIds: consulta ? [consulta.id] : [],
+        leadHours: 2,
+        windowDays: 30,
+      },
+    });
+    // Profissional próprio do teste, com agenda de segunda a sexta, para os horários livres.
+    const roles = await call<{ id: string; name: string }[]>('GET', '/admin/roles');
+    const vet = await call<{ id: string; name: string }>('POST', '/admin/users', {
+      name: `Dra. Portal ${suffix}`,
+      email: `portal-vet-${suffix}@clinica.local`,
+      password: 'senha-local-123',
+      roleId: roles.find((r) => r.name === 'Veterinário')?.id,
+      unitIds: [session.currentUnit.id],
+    });
+    await call('PUT', `/schedule/members/${vet.id}`, {
+      mode: 'fixed',
+      fixedHours: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '08:00', end: '18:00' })),
     });
     const email = `tutor-${suffix}@exemplo.com`;
     const client = await call<Client>('POST', '/clients', {
@@ -97,7 +118,7 @@ async function seed(page: Page, suffix: string) {
       body: 'Ainda não revisada.',
       publish: false,
     });
-    return { client, patient, email };
+    return { client, patient, email, vet };
   }, suffix);
 }
 
@@ -252,5 +273,90 @@ test('portal do tutor no celular sem rolagem lateral @mobile', async ({ page, br
     await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
     'configuração',
   ).toBe(0);
+  await tutorContext.close();
+});
+
+/** Próximo dia útil a partir de depois de amanhã, no fuso da clínica. */
+function nextWeekday(): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(
+    new Date(),
+  );
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 2);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Com mais de um profissional livre, escolhe o do teste; com um só, o seletor não aparece. */
+async function chooseProfessional(tutor: Page, name: string) {
+  await expect(tutor.getByRole('radiogroup', { name: 'Horários livres' })).toBeVisible();
+  const professional = tutor.getByLabel('Profissional', { exact: true });
+  if ((await professional.count()) > 0) await professional.selectOption({ label: name });
+}
+
+test('agendamento online: o tutor marca um horário livre e cancela', async ({ page, browser }) => {
+  const { client, patient, email, vet } = await seed(page, `a${tag}`);
+  const path = await inviteFromClientPage(page, client.id, email, 'Convidar para o portal');
+  const tutorContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const tutor = await tutorContext.newPage();
+  await tutor.goto(path);
+  await tutor.getByLabel('Nova senha').fill('senha-do-tutor-1');
+  await tutor.getByLabel('Repita a senha').fill('senha-do-tutor-1');
+  await tutor.getByRole('button', { name: 'Criar senha e entrar' }).click();
+
+  await tutor.getByRole('link', { name: 'Agendar horário' }).click();
+  await expect(tutor.getByRole('heading', { name: 'Agendar horário', level: 1 })).toBeVisible();
+  await expect(tutor.getByRole('checkbox', { name: patient.name })).toBeChecked();
+  await tutor.getByRole('button', { name: 'Confirmar agendamento' }).click();
+  await expect(tutor.getByRole('alert')).toContainText('Escolha o dia');
+
+  await expect(tutor.getByLabel('Atendimento', { exact: true })).toHaveValue(/.+/);
+  await tutor
+    .getByLabel('Atendimento', { exact: true })
+    .selectOption({ label: 'Consulta (60 min)' });
+  const day = nextWeekday();
+  await tutor.getByLabel('Dia', { exact: true }).fill(day);
+  await chooseProfessional(tutor, vet.name);
+  const slot = tutor.getByRole('radio', { name: `17:00 com ${vet.name}` });
+  await slot.click();
+  await expect(slot).toHaveAttribute('aria-checked', 'true');
+  await tutor.getByLabel('Observações (opcional)').fill('Ele fica nervoso no carro.');
+  await tutor.getByRole('button', { name: 'Confirmar agendamento' }).click();
+  await expect(tutor.getByRole('heading', { name: 'Seus animais', level: 1 })).toBeVisible();
+  const next = tutor.getByRole('region', { name: 'Próximos agendamentos' });
+  await expect(next).toContainText(`Consulta · ${patient.name}`);
+  await expect(next).toContainText(vet.name);
+
+  // A equipe vê o agendamento na agenda, marcado pelo portal.
+  const staff = await page.evaluate(
+    async ({ day, vetId }) => {
+      const r = await fetch(`/api/schedule/agenda?from=${day}&to=${day}&professionalId=${vetId}`);
+      return (await r.json()) as {
+        appointments: { start: string; bookedOnline: boolean; notes: string | null }[];
+      };
+    },
+    { day, vetId: vet.id },
+  );
+  expect(staff.appointments).toEqual([
+    expect.objectContaining({
+      start: '17:00',
+      bookedOnline: true,
+      notes: 'Ele fica nervoso no carro.',
+    }),
+  ]);
+
+  // O horário sai da lista e o tutor cancela.
+  await tutor.getByRole('link', { name: 'Agendar horário' }).click();
+  await tutor
+    .getByLabel('Atendimento', { exact: true })
+    .selectOption({ label: 'Consulta (60 min)' });
+  await tutor.getByLabel('Dia', { exact: true }).fill(day);
+  await chooseProfessional(tutor, vet.name);
+  await expect(tutor.getByRole('radio', { name: `16:00 com ${vet.name}` })).toBeVisible();
+  await expect(tutor.getByRole('radio', { name: `17:00 com ${vet.name}` })).toHaveCount(0);
+  await tutor.getByRole('link', { name: 'Seus animais' }).click();
+  await next.getByRole('button', { name: /^Cancelar Consulta/ }).click();
+  await tutor.getByRole('dialog').getByRole('button', { name: 'Cancelar agendamento' }).click();
+  await expect(next).not.toContainText(vet.name);
   await tutorContext.close();
 });

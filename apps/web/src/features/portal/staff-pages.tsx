@@ -29,6 +29,7 @@ import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { formatDateTime } from '../../lib/format';
 import { whatsappUrl } from '../clients/format';
+import { appointmentTypesQuery } from '../schedule/queries';
 import { portalAccountQuery, portalAccountsQuery, portalSettingsQuery } from './queries';
 
 const statusTones: Record<PortalAccountStatus, 'neutral' | 'sage' | 'amber' | 'danger'> = {
@@ -360,6 +361,13 @@ function SettingsForm({ initial }: { initial: PortalSettings }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [value, setValue] = useState(initial);
+  const [lead, setLead] = useState(String(initial.booking.leadHours));
+  const [reach, setReach] = useState(String(initial.booking.windowDays));
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const types = useQuery(appointmentTypesQuery);
+  const booking = (patch: Partial<PortalSettings['booking']>) => {
+    setValue({ ...value, booking: { ...value.booking, ...patch } });
+  };
   const save = useMutation({
     mutationFn: (body: PortalSettings) =>
       api('PUT', '/portal-admin/settings', portalSettingsSchema, body),
@@ -376,7 +384,22 @@ function SettingsForm({ initial }: { initial: PortalSettings }) {
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate(value);
+        const parsed = portalSettingsSchema.safeParse({
+          ...value,
+          booking: {
+            ...value.booking,
+            leadHours: lead.trim() === '' ? Number.NaN : Number(lead),
+            windowDays: reach.trim() === '' ? Number.NaN : Number(reach),
+          },
+        });
+        if (!parsed.success) {
+          setErrors(
+            Object.fromEntries(parsed.error.issues.map((i) => [i.path.join('.'), i.message])),
+          );
+          return;
+        }
+        setErrors({});
+        save.mutate(parsed.data);
       }}
     >
       <PageHeader
@@ -421,6 +444,81 @@ function SettingsForm({ initial }: { initial: PortalSettings }) {
             Só aparece o que está publicado na ficha. Rascunhos e eventos invalidados nunca vão ao
             portal.
           </p>
+        </div>
+      </Section>
+      <Section
+        title="Agendamento online"
+        description="O tutor escolhe o animal, o atendimento e um horário livre da escala. O horário entra na agenda como Agendado, marcado Pelo portal."
+        className="mt-5"
+      >
+        <div className="max-w-3xl space-y-4">
+          <Checkbox
+            label="Tutor pode agendar pelo portal"
+            description="Os próximos agendamentos aparecem no portal enquanto o agendamento online estiver ligado."
+            checked={value.booking.enabled}
+            onCheckedChange={(enabled) => {
+              booking({ enabled });
+            }}
+          />
+          <fieldset>
+            <legend className="text-sm font-medium text-ink">
+              Atendimentos que o tutor pode marcar
+            </legend>
+            {types.isPending ? (
+              <SkeletonRows rows={2} columns={1} />
+            ) : types.isError ? (
+              <ErrorState
+                message={errorMessage(types.error)}
+                onRetry={() => void types.refetch()}
+              />
+            ) : (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {types.data
+                  .filter((t) => !t.archived)
+                  .map((t) => (
+                    <Checkbox
+                      key={t.id}
+                      label={t.name}
+                      description={`${String(t.durationMinutes)} minutos`}
+                      checked={value.booking.typeIds.includes(t.id)}
+                      onCheckedChange={(on) => {
+                        booking({
+                          typeIds: on
+                            ? [...value.booking.typeIds, t.id]
+                            : value.booking.typeIds.filter((id) => id !== t.id),
+                        });
+                      }}
+                    />
+                  ))}
+              </div>
+            )}
+            {errors['booking.typeIds'] ? (
+              <p role="alert" className="mt-1.5 text-xs text-danger-600">
+                {errors['booking.typeIds']}
+              </p>
+            ) : null}
+          </fieldset>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label="Antecedência mínima (horas)"
+              inputMode="numeric"
+              value={lead}
+              hint="Também vale para o tutor cancelar o que marcou."
+              error={errors['booking.leadHours']}
+              onChange={(e) => {
+                setLead(e.target.value);
+              }}
+            />
+            <TextField
+              label="Agenda aberta até (dias à frente)"
+              inputMode="numeric"
+              value={reach}
+              error={errors['booking.windowDays']}
+              onChange={(e) => {
+                setReach(e.target.value);
+              }}
+            />
+          </div>
         </div>
       </Section>
       <FormActions>
