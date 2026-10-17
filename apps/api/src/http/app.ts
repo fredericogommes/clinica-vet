@@ -29,6 +29,8 @@ import { InventoryService } from '../modules/inventory/service.js';
 import { CashService } from '../modules/cash/service.js';
 import { paymentMethodRoutes } from '../modules/payments/routes.js';
 import { PaymentMethodService } from '../modules/payments/service.js';
+import { DashboardService } from '../modules/dashboard/service.js';
+import { dashboardRoutes } from '../modules/dashboard/routes.js';
 import { SalesReportService } from '../modules/sales/reports.js';
 import { saleRoutes } from '../modules/sales/routes.js';
 import { SaleService } from '../modules/sales/service.js';
@@ -110,10 +112,11 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     products: new ProductService(db),
     inventory,
   });
-  await app.register(saleRoutes, {
-    prefix: '/api/sales',
-    sales,
-    reports: new SalesReportService(db),
+  const reports = new SalesReportService(db);
+  await app.register(saleRoutes, { prefix: '/api/sales', sales, reports });
+  await app.register(dashboardRoutes, {
+    prefix: '/api/dashboard',
+    dashboard: new DashboardService(db, reports),
   });
   await app.register(paymentMethodRoutes, {
     prefix: '/api/payment-methods',

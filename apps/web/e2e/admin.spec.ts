@@ -51,6 +51,11 @@ test('administrador clona perfil, cria usuário e o acesso fica restrito ao perf
   await expect(nav.getByRole('link', { name: 'Usuários' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Perfis de acesso' })).toHaveCount(0);
   await expect(ritaPage.getByRole('button', { name: 'Novo usuário' })).toHaveCount(0);
+  // No painel, só os widgets e indicadores do perfil: sem venda nem últimos acessos.
+  await nav.getByRole('link', { name: 'Início' }).click();
+  await expect(ritaPage.getByRole('region', { name: 'Últimos animais cadastrados' })).toBeVisible();
+  await expect(ritaPage.getByRole('region', { name: 'Últimos acessos' })).toHaveCount(0);
+  await expect(ritaPage.getByText('Venda líquida no mês')).toHaveCount(0);
   await ritaPage.goto('/consultas/auditoria');
   await expect(ritaPage.getByText('Sem acesso a esta tela')).toBeVisible();
   await context.close();

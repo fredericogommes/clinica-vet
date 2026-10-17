@@ -115,6 +115,21 @@ export const permissionCatalog = {
     label:
       'Editar espécies, raças, pelagens, origens de clientes, tipos de atendimento, patologias, modelos de receita e documento, grupos e marcas de produto',
   },
+  'dashboard.indicators': {
+    group: 'Painel',
+    label: 'Indicadores da base e da agenda: animais, responsáveis, espera, atendimento e arquivos',
+  },
+  'dashboard.sales_indicators': {
+    group: 'Painel',
+    label: 'Indicadores de venda: venda líquida, débitos de clientes, descontos e ticket médio',
+  },
+  'dashboard.patients_growth': { group: 'Painel', label: 'Animais por mês e por ano' },
+  'dashboard.consultations': { group: 'Painel', label: 'Consultas por mês' },
+  'dashboard.recent_encounters': { group: 'Painel', label: 'Últimos atendimentos (24 horas)' },
+  'dashboard.recent_patients': { group: 'Painel', label: 'Últimos animais cadastrados' },
+  'dashboard.client_lifecycle': { group: 'Painel', label: 'Ciclo de vida dos clientes' },
+  'dashboard.recent_logins': { group: 'Painel', label: 'Últimos acessos ao sistema' },
+  'dashboard.low_stock': { group: 'Painel', label: 'Estoque abaixo do mínimo' },
   'admin.users.view': { group: 'Configuração', label: 'Ver usuários' },
   'admin.users.manage': { group: 'Configuração', label: 'Cadastrar e editar usuários' },
   'admin.roles.view': { group: 'Configuração', label: 'Ver perfis de acesso' },
