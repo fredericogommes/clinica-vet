@@ -30,6 +30,10 @@
 - Consulta vendas por período: resumo com venda bruta, desconto, líquido, ticket médio, recebido e em aberto, quebras por dia, forma de recebimento, profissional e tipo; totais por produto e serviço; lista de vendas com busca e situação. Minhas vendas mostra ao profissional os itens que vendeu.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
+### Corrigido
+
+- O campo "Serviço cobrado" do tipo de atendimento lista todos os serviços, não só os 100 primeiros.
+
 ### Segurança
 
 - Bloqueio de login por e-mail após 5 falhas em 15 minutos, além do limite por IP.
