@@ -6,6 +6,13 @@ import {
   type Permission,
 } from '@clinica/contracts';
 import { defaultPeriod, reportTabs } from '../features/sales/report-search';
+import {
+  entrySituations,
+  entryTypes,
+  type EntrySearch,
+  type EntrySituation,
+  type EntryType,
+} from '../features/finance/queries';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   createRootRouteWithContext,
@@ -127,6 +134,18 @@ const VaccinesPage = lazy(() =>
 );
 const MessagesPage = lazy(() =>
   import('../features/messaging/queue-page').then((m) => ({ default: m.MessagesPage })),
+);
+const EntriesPage = lazy(() =>
+  import('../features/finance/entries-page').then((m) => ({ default: m.EntriesPage })),
+);
+const AccountsPage = lazy(() =>
+  import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
+);
+const FinanceCategoriesPage = lazy(() =>
+  import('../features/finance/setup-pages').then((m) => ({ default: m.CategoriesPage })),
+);
+const SuppliersPage = lazy(() =>
+  import('../features/finance/setup-pages').then((m) => ({ default: m.SuppliersPage })),
 );
 const AutomaticMessagesPage = lazy(() =>
   import('../features/messaging/settings-page').then((m) => ({
@@ -566,6 +585,101 @@ const automaticMessagesRoute = createRoute({
   ),
 });
 
+/** Filtros do financeiro na URL: período, conta, categoria, situação, tipo e busca. */
+const entrySearch = z.object({
+  de: z.iso.date().optional().catch(undefined),
+  ate: z.iso.date().optional().catch(undefined),
+  conta: z.uuid().optional().catch(undefined),
+  categoria: z.uuid().optional().catch(undefined),
+  situacao: z.enum(entrySituations).optional().catch(undefined),
+  tipo: z.enum(entryTypes).optional().catch(undefined),
+  q: z.string().optional().catch(undefined),
+  page: z.number().int().min(1).optional().catch(undefined),
+});
+type EntryUrl = z.infer<typeof entrySearch>;
+const toEntrySearch = (s: EntryUrl, situacao: EntrySituation, tipo: EntryType): EntrySearch => ({
+  de: s.de,
+  ate: s.ate,
+  conta: s.conta,
+  categoria: s.categoria,
+  situacao: s.situacao ?? situacao,
+  tipo,
+  q: s.q ?? '',
+  page: s.page ?? 1,
+});
+
+const ledgerRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro',
+  validateSearch: entrySearch,
+  component: function Ledger() {
+    const s = ledgerRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.view">
+        <EntriesPage mode="ledger" search={toEntrySearch(s, 'todos', s.tipo ?? 'todos')} />
+      </RequirePermission>
+    );
+  },
+});
+
+const payableRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/contas-a-pagar',
+  validateSearch: entrySearch,
+  component: function Payable() {
+    const s = payableRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.view">
+        <EntriesPage mode="payable" search={toEntrySearch(s, 'abertos', 'despesas')} />
+      </RequirePermission>
+    );
+  },
+});
+
+const receivableRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/contas-a-receber',
+  validateSearch: entrySearch,
+  component: function Receivable() {
+    const s = receivableRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.view">
+        <EntriesPage mode="receivable" search={toEntrySearch(s, 'abertos', 'receitas')} />
+      </RequirePermission>
+    );
+  },
+});
+
+const accountsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/contas',
+  component: () => (
+    <RequirePermission permission="finance.view">
+      <AccountsPage />
+    </RequirePermission>
+  ),
+});
+
+const financeCategoriesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/plano-de-contas',
+  component: () => (
+    <RequirePermission permission="finance.view">
+      <FinanceCategoriesPage />
+    </RequirePermission>
+  ),
+});
+
+const suppliersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/fornecedores',
+  component: () => (
+    <RequirePermission permission="finance.view">
+      <SuppliersPage />
+    </RequirePermission>
+  ),
+});
+
 const examsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/cadastros/exames',
@@ -908,6 +1022,12 @@ const routeTree = rootRoute.addChildren([
     vaccinationRoute,
     messagesRoute,
     automaticMessagesRoute,
+    ledgerRoute,
+    payableRoute,
+    receivableRoute,
+    accountsRoute,
+    financeCategoriesRoute,
+    suppliersRoute,
     examNewRoute,
     examEditRoute,
     clinicalTemplatesRoute,

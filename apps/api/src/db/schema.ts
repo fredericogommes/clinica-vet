@@ -1561,3 +1561,167 @@ export const messages = pgTable(
     ),
   ],
 );
+
+/**
+ * Conta financeira [p.18]: banco, dinheiro ou outra. O saldo é o inicial mais os lançamentos
+ * pagos; nunca é gravado, para não divergir dos lançamentos.
+ */
+export const financialAccounts = pgTable(
+  'financial_accounts',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: ['bank', 'cash', 'other'] }).notNull(),
+    openingBalance: money('opening_balance').notNull().default(0),
+    openingDate: date('opening_date').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('financial_accounts_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+  ],
+);
+
+/**
+ * Plano de contas [p.18]: receitas e despesas com um nível de subcategoria. As categorias com
+ * `system_key` são usadas pelos lançamentos automáticos das vendas.
+ */
+export const financialCategories = pgTable(
+  'financial_categories',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: ['income', 'expense'] }).notNull(),
+    parentId: uuid('parent_id').references((): AnyPgColumn => financialCategories.id),
+    systemKey: text('system_key', { enum: ['sales', 'card_fees'] }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('financial_categories_org_name_uq').on(
+      t.organizationId,
+      t.kind,
+      sql`coalesce(${t.parentId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      sql`lower(${t.name})`,
+    ),
+    uniqueIndex('financial_categories_org_system_uq')
+      .on(t.organizationId, t.systemKey)
+      .where(sql`${t.systemKey} is not null`),
+    index('financial_categories_parent_idx').on(t.parentId),
+  ],
+);
+
+export const suppliers = pgTable(
+  'suppliers',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    document: text('document').notNull().default(''),
+    phone: text('phone').notNull().default(''),
+    email: text('email').notNull().default(''),
+    notes: text('notes').notNull().default(''),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('suppliers_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    uniqueIndex('suppliers_org_document_uq')
+      .on(t.organizationId, t.document)
+      .where(sql`${t.document} <> ''`),
+  ],
+);
+
+/**
+ * Lançamento financeiro [p.18–19, RN-35]: receita, despesa ou uma das pontas de uma
+ * transferência. Valor sempre positivo; `direction` diz se entra ou sai da conta. Parcelas e
+ * repetições compartilham `group_id`; as duas pontas da transferência, `transfer_id`.
+ */
+export const financialEntries = pgTable(
+  'financial_entries',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    kind: text('kind', { enum: ['income', 'expense', 'transfer'] }).notNull(),
+    direction: text('direction', { enum: ['in', 'out'] }).notNull(),
+    origin: text('origin', { enum: ['manual', 'sale', 'card_fee', 'transfer'] }).notNull(),
+    status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
+    description: text('description').notNull(),
+    document: text('document').notNull().default(''),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccounts.id),
+    categoryId: uuid('category_id').references(() => financialCategories.id),
+    supplierId: uuid('supplier_id').references(() => suppliers.id),
+    clientId: uuid('client_id').references(() => clients.id),
+    costCenterId: uuid('cost_center_id').references(() => costCenters.id),
+    saleId: uuid('sale_id').references(() => sales.id),
+    saleReceivableId: uuid('sale_receivable_id').references(() => saleReceivables.id),
+    transferId: uuid('transfer_id'),
+    groupId: uuid('group_id'),
+    installmentNumber: smallint('installment_number'),
+    installmentTotal: smallint('installment_total'),
+    amount: money('amount').notNull(),
+    paidAmount: money('paid_amount'),
+    dueDate: date('due_date').notNull(),
+    competenceDate: date('competence_date').notNull(),
+    paidOn: date('paid_on'),
+    paidBy: uuid('paid_by').references(() => users.id),
+    notes: text('notes').notNull().default(''),
+    /** Cancelado depois de pago guarda a data e o valor pagos, como histórico. */
+    cancelReason: text('cancel_reason'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    index('financial_entries_org_date_idx').on(
+      t.organizationId,
+      sql`coalesce(${t.paidOn}, ${t.dueDate})`,
+    ),
+    index('financial_entries_account_idx').on(t.accountId),
+    index('financial_entries_open_idx')
+      .on(t.organizationId, t.dueDate)
+      .where(sql`${t.status} = 'open'`),
+    index('financial_entries_sale_idx').on(t.saleId),
+    index('financial_entries_group_idx').on(t.groupId),
+    index('financial_entries_transfer_idx').on(t.transferId),
+    uniqueIndex('financial_entries_receivable_uq')
+      .on(t.saleReceivableId, t.origin)
+      .where(sql`${t.saleReceivableId} is not null`),
+    check(
+      'financial_entries_values_ck',
+      sql`${t.amount} > 0 and (${t.paidAmount} is null or ${t.paidAmount} > 0)`,
+    ),
+    check(
+      'financial_entries_paid_ck',
+      sql`(${t.status} <> 'paid' or (${t.paidOn} is not null and ${t.paidAmount} is not null))
+        and (${t.status} <> 'open' or (${t.paidOn} is null and ${t.paidAmount} is null))`,
+    ),
+    check(
+      'financial_entries_kind_ck',
+      sql`(${t.kind} = 'transfer') = (${t.transferId} is not null)
+        and (${t.kind} = 'transfer' or ${t.categoryId} is not null)
+        and (${t.kind} <> 'income' or ${t.direction} = 'in')
+        and (${t.kind} <> 'expense' or ${t.direction} = 'out')`,
+    ),
+    check(
+      'financial_entries_installment_ck',
+      sql`(${t.installmentNumber} is null) = (${t.installmentTotal} is null)
+        and (${t.installmentNumber} is null or ${t.installmentNumber} between 1 and ${t.installmentTotal})`,
+    ),
+  ],
+);

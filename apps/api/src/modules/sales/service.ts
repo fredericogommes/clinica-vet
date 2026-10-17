@@ -62,6 +62,7 @@ import {
 import type { AuthContext } from '../auth/sessions.js';
 import { unitTimeZone } from '../scheduling/availability.js';
 import type { CashService } from '../cash/service.js';
+import type { FinanceService } from '../finance/service.js';
 import type { InventoryService } from '../inventory/service.js';
 import type { PaymentMethodService } from '../payments/service.js';
 
@@ -118,6 +119,7 @@ export class SaleService {
     private readonly methods: PaymentMethodService,
     private readonly cash: CashService,
     private readonly inventory: InventoryService,
+    private readonly finance: FinanceService,
   ) {}
 
   async settings(auth: AuthContext, executor?: Executor): Promise<SalesSettings> {
@@ -741,7 +743,9 @@ export class SaleService {
         .select({ timeZone: units.timeZone })
         .from(units)
         .where(eq(units.id, current.unitId));
-      const today = instantToZoned(now, unit?.timeZone ?? 'America/Sao_Paulo').date;
+      const timeZone = unit?.timeZone ?? 'America/Sao_Paulo';
+      const today = instantToZoned(now, timeZone).date;
+      const sold = { ...current, soldAt: current.soldAt ?? now };
       for (const [position, l] of lines.entries()) {
         const paymentId = newId();
         await tx.insert(salePayments).values({
@@ -759,19 +763,32 @@ export class SaleService {
           receivedBy: auth.userId,
           cashSessionId: session.id,
         });
-        await tx.insert(saleReceivables).values(
-          splitInstallments(l.cents, l.input.installments).map((cents, i) => {
-            const fee = feeCents(cents, l.method.feePercent);
-            return {
-              id: newId(),
-              salePaymentId: paymentId,
-              number: i + 1,
-              dueDate: addDays(today, receivableOffsetDays(l.method.settlementDays, i + 1)),
-              amount: fromCents(cents),
-              feeAmount: fromCents(fee),
-              netAmount: fromCents(cents - fee),
-            };
-          }),
+        const receivables = splitInstallments(l.cents, l.input.installments).map((cents, i) => {
+          const fee = feeCents(cents, l.method.feePercent);
+          return {
+            id: newId(),
+            salePaymentId: paymentId,
+            number: i + 1,
+            dueDate: addDays(today, receivableOffsetDays(l.method.settlementDays, i + 1)),
+            amount: fromCents(cents),
+            feeAmount: fromCents(fee),
+            netAmount: fromCents(cents - fee),
+          };
+        });
+        await tx.insert(saleReceivables).values(receivables);
+        // Cada parcela vira receita no financeiro, com a taxa como despesa [RN-35].
+        await this.finance.recordSaleReceipt(
+          tx,
+          auth,
+          sold,
+          {
+            kind: l.method.kind,
+            methodName: l.method.name,
+            installments: l.input.installments,
+          },
+          receivables,
+          today,
+          timeZone,
         );
       }
       // A baixa tira os itens do estoque da unidade da venda [RN-31].
@@ -858,6 +875,7 @@ export class SaleService {
           );
       }
       await this.inventory.restore(tx, auth, current);
+      await this.finance.cancelSaleEntries(tx, id, current.code, reason);
       await tx
         .update(sales)
         .set({

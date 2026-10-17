@@ -33,6 +33,10 @@ const entityLabels: Record<string, string> = {
   sales_settings: 'Configuração de vendas',
   payment_method: 'Forma de recebimento',
   cash_session: 'Caixa',
+  financial_account: 'Conta financeira',
+  financial_category: 'Categoria financeira',
+  financial_entry: 'Lançamento financeiro',
+  supplier: 'Fornecedor',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',
@@ -58,6 +62,9 @@ const actionLabels: Record<string, string> = {
   withdrawal: 'Sangria',
   stock_entry: 'Lançou entrada de estoque',
   stock_count: 'Registrou contagem de estoque',
+  pay: 'Registrou pagamento',
+  reopen: 'Desfez a baixa',
+  transfer: 'Transferiu entre contas',
 };
 
 export interface AuditFilter {

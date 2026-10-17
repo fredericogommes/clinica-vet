@@ -147,6 +147,18 @@ export const permissionCatalog = {
     group: 'Mensagens',
     label: 'Ligar, desligar e editar as mensagens automáticas',
   },
+  'finance.view': {
+    group: 'Financeiro',
+    label: 'Ver lançamentos, saldos das contas e contas a pagar',
+  },
+  'finance.manage': {
+    group: 'Financeiro',
+    label: 'Lançar receitas, despesas e transferências; baixar, editar e cancelar lançamentos',
+  },
+  'finance.configure': {
+    group: 'Financeiro',
+    label: 'Cadastrar contas, categorias do plano de contas e fornecedores',
+  },
 } as const satisfies Record<string, { group: string; label: string }>;
 
 export type Permission = keyof typeof permissionCatalog;

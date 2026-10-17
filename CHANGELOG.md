@@ -32,11 +32,13 @@
 - Exames: cadastro com campos decimais, inteiros ou de texto agrupados em seções e valores de referência por espécie e idade; resultado na ficha clínica com a faixa do animal e marcação Abaixo/Acima ao digitar, tabela na linha do tempo, gráfico de evolução de cada campo e cobrança do serviço do exame na venda aberta. Clínicas novas começam com o Hemograma.
 - Vacinas: cadastro de vacinas, vermífugos e antiparasitários com série inicial e reforço; aplicação na ficha com dose e próxima data sugeridas, lote e cobrança do serviço; aba Protocolos com a situação (Programada, A vencer, Vencida) e encerramento com motivo; consulta Vacinação com doses vencidas e a vencer e o contato do responsável para a busca ativa. Clínicas novas começam com quatro vacinas de partida.
 - Mensagens automáticas por WhatsApp, ligadas por padrão: lembrete de vacina e vermifugação, lembrete de agendamento, resultado de exame, boas-vindas a clientes e animais novos e aniversários, com texto editável e prévia. Respeitam o consentimento LGPD e não duplicam. A fila de mensagens mostra o que espera, o que saiu e por que algo não saiu; sem a conta oficial do WhatsApp Business, a recepção envia cada mensagem pelo WhatsApp da clínica com o texto pronto.
+- Financeiro: contas com saldo e previsto, plano de contas com subcategorias, fornecedores, lançamentos de receita e despesa parcelados ou mensais com competência e centro de custo, baixa com juros ou desconto, transferências entre contas e extrato com saldo linha a linha. As vendas recebidas lançam sozinhas a receita de cada parcela e a taxa do cartão, e o estorno cancela esses lançamentos. Contas a pagar e a receber mostram vencidas e próximos 7 dias.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido
 
 - O campo "Serviço cobrado" do tipo de atendimento lista todos os serviços, não só os 100 primeiros.
+- O menu lateral destaca só a tela aberta, não também a tela-mãe (ex.: Agenda ao abrir Escala).
 - Os botões do rodapé das janelas quebram linha no celular em vez de sair da tela.
 
 ### Segurança

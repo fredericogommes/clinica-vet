@@ -34,6 +34,8 @@ import { ExamService } from '../modules/exams/service.js';
 import { messagingRoutes } from '../modules/messaging/routes.js';
 import { CloudApiSender } from '../modules/messaging/sender.js';
 import { MessagingService } from '../modules/messaging/service.js';
+import { financeRoutes } from '../modules/finance/routes.js';
+import { FinanceService } from '../modules/finance/service.js';
 import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
 import { DashboardService } from '../modules/dashboard/service.js';
@@ -109,7 +111,8 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   const paymentMethods = new PaymentMethodService(db);
   const cash = new CashService(db);
   const inventory = new InventoryService(db);
-  const sales = new SaleService(db, paymentMethods, cash, inventory);
+  const finance = new FinanceService(db);
+  const sales = new SaleService(db, paymentMethods, cash, inventory, finance);
   const exams = new ExamService(db);
   const vaccines = new VaccineService(db);
   await app.register(clinicalRoutes, {
@@ -134,6 +137,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     methods: paymentMethods,
   });
   await app.register(cashRoutes, { prefix: '/api/cash', cash });
+  await app.register(financeRoutes, { prefix: '/api/finance', finance });
   await app.register(messagingRoutes, {
     prefix: '/api/messages',
     messaging: new MessagingService(db, whatsappSender(config)),
