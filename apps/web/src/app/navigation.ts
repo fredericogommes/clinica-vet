@@ -2,6 +2,9 @@ import type { Permission } from '@clinica/contracts';
 import {
   Activity,
   ArrowLeftRight,
+  BadgePercent,
+  FileSpreadsheet,
+  Percent,
   HandCoins,
   Landmark,
   ListTree,
@@ -178,6 +181,35 @@ export const navigation: NavSection[] = [
         to: '/financeiro/fornecedores',
         icon: Truck,
         permission: 'finance.view',
+      },
+    ],
+  },
+  {
+    label: 'Comissionamento',
+    items: [
+      {
+        label: 'Comissões em aberto',
+        to: '/comissoes',
+        icon: Percent,
+        permission: 'commissions.view',
+      },
+      {
+        label: 'Extratos',
+        to: '/comissoes/extratos',
+        icon: FileSpreadsheet,
+        permission: 'commissions.view',
+      },
+      {
+        label: 'Minhas comissões',
+        to: '/comissoes/minhas',
+        icon: BadgePercent,
+        permission: 'commissions.view_own',
+      },
+      {
+        label: 'Configuração de comissões',
+        to: '/comissoes/configuracao',
+        icon: Settings2,
+        permission: 'commissions.configure',
       },
     ],
   },

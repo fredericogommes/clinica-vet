@@ -115,6 +115,8 @@ export const users = pgTable(
       mode: 'number',
     }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    /** Recebe comissão sobre as vendas a partir desta data [p.10]; nulo não é comissionado. */
+    commissionSince: date('commission_since', { mode: 'string' }),
     ...timestamps,
   },
   (t) => [
@@ -1620,7 +1622,7 @@ export const financialCategories = pgTable(
     name: text('name').notNull(),
     kind: text('kind', { enum: ['income', 'expense'] }).notNull(),
     parentId: uuid('parent_id').references((): AnyPgColumn => financialCategories.id),
-    systemKey: text('system_key', { enum: ['sales', 'card_fees'] }),
+    systemKey: text('system_key', { enum: ['sales', 'card_fees', 'commissions'] }),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     ...timestamps,
   },
@@ -1679,7 +1681,7 @@ export const financialEntries = pgTable(
     kind: text('kind', { enum: ['income', 'expense', 'transfer'] }).notNull(),
     direction: text('direction', { enum: ['in', 'out'] }).notNull(),
     origin: text('origin', {
-      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer', 'purchase'],
+      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer', 'purchase', 'commission'],
     }).notNull(),
     status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
     description: text('description').notNull(),
@@ -1696,6 +1698,9 @@ export const financialEntries = pgTable(
     transferId: uuid('transfer_id'),
     cardSettlementId: uuid('card_settlement_id').references((): AnyPgColumn => cardSettlements.id),
     purchaseId: uuid('purchase_id').references((): AnyPgColumn => purchases.id),
+    commissionStatementId: uuid('commission_statement_id').references(
+      (): AnyPgColumn => commissionStatements.id,
+    ),
     groupId: uuid('group_id'),
     installmentNumber: smallint('installment_number'),
     installmentTotal: smallint('installment_total'),
@@ -1726,6 +1731,7 @@ export const financialEntries = pgTable(
     index('financial_entries_transfer_idx').on(t.transferId),
     index('financial_entries_settlement_idx').on(t.cardSettlementId),
     index('financial_entries_purchase_idx').on(t.purchaseId),
+    index('financial_entries_commission_idx').on(t.commissionStatementId),
     uniqueIndex('financial_entries_receivable_uq')
       .on(t.saleReceivableId, t.origin)
       .where(sql`${t.saleReceivableId} is not null`),
@@ -2130,5 +2136,102 @@ export const purchaseOrderItems = pgTable(
       'purchase_order_items_ck',
       sql`${t.quantity} > 0 and (${t.unitCost} is null or ${t.unitCost} >= 0)`,
     ),
+  ],
+);
+
+/**
+ * Regras de comissão da organização [p.10–11, RN-38]: base (líquido ou bruto), critério (venda
+ * realizada ou recebida), integração com contas a pagar e transparência com a equipe.
+ */
+export const commissionSettings = pgTable('commission_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id),
+  base: text('base', { enum: ['net', 'gross'] })
+    .notNull()
+    .default('net'),
+  criterion: text('criterion', { enum: ['sold', 'received'] })
+    .notNull()
+    .default('sold'),
+  financeIntegration: boolean('finance_integration').notNull().default(true),
+  staffCanSeeOwn: boolean('staff_can_see_own').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Extrato de comissão de um profissional numa unidade [RN-39]: Não fechado, Fechada, Paga, Em
+ * revisão ou Arquivada. Fechado, vira uma despesa em contas a pagar quando a integração está ligada.
+ */
+export const commissionStatements = pgTable(
+  'commission_statements',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    code: integer('code').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    status: text('status', {
+      enum: ['open', 'closed', 'paid', 'review', 'archived'],
+    }).notNull(),
+    /** Vendas até esta data, no fuso da unidade. */
+    cutoff: date('cutoff', { mode: 'string' }).notNull(),
+    total: money('total').notNull(),
+    dueDate: date('due_date', { mode: 'string' }),
+    paidOn: date('paid_on', { mode: 'string' }),
+    notes: text('notes').notNull().default(''),
+    reviewReason: text('review_reason'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    closedBy: uuid('closed_by').references(() => users.id),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('commission_statements_org_code_uq').on(t.organizationId, t.code),
+    // Um extrato aberto (não fechado ou em revisão) por profissional e unidade.
+    uniqueIndex('commission_statements_open_uq')
+      .on(t.unitId, t.userId)
+      .where(sql`${t.status} in ('open', 'review')`),
+    index('commission_statements_unit_status_idx').on(t.unitId, t.status),
+    check(
+      'commission_statements_ck',
+      sql`(${t.status} in ('open', 'review') or (${t.closedAt} is not null and ${t.dueDate} is not null and ${t.total} > 0))
+        and ((${t.status} in ('paid', 'archived')) = (${t.paidOn} is not null))`,
+    ),
+  ],
+);
+
+/**
+ * Linha do extrato: a comissão de uma venda para o profissional. Quando a venda muda depois de
+ * entrar num extrato (edição ou estorno), a diferença entra como ajuste no extrato seguinte.
+ */
+export const commissionStatementLines = pgTable(
+  'commission_statement_lines',
+  {
+    id: uuid('id').primaryKey(),
+    statementId: uuid('statement_id')
+      .notNull()
+      .references(() => commissionStatements.id, { onDelete: 'cascade' }),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    kind: text('kind', { enum: ['sale', 'adjustment', 'reversal'] }).notNull(),
+    /** Base usada no cálculo; a venda já comissionada mantém a base da primeira vez. */
+    base: text('base', { enum: ['net', 'gross'] }).notNull(),
+    baseAmount: money('base_amount').notNull(),
+    amount: money('amount').notNull(),
+    description: text('description').notNull(),
+  },
+  (t) => [
+    uniqueIndex('commission_statement_lines_sale_uq').on(t.statementId, t.saleId),
+    index('commission_statement_lines_sale_idx').on(t.saleId),
+    check('commission_statement_lines_amount_ck', sql`${t.amount} <> 0`),
   ],
 );

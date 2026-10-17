@@ -659,7 +659,10 @@ export function EntryDetailDialog({
 }) {
   const can = useCan();
   const fromSale =
-    entry.origin === 'sale' || entry.origin === 'card_fee' || entry.origin === 'purchase';
+    entry.origin === 'sale' ||
+    entry.origin === 'card_fee' ||
+    entry.origin === 'purchase' ||
+    entry.origin === 'commission';
   const adjustment = entry.origin === 'card_adjustment';
   const status = entryStatus(entry);
   const { mutation: reopen, generalError } = useFinanceMutation(
@@ -821,6 +824,22 @@ export function EntryDetailDialog({
                   },
                 ]
               : []),
+            ...(entry.commissionStatement
+              ? [
+                  {
+                    label: 'Comissão',
+                    value: (
+                      <Link
+                        to="/comissoes/extratos/$statementId"
+                        params={{ statementId: entry.commissionStatement.id }}
+                        className="text-sage-700 hover:underline"
+                      >
+                        Extrato {entry.commissionStatement.code}
+                      </Link>
+                    ),
+                  },
+                ]
+              : []),
             ...(entry.costCenter
               ? [{ label: 'Centro de custo', value: entry.costCenter.name }]
               : []),
@@ -835,7 +854,9 @@ export function EntryDetailDialog({
           <p className="text-xs text-ink-muted">
             {entry.origin === 'purchase'
               ? 'Lançado pela compra. Para cancelar, cancele a compra.'
-              : 'Lançado pela venda. Para cancelar, estorne a venda.'}
+              : entry.origin === 'commission'
+                ? 'Lançado pelo extrato de comissão. Para cancelar, ponha o extrato em revisão.'
+                : 'Lançado pela venda. Para cancelar, estorne a venda.'}
           </p>
         ) : null}
       </div>

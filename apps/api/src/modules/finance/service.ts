@@ -55,6 +55,7 @@ import {
   financialCategories,
   financialEntries,
   purchases,
+  commissionStatements,
   sales,
   suppliers,
 } from '../../db/schema.js';
@@ -78,13 +79,13 @@ const br = (iso: string) => iso.split('-').reverse().join('/');
 const STARTER_CATEGORIES: {
   name: string;
   kind: 'income' | 'expense';
-  systemKey?: 'sales' | 'card_fees';
+  systemKey?: 'sales' | 'card_fees' | 'commissions';
   children?: string[];
 }[] = [
   { name: 'Vendas', kind: 'income', systemKey: 'sales' },
   { name: 'Outras receitas', kind: 'income' },
   { name: 'Taxas de cartão', kind: 'expense', systemKey: 'card_fees' },
-  { name: 'Comissões', kind: 'expense' },
+  { name: 'Comissões', kind: 'expense', systemKey: 'commissions' },
   {
     name: 'Gastos gerais operacionais',
     kind: 'expense',
@@ -144,6 +145,7 @@ function selectEntries(db: Executor) {
       costCenter: { id: costCenters.id, name: costCenters.name },
       sale: { id: sales.id, code: sales.code },
       purchase: { id: purchases.id, code: purchases.code },
+      commissionStatement: { id: commissionStatements.id, code: commissionStatements.code },
       counterpart: { id: counterpartAccount.id, name: counterpartAccount.name },
     })
     .from(financialEntries)
@@ -154,6 +156,10 @@ function selectEntries(db: Executor) {
     .leftJoin(costCenters, eq(costCenters.id, financialEntries.costCenterId))
     .leftJoin(sales, eq(sales.id, financialEntries.saleId))
     .leftJoin(purchases, eq(purchases.id, financialEntries.purchaseId))
+    .leftJoin(
+      commissionStatements,
+      eq(commissionStatements.id, financialEntries.commissionStatementId),
+    )
     .leftJoin(
       counterpartEntry,
       and(
@@ -806,6 +812,7 @@ export class FinanceService {
       costCenter: r.costCenter,
       sale: r.sale,
       purchase: r.purchase,
+      commissionStatement: r.commissionStatement,
       counterpart: r.counterpart,
       installment:
         e.installmentNumber !== null && e.installmentTotal !== null
@@ -906,7 +913,9 @@ export class FinanceService {
             ? 'Transferência não se edita: cancele e lance de novo.'
             : current.origin === 'purchase'
               ? 'Parcela de compra acompanha a compra e não se edita aqui.'
-              : 'Lançamento de venda acompanha a venda e não se edita aqui.',
+              : current.origin === 'commission'
+                ? 'Comissão acompanha o extrato e não se edita aqui.'
+                : 'Lançamento de venda acompanha a venda e não se edita aqui.',
         );
       }
       if (current.status === 'paid') {
@@ -966,6 +975,13 @@ export class FinanceService {
           updatedAt: new Date(),
         })
         .where(eq(financialEntries.id, id));
+      if (current.commissionStatementId) {
+        // O extrato acompanha a baixa da comissão no financeiro.
+        await tx
+          .update(commissionStatements)
+          .set({ status: 'paid', paidOn: input.paidOn, updatedAt: new Date() })
+          .where(eq(commissionStatements.id, current.commissionStatementId));
+      }
       await recordAudit(tx, actorOf(auth), {
         entity: 'financial_entry',
         entityId: id,
@@ -1004,6 +1020,12 @@ export class FinanceService {
           updatedAt: new Date(),
         })
         .where(eq(financialEntries.id, id));
+      if (current.commissionStatementId) {
+        await tx
+          .update(commissionStatements)
+          .set({ status: 'closed', paidOn: null, updatedAt: new Date() })
+          .where(eq(commissionStatements.id, current.commissionStatementId));
+      }
       await recordAudit(tx, actorOf(auth), {
         entity: 'financial_entry',
         entityId: id,
@@ -1031,6 +1053,9 @@ export class FinanceService {
       }
       if (current.origin === 'purchase') {
         throw conflict('Parcela de compra acompanha a compra: cancele a compra para cancelar.');
+      }
+      if (current.origin === 'commission') {
+        throw conflict('Comissão acompanha o extrato: coloque o extrato em revisão para cancelar.');
       }
       if (current.status === 'cancelled') throw conflict('Lançamento já está cancelado.');
       const ids = [id];
@@ -1355,6 +1380,126 @@ export class FinanceService {
       })
       .where(
         and(eq(financialEntries.purchaseId, purchaseId), ne(financialEntries.status, 'cancelled')),
+      );
+  }
+
+  /**
+   * Extrato de comissão fechado vira uma despesa em aberto na categoria Comissões [RN-38], na conta
+   * de banco (ou na primeira ativa), com competência na data de corte do extrato.
+   */
+  async commissionEntry(
+    tx: Executor,
+    auth: AuthContext,
+    statement: {
+      id: string;
+      code: number;
+      unitId: string;
+      userName: string;
+      total: number;
+      dueDate: string;
+      cutoff: string;
+    },
+    today: string,
+  ): Promise<string> {
+    await this.ensure(tx, auth.organizationId, today);
+    const org = auth.organizationId;
+    let [category] = await tx
+      .select({ id: financialCategories.id })
+      .from(financialCategories)
+      .where(
+        and(
+          eq(financialCategories.organizationId, org),
+          eq(financialCategories.systemKey, 'commissions'),
+        ),
+      );
+    if (!category) {
+      // Clínica que apagou ou renomeou a categoria do plano inicial ganha uma nova.
+      const [existing] = await tx
+        .select({ id: financialCategories.id })
+        .from(financialCategories)
+        .where(
+          and(
+            eq(financialCategories.organizationId, org),
+            eq(financialCategories.kind, 'expense'),
+            isNull(financialCategories.parentId),
+            sql`lower(${financialCategories.name}) = 'comissões'`,
+          ),
+        );
+      const now = new Date();
+      if (existing) {
+        await tx
+          .update(financialCategories)
+          .set({ systemKey: 'commissions', archivedAt: null, updatedAt: now })
+          .where(eq(financialCategories.id, existing.id));
+        category = existing;
+      } else {
+        category = { id: newId() };
+        await tx.insert(financialCategories).values({
+          id: category.id,
+          organizationId: org,
+          name: 'Comissões',
+          kind: 'expense',
+          systemKey: 'commissions',
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    const accounts = await tx
+      .select({ id: financialAccounts.id, kind: financialAccounts.kind })
+      .from(financialAccounts)
+      .where(and(eq(financialAccounts.organizationId, org), isNull(financialAccounts.archivedAt)))
+      .orderBy(asc(financialAccounts.createdAt));
+    const account = accounts.find((a) => a.kind === 'bank') ?? accounts[0];
+    if (!account) throw conflict('Cadastre uma conta financeira antes de fechar o extrato.');
+    const id = newId();
+    const now = new Date();
+    await tx.insert(financialEntries).values({
+      id,
+      organizationId: org,
+      unitId: statement.unitId,
+      kind: 'expense',
+      direction: 'out',
+      origin: 'commission',
+      status: 'open',
+      description: `Comissão de ${statement.userName} - extrato ${String(statement.code)}`,
+      accountId: account.id,
+      categoryId: category.id,
+      costCenterId: await this.defaultCostCenter(tx, statement.unitId),
+      commissionStatementId: statement.id,
+      amount: statement.total,
+      dueDate: statement.dueDate,
+      competenceDate: statement.cutoff,
+      createdBy: auth.userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return id;
+  }
+
+  /** O extrato em revisão cancela a despesa que gerou; paga, ela precisa ser reaberta antes. */
+  async cancelCommissionEntries(tx: Executor, statementId: string, reason: string) {
+    const rows = await tx
+      .select({ id: financialEntries.id, status: financialEntries.status })
+      .from(financialEntries)
+      .where(eq(financialEntries.commissionStatementId, statementId))
+      .for('update');
+    if (rows.some((r) => r.status === 'paid')) {
+      throw conflict('A comissão já foi paga: desfaça a baixa no financeiro antes de revisar.');
+    }
+    await tx
+      .update(financialEntries)
+      .set({
+        status: 'cancelled',
+        cancelReason: reason,
+        cancelledAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(financialEntries.commissionStatementId, statementId),
+          eq(financialEntries.status, 'open'),
+        ),
       );
   }
 

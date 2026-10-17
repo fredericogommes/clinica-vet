@@ -140,6 +140,7 @@ export const entryOrigins = [
   'card_adjustment',
   'transfer',
   'purchase',
+  'commission',
 ] as const;
 export type EntryOrigin = (typeof entryOrigins)[number];
 
@@ -242,6 +243,7 @@ export const entrySchema = z.object({
   costCenter: ref.nullable(),
   sale: z.object({ id: z.string(), code: z.number().int() }).nullable(),
   purchase: z.object({ id: z.string(), code: z.number().int() }).nullable(),
+  commissionStatement: z.object({ id: z.string(), code: z.number().int() }).nullable(),
   /** Outra ponta da transferência. */
   counterpart: ref.nullable(),
   installment: z.object({ number: z.number().int(), total: z.number().int() }).nullable(),

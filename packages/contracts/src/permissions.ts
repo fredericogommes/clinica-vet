@@ -181,6 +181,22 @@ export const permissionCatalog = {
     group: 'Financeiro',
     label: 'Cadastrar contas, categorias do plano de contas e fornecedores',
   },
+  'commissions.view': {
+    group: 'Comissionamento',
+    label: 'Ver as comissões em aberto e os extratos de toda a equipe',
+  },
+  'commissions.manage': {
+    group: 'Comissionamento',
+    label: 'Gerar, fechar, revisar, marcar como pago e arquivar extratos de comissão',
+  },
+  'commissions.configure': {
+    group: 'Comissionamento',
+    label: 'Configurar a comissão: base, critério, integração, transparência e quem é comissionado',
+  },
+  'commissions.view_own': {
+    group: 'Comissionamento',
+    label: 'Ver as próprias comissões (quando a clínica mostra à equipe)',
+  },
 } as const satisfies Record<string, { group: string; label: string }>;
 
 export type Permission = keyof typeof permissionCatalog;
