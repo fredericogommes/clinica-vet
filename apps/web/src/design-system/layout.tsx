@@ -88,8 +88,9 @@ export function Section({
   const titleId = useId();
   return (
     <Panel className={className} labelledBy={titleId}>
-      <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-3.5">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-line px-5 py-3.5">
+        {/* Ações que não cabem ao lado do título descem para a linha de baixo, no celular. */}
+        <div className="min-w-48 flex-1">
           <h2 id={titleId} className="font-display text-[15px] font-semibold text-ink">
             {title}
           </h2>

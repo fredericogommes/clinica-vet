@@ -108,6 +108,14 @@ export class CatalogService {
   constructor(private readonly db: Database) {}
 
   async list(auth: AuthContext, kind: CatalogKind): Promise<CatalogItem[]> {
+    if (kind === 'product-groups') {
+      const rows = await this.db
+        .select()
+        .from(productGroups)
+        .where(eq(productGroups.organizationId, auth.organizationId))
+        .orderBy(asc(sql`lower(${productGroups.name})`));
+      return rows.map((r) => ({ ...toItem(r), blocksSaleWithoutStock: r.blocksSaleWithoutStock }));
+    }
     const table = tables[kind];
     const rows = await this.db
       .select({ id: table.id, name: table.name, archivedAt: table.archivedAt })
@@ -125,18 +133,27 @@ export class CatalogService {
     const table = tables[kind];
     const id = newId();
     const archivedAt = input.archived ? new Date() : null;
+    // Grupo novo bloqueia venda sem saldo, a menos que se diga o contrário [RN-31].
+    const policy =
+      kind === 'product-groups'
+        ? { blocksSaleWithoutStock: input.blocksSaleWithoutStock ?? true }
+        : {};
     await this.write(async (tx) => {
-      await tx
-        .insert(table)
-        .values({ id, organizationId: auth.organizationId, name: input.name, archivedAt });
+      await tx.insert(table).values({
+        id,
+        organizationId: auth.organizationId,
+        name: input.name,
+        archivedAt,
+        ...policy,
+      });
       await recordAudit(tx, actorOf(auth), {
         entity: entityNames[kind],
         entityId: id,
         action: 'create',
-        after: { name: input.name, archived: archivedAt !== null },
+        after: { name: input.name, archived: archivedAt !== null, ...policy },
       });
     });
-    return { id, name: input.name, archived: archivedAt !== null };
+    return { id, name: input.name, archived: archivedAt !== null, ...policy };
   }
 
   async update(
@@ -154,18 +171,28 @@ export class CatalogService {
         .for('update');
       if (!current) throw notFound('Cadastro');
       const archivedAt = input.archived ? (current.archivedAt ?? new Date()) : null;
+      let before = {};
+      let policy = {};
+      if (kind === 'product-groups') {
+        const [group] = await tx
+          .select({ blocks: productGroups.blocksSaleWithoutStock })
+          .from(productGroups)
+          .where(eq(productGroups.id, id));
+        before = { blocksSaleWithoutStock: group?.blocks ?? true };
+        policy = { blocksSaleWithoutStock: input.blocksSaleWithoutStock ?? group?.blocks ?? true };
+      }
       await tx
         .update(table)
-        .set({ name: input.name, archivedAt, updatedAt: new Date() })
+        .set({ name: input.name, archivedAt, updatedAt: new Date(), ...policy })
         .where(eq(table.id, id));
       await recordAudit(tx, actorOf(auth), {
         entity: entityNames[kind],
         entityId: id,
         action: 'update',
-        before: { name: current.name, archived: current.archivedAt !== null },
-        after: { name: input.name, archived: archivedAt !== null },
+        before: { name: current.name, archived: current.archivedAt !== null, ...before },
+        after: { name: input.name, archived: archivedAt !== null, ...policy },
       });
-      return { id, name: input.name, archived: archivedAt !== null };
+      return { id, name: input.name, archived: archivedAt !== null, ...policy };
     });
   }
 

@@ -64,6 +64,13 @@
       "when": 1792185135053,
       "tag": "0008_cash",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792195265681,
+      "tag": "0009_stock",
+      "breakpoints": true
     }
   ]
 }

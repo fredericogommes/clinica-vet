@@ -19,7 +19,7 @@ import { errorMessage } from '../../lib/api';
 import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { catalogQuery } from '../catalogs/queries';
-import { formatMoney } from './format';
+import { formatMoney, quantityInput } from './format';
 import { PRODUCTS_PAGE_SIZE, productsQuery, type ProductListParams } from './queries';
 
 export function ProductsPage({ search }: { search: ProductListParams }) {
@@ -172,8 +172,9 @@ export function ProductsPage({ search }: { search: ProductListParams }) {
                         #{p.code} · {saleUnitLabels[p.unit]}
                         {p.barcode ? ` · ${p.barcode}` : ''}
                       </p>
-                      <div className="mt-1 md:hidden">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 md:hidden">
                         <KindBadge item={p} />
+                        {p.stock ? <StockCell item={p} /> : null}
                       </div>
                     </div>
                   ),
@@ -192,6 +193,12 @@ export function ProductsPage({ search }: { search: ProductListParams }) {
                   header: 'Marca',
                   hideOnMobile: true,
                   cell: (p) => p.brandName ?? <span className="text-ink-faint">—</span>,
+                },
+                {
+                  header: 'Estoque',
+                  hideOnMobile: true,
+                  className: 'text-right',
+                  cell: (p) => <StockCell item={p} />,
                 },
                 {
                   header: 'Preço',
@@ -224,5 +231,23 @@ function KindBadge({ item }: { item: ProductListItem }) {
     <Badge tone="sage">{serviceKindLabels[item.serviceKind]}</Badge>
   ) : (
     <Badge>Produto</Badge>
+  );
+}
+
+/** Saldo na unidade atual, com alerta de mínimo e de pendência de venda sem saldo. */
+function StockCell({ item }: { item: ProductListItem }) {
+  if (!item.stock) return <span className="text-ink-faint">—</span>;
+  const { onHand, shortfall, belowMin } = item.stock;
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      {shortfall > 0 ? (
+        <Badge tone="danger">Falta {quantityInput(shortfall)}</Badge>
+      ) : belowMin ? (
+        <Badge tone="amber">Abaixo do mínimo</Badge>
+      ) : null}
+      <span className="font-mono text-[13px] tabular-nums">
+        {quantityInput(onHand)} {item.unit}
+      </span>
+    </span>
   );
 }

@@ -30,6 +30,7 @@ export function SimpleCatalogPage({
   noun,
   masculine = false,
   area = 'Cadastros',
+  stockPolicy = false,
 }: {
   kind: Exclude<CatalogKind, 'species'>;
   area?: string;
@@ -37,6 +38,7 @@ export function SimpleCatalogPage({
   title: string;
   description: string;
   noun: string;
+  stockPolicy?: boolean;
 }) {
   const items = useQuery(catalogQuery(kind));
   const save = useCatalogSave(kind);
@@ -53,6 +55,7 @@ export function SimpleCatalogPage({
           error={items.error}
           onRetry={() => void items.refetch()}
           save={save}
+          stockPolicy={stockPolicy}
         />
       </div>
     </>

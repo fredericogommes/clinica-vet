@@ -17,6 +17,7 @@ import {
   type SaleListQuery,
   type SalesSettings,
   type SellableItem,
+  type StockSummary,
 } from '@clinica/contracts';
 import {
   and,
@@ -59,6 +60,7 @@ import {
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 import type { CashService } from '../cash/service.js';
+import type { InventoryService } from '../inventory/service.js';
 import type { PaymentMethodService } from '../payments/service.js';
 
 const invalid = (path: string, message: string) =>
@@ -75,6 +77,15 @@ const DEFAULT_SETTINGS: SalesSettings = {
 const brl = (value: number) =>
   `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qty = (value: number) => value.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+/** Só o que o contrato expõe do saldo; nulo quando o item não controla estoque. */
+const stockOf = (s: StockSummary | undefined): StockSummary | null =>
+  s
+    ? {
+        available: s.available,
+        shortfall: s.shortfall,
+        blocksSaleWithoutStock: s.blocksSaleWithoutStock,
+      }
+    : null;
 const pct = (value: number) => `${value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 
 /**
@@ -86,6 +97,7 @@ export class SaleService {
     private readonly db: Database,
     private readonly methods: PaymentMethodService,
     private readonly cash: CashService,
+    private readonly inventory: InventoryService,
   ) {}
 
   async settings(auth: AuthContext, executor?: Executor): Promise<SalesSettings> {
@@ -186,10 +198,17 @@ export class SaleService {
         asc(sql`lower(${products.name})`),
       )
       .limit(20);
+    const stock = await this.inventory.summaries(
+      this.db,
+      auth.organizationId,
+      auth.unitId,
+      rows.map((r) => r.id),
+    );
     return rows.map((r) => ({
       ...r,
       serviceKind: r.serviceKind as SellableItem['serviceKind'],
       unit: r.unit as SellableItem['unit'],
+      stock: stockOf(stock.get(r.id)),
     }));
   }
 
@@ -287,6 +306,15 @@ export class SaleService {
     const payments = await this.paymentsOf(db, id);
     const s = row.sale;
     const pending = s.status === 'quote' || s.status === 'open';
+    const stock = pending
+      ? await this.inventory.summaries(
+          db,
+          s.organizationId,
+          s.unitId,
+          items.map((i) => i.item.productId),
+          s.id,
+        )
+      : new Map<string, StockSummary>();
     return {
       id: s.id,
       code: s.code,
@@ -313,6 +341,7 @@ export class SaleService {
           discountLimitPercent,
           professional: { id: i.professionalId, name: professionalName },
           clinicalEventId: i.clinicalEventId,
+          stock: stockOf(stock.get(i.productId)),
           grossTotal: i.grossTotal,
           discountAmount: i.discountAmount,
           netTotal: i.netTotal,
@@ -374,6 +403,16 @@ export class SaleService {
       ...prepared.sale,
     });
     await this.insertItems(tx, id, prepared.items);
+    await this.inventory.reserve(
+      tx,
+      {
+        id,
+        organizationId: auth.organizationId,
+        unitId: auth.unitId,
+        status: input.kind === 'quote' ? 'quote' : 'open',
+      },
+      prepared.items,
+    );
     await recordAudit(tx, actorOf(auth), {
       entity: 'sale',
       entityId: id,
@@ -471,6 +510,7 @@ export class SaleService {
         .where(eq(sales.id, current.id));
       await tx.delete(saleItems).where(eq(saleItems.saleId, current.id));
       await this.insertItems(tx, current.id, prepared.items);
+      await this.inventory.reserve(tx, current, prepared.items);
       if (origin) await this.markOrigin(tx, current.id, origin.clinicalEventId);
       await recordAudit(tx, actorOf(auth), {
         entity: 'sale',
@@ -558,6 +598,11 @@ export class SaleService {
         .where(eq(sales.id, id));
       await tx.delete(saleItems).where(eq(saleItems.saleId, id));
       await this.insertItems(tx, id, prepared.items);
+      await this.inventory.reserve(
+        tx,
+        { ...current, status: input.kind === 'quote' ? 'quote' : 'open' },
+        prepared.items,
+      );
       await recordAudit(tx, actorOf(auth), {
         entity: 'sale',
         entityId: id,
@@ -699,6 +744,8 @@ export class SaleService {
           }),
         );
       }
+      // A baixa tira os itens do estoque da unidade da venda [RN-31].
+      await this.inventory.consume(tx, auth, current);
       await tx
         .update(sales)
         .set({ status: 'closed', closedAt: now, closedBy: auth.userId, updatedAt: now })
@@ -780,6 +827,7 @@ export class SaleService {
             ),
           );
       }
+      await this.inventory.restore(tx, auth, current);
       await tx
         .update(sales)
         .set({

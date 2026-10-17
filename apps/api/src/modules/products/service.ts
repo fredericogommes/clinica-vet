@@ -20,6 +20,7 @@ import {
   productCommissions,
   productGroups,
   products,
+  stockBalances,
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
@@ -73,11 +74,19 @@ export class ProductService {
           groupName: productGroups.name,
           brandName: productBrands.name,
           salePrice: products.salePrice,
+          tracksStock: products.tracksStock,
+          minStock: products.minStock,
+          onHand: stockBalances.onHand,
+          shortfall: stockBalances.shortfall,
           archivedAt: products.archivedAt,
         })
         .from(products)
         .leftJoin(productGroups, eq(productGroups.id, products.groupId))
         .leftJoin(productBrands, eq(productBrands.id, products.brandId))
+        .leftJoin(
+          stockBalances,
+          and(eq(stockBalances.productId, products.id), eq(stockBalances.unitId, auth.unitId)),
+        )
         .where(where)
         .orderBy(asc(sql`lower(${products.name})`), asc(products.code))
         .limit(query.pageSize)
@@ -85,10 +94,17 @@ export class ProductService {
       this.db.select({ n: count() }).from(products).where(where),
     ]);
     return {
-      items: rows.map(({ archivedAt, ...r }) => ({
+      items: rows.map(({ archivedAt, tracksStock, minStock, onHand, shortfall, ...r }) => ({
         ...r,
         serviceKind: r.serviceKind as ProductListItem['serviceKind'],
         unit: r.unit as ProductListItem['unit'],
+        stock: tracksStock
+          ? {
+              onHand: onHand ?? 0,
+              shortfall: shortfall ?? 0,
+              belowMin: minStock !== null && (onHand ?? 0) < minStock,
+            }
+          : null,
         archived: archivedAt !== null,
       })),
       total: totals[0]?.n ?? 0,

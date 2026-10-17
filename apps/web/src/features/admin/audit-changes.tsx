@@ -106,6 +106,9 @@ const fieldLabels: Record<string, string> = {
   countedCash: 'Dinheiro contado (R$)',
   difference: 'Diferença (R$)',
   amount: 'Valor (R$)',
+  onHand: 'Em estoque',
+  shortfall: 'Pendência de venda sem saldo',
+  blocksSaleWithoutStock: 'Bloqueia venda sem saldo',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */

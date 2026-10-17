@@ -16,6 +16,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useCan } from '../../lib/session';
 import { emptyProduct, ProductForm, productToForm } from './product-form';
 import { productQuery } from './queries';
+import { ProductStockPanel } from './stock-panel';
 
 function SaveError({ error }: { error: unknown }) {
   return (
@@ -78,6 +79,7 @@ export function ProductPage({ productId }: { productId: string }) {
   const refresh = async (saved: Product) => {
     queryClient.setQueryData(productQuery(productId).queryKey, saved);
     await queryClient.invalidateQueries({ queryKey: ['products', 'list'] });
+    await queryClient.invalidateQueries({ queryKey: ['products', 'stock', productId] });
   };
   const save = useMutation({
     mutationFn: ({ data }: { data: ProductData; onFieldErrors: (e: unknown) => void }) =>
@@ -159,6 +161,11 @@ export function ProductPage({ productId }: { productId: string }) {
       ) : null}
       {save.isError ? <SaveError error={save.error} /> : null}
       {archive.isError ? <SaveError error={archive.error} /> : null}
+      {p.tracksStock ? (
+        <div className="mb-5">
+          <ProductStockPanel productId={p.id} unit={p.unit} />
+        </div>
+      ) : null}
       <ProductForm
         key={`${p.id}-${p.archived}`}
         formId="product-edit"

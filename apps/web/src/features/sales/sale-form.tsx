@@ -10,6 +10,7 @@ import {
   type SaleData,
   type SaleType,
   type SellableItem,
+  type StockSummary,
 } from '@clinica/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
@@ -54,6 +55,8 @@ interface Row {
   unitPrice: string;
   /** Item que já estava gravado: o preço dele vai como está, mesmo que o cadastro mude. */
   saved: boolean;
+  /** Disponível fora desta venda; nulo quando o item não controla estoque [RN-31]. */
+  stock: StockSummary | null;
 }
 
 export interface SaleFormState {
@@ -104,6 +107,7 @@ export function saleToForm(sale: Sale): SaleFormState {
       quantity: quantityInput(i.quantity),
       unitPrice: moneyInput(i.unitPrice),
       saved: true,
+      stock: i.stock,
     })),
     discountMode: sale.discount.mode,
     discountValue: sale.discount.value === 0 ? '' : moneyInput(sale.discount.value),
@@ -210,6 +214,7 @@ export function SaleForm({
           quantity: '1',
           unitPrice: moneyInput(item.salePrice),
           saved: false,
+          stock: item.stock,
         },
       ],
     });
@@ -286,6 +291,16 @@ export function SaleForm({
                 errors={errors}
                 professionals={professionals}
                 gross={preview.items[i]?.grossCents ?? 0}
+                wanted={
+                  state.kind === 'sale'
+                    ? state.rows
+                        .filter((r) => r.productId === row.productId)
+                        .reduce(
+                          (a, r) => a + (Number.isNaN(num(r.quantity)) ? 0 : num(r.quantity)),
+                          0,
+                        )
+                    : null
+                }
                 priceEditable={row.allowPriceChange && canChangePrice}
                 onChange={(next) => {
                   set({ rows: state.rows.map((r) => (r.key === row.key ? next : r)) });
@@ -383,6 +398,7 @@ function ItemRow({
   errors,
   professionals,
   gross,
+  wanted,
   priceEditable,
   onChange,
   onRemove,
@@ -392,6 +408,8 @@ function ItemRow({
   errors: FieldErrors;
   professionals: { id: string; name: string }[];
   gross: number;
+  /** Quantidade do item somada em todas as linhas; nulo em orçamento, que não reserva. */
+  wanted: number | null;
   priceEditable: boolean;
   onChange: (row: Row) => void;
   onRemove: () => void;
@@ -468,6 +486,7 @@ function ItemRow({
             {formatMoney(gross / 100)}
           </ReadValue>
         </div>
+        {row.stock ? <StockHint stock={row.stock} unit={row.unit} wanted={wanted} /> : null}
       </div>
     </li>
   );
@@ -575,6 +594,14 @@ export function ItemSearch({
                       <span className="text-xs text-ink-muted">
                         <span className="font-mono">#{item.code}</span>
                         {item.barcode ? <span className="font-mono"> · {item.barcode}</span> : null}
+                        {item.stock ? (
+                          <span className={item.stock.available > 0 ? '' : 'text-danger-600'}>
+                            {' · '}
+                            {item.stock.available > 0
+                              ? `${quantityInput(item.stock.available)} ${item.unit} disponível`
+                              : 'sem estoque'}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
@@ -725,5 +752,39 @@ function CustomerField({
         </ul>
       )}
     </div>
+  );
+}
+
+/** Saldo do item na unidade: avisa antes de salvar quando a venda passa do disponível [RN-31]. */
+function StockHint({
+  stock,
+  unit,
+  wanted,
+}: {
+  stock: StockSummary;
+  unit: SellableItem['unit'];
+  wanted: number | null;
+}) {
+  const available = `${quantityInput(stock.available)} ${unit}`;
+  const short = wanted !== null && wanted > stock.available;
+  return (
+    <p
+      className={clsx(
+        'col-span-2 text-xs @3xl:col-span-4',
+        !short
+          ? 'text-ink-muted'
+          : stock.blocksSaleWithoutStock
+            ? 'text-danger-600'
+            : 'text-amber-700',
+      )}
+    >
+      {!short
+        ? `Estoque: ${available} disponível.`
+        : stock.blocksSaleWithoutStock
+          ? stock.available === 0
+            ? 'Sem estoque disponível, e o grupo do item bloqueia venda sem saldo.'
+            : `Só ${available} disponível, e o grupo do item bloqueia venda sem saldo.`
+          : `${stock.available === 0 ? 'Sem estoque disponível' : `Só ${available} disponível`}. A venda segue e a falta fica como pendência no estoque.`}
+    </p>
   );
 }

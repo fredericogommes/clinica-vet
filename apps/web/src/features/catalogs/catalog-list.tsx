@@ -33,6 +33,8 @@ interface CatalogListProps {
   save: (id: string | null, input: CatalogItemInput) => Promise<unknown>;
   selectedId?: string | null;
   onSelect?: (item: CatalogItem) => void;
+  /** Grupos de produtos: regra de venda sem saldo de estoque [RN-31]. */
+  stockPolicy?: boolean;
 }
 
 /** Lista editável de um cadastro de apoio, com inclusão, renomeação e arquivamento. */
@@ -102,6 +104,13 @@ export function CatalogList(props: CatalogListProps) {
               ) : (
                 <span className="min-w-0 flex-1 truncate py-1 text-sm">{item.name}</span>
               )}
+              {props.stockPolicy ? (
+                item.blocksSaleWithoutStock === false ? (
+                  <Badge tone="amber">Vende sem saldo</Badge>
+                ) : (
+                  <Badge tone="sage">Bloqueia sem saldo</Badge>
+                )
+              ) : null}
               {item.archived ? <Badge>Arquivado</Badge> : null}
               <Button
                 variant="ghost"
@@ -122,6 +131,7 @@ export function CatalogList(props: CatalogListProps) {
           item={editing}
           noun={noun}
           masculine={masculine}
+          stockPolicy={props.stockPolicy ?? false}
           save={props.save}
           onClose={() => {
             setEditing(undefined);
@@ -137,18 +147,24 @@ function CatalogDialog({
   noun,
   masculine,
   save,
+  stockPolicy,
   onClose,
 }: {
   item: CatalogItem | null;
   noun: string;
   masculine: boolean;
+  stockPolicy: boolean;
   save: CatalogListProps['save'];
   onClose: () => void;
 }) {
   const toast = useToast();
   const form = useForm<CatalogItemInput>({
     resolver: zodResolver(catalogItemInputSchema),
-    defaultValues: { name: item?.name ?? '', archived: item?.archived ?? false },
+    defaultValues: {
+      name: item?.name ?? '',
+      archived: item?.archived ?? false,
+      ...(stockPolicy ? { blocksSaleWithoutStock: item?.blocksSaleWithoutStock ?? true } : {}),
+    },
   });
   const mutation = useMutation({
     mutationFn: (input: CatalogItemInput) => save(item?.id ?? null, input),
@@ -202,6 +218,20 @@ function CatalogDialog({
           error={form.formState.errors.name?.message}
           {...form.register('name')}
         />
+        {stockPolicy ? (
+          <Controller
+            control={form.control}
+            name="blocksSaleWithoutStock"
+            render={({ field }) => (
+              <Checkbox
+                label="Bloquear venda sem saldo"
+                description="Para medicamento controlado, por exemplo. Desmarcado, a venda segue e a falta fica como pendência até a próxima entrada."
+                checked={field.value ?? true}
+                onCheckedChange={field.onChange}
+              />
+            )}
+          />
+        ) : null}
         {item ? (
           <Controller
             control={form.control}

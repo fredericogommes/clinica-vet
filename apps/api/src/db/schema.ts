@@ -230,9 +230,15 @@ export const clientOrigins = pgTable('client_origins', catalogColumns, (t) => [
   uniqueIndex('client_origins_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
 ]);
 
-export const productGroups = pgTable('product_groups', catalogColumns, (t) => [
-  uniqueIndex('product_groups_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
-]);
+/** O grupo decide se falta de saldo bloqueia a venda (ex. medicamento controlado) [RN-31]. */
+export const productGroups = pgTable(
+  'product_groups',
+  {
+    ...catalogColumns,
+    blocksSaleWithoutStock: boolean('blocks_sale_without_stock').notNull().default(true),
+  },
+  (t) => [uniqueIndex('product_groups_org_name_uq').on(t.organizationId, sql`lower(${t.name})`)],
+);
 
 export const productBrands = pgTable('product_brands', catalogColumns, (t) => [
   uniqueIndex('product_brands_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
@@ -906,6 +912,77 @@ export const saleItems = pgTable(
         and ${t.discountAmount} >= 0 and ${t.discountAmount} <= ${t.grossTotal}
         and ${t.netTotal} = ${t.grossTotal} - ${t.discountAmount}
         and ${t.commissionPercent} between 0 and 100`,
+    ),
+  ],
+);
+
+const quantity = (name: string) => numeric(name, { precision: 14, scale: 3, mode: 'number' });
+
+/**
+ * Saldo do produto por unidade [RN-31]. Nunca negativo: a saída sem saldo de grupo liberado vira
+ * pendência, e só um dos dois é positivo por vez. A linha é travada (FOR UPDATE) em toda
+ * reserva, baixa, estorno e ajuste, o que serializa vendas concorrentes do mesmo item.
+ */
+export const stockBalances = pgTable(
+  'stock_balances',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    onHand: quantity('on_hand').notNull().default(0),
+    shortfall: quantity('shortfall').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.unitId, t.productId] }),
+    check(
+      'stock_balances_ck',
+      sql`${t.onHand} >= 0 and ${t.shortfall} >= 0 and (${t.onHand} = 0 or ${t.shortfall} = 0)`,
+    ),
+  ],
+);
+
+/** Entrada, contagem, venda e estorno: cada mudança de saldo, com o saldo resultante. */
+export const stockMovements = pgTable(
+  'stock_movements',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    kind: text('kind', { enum: ['entry', 'count', 'sale', 'sale_return'] }).notNull(),
+    quantity: quantity('quantity').notNull(),
+    shortfall: quantity('shortfall').notNull().default(0),
+    onHandAfter: quantity('on_hand_after').notNull(),
+    shortfallAfter: quantity('shortfall_after').notNull(),
+    notes: text('notes').notNull().default(''),
+    saleId: uuid('sale_id').references(() => sales.id),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('stock_movements_product_idx').on(t.unitId, t.productId, t.createdAt),
+    index('stock_movements_sale_idx').on(t.saleId),
+    check(
+      'stock_movements_ck',
+      sql`${t.onHandAfter} >= 0 and ${t.shortfall} >= 0 and ${t.shortfallAfter} >= 0
+        and (${t.kind} not in ('sale', 'sale_return') or ${t.saleId} is not null)
+        and (${t.kind} <> 'sale' or ${t.quantity} < 0)
+        and (${t.kind} not in ('entry', 'sale_return') or ${t.quantity} > 0)`,
     ),
   ],
 );

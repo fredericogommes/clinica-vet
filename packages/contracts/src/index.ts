@@ -8,6 +8,7 @@ export * from './clients.js';
 export * from './patients.js';
 export * from './scheduling.js';
 export * from './clinical.js';
+export * from './inventory.js';
 export * from './products.js';
 export * from './payments.js';
 export * from './sales.js';

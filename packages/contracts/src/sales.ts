@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paymentMethodSchema, salePaymentSchema } from './payments.js';
+import { stockSummarySchema } from './inventory.js';
 import { moneySchema, productKinds, saleUnits, serviceKinds } from './products.js';
 
 /** Venda e orçamento são a mesma entidade, com status [RN-23]. */
@@ -114,6 +115,8 @@ export const saleItemSchema = z.object({
   professional: ref,
   /** Evento da ficha clínica que lançou o item [RN-19]. */
   clinicalEventId: z.uuid().nullable(),
+  /** Saldo disponível para este item, fora o que a própria venda reserva [RN-31]. */
+  stock: stockSummarySchema.nullable(),
   grossTotal: z.number(),
   discountAmount: z.number(),
   netTotal: z.number(),
@@ -188,6 +191,7 @@ export const sellableItemSchema = z.object({
   salePrice: z.number(),
   allowPriceChange: z.boolean(),
   discountLimitPercent: z.number().nullable(),
+  stock: stockSummarySchema.nullable(),
 });
 export type SellableItem = z.infer<typeof sellableItemSchema>;
 
