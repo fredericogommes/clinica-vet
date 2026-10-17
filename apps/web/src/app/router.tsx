@@ -4,6 +4,7 @@ import {
   purchaseSituations,
   saleStatuses,
   stockExitReasons,
+  stockSituations,
   stockExitSituations,
   vaccineKinds,
   type Permission,
@@ -163,6 +164,9 @@ const PurchasePage = lazy(() =>
 );
 const StockExitsPage = lazy(() =>
   import('../features/stock/stock-pages').then((m) => ({ default: m.StockExitsPage })),
+);
+const StockAnalysisPage = lazy(() =>
+  import('../features/stock/analysis-page').then((m) => ({ default: m.StockAnalysisPage })),
 );
 const StockCountsPage = lazy(() =>
   import('../features/stock/stock-pages').then((m) => ({ default: m.StockCountsPage })),
@@ -1051,6 +1055,28 @@ const stockExitsRoute = createRoute({
   },
 });
 
+const stockAnalysisRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/analise',
+  validateSearch: z.object({
+    situacao: z.enum(stockSituations).optional().catch(undefined),
+    grupo: z.uuid().optional().catch(undefined),
+    // Um termo só de dígitos chega da URL como número.
+    q: z.coerce.string().max(100).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function StockAnalysis() {
+    const s = stockAnalysisRoute.useSearch();
+    return (
+      <RequirePermission permission="inventory.analysis">
+        <StockAnalysisPage
+          search={{ situacao: s.situacao, grupo: s.grupo, q: s.q ?? '', page: s.page ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const stockCountsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/estoque/inventario',
@@ -1260,6 +1286,7 @@ const routeTree = rootRoute.addChildren([
     purchaseNewRoute,
     purchaseRoute,
     stockExitsRoute,
+    stockAnalysisRoute,
     stockCountsRoute,
     stockCountRoute,
     pdvRoute,

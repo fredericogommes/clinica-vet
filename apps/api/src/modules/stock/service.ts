@@ -2,6 +2,9 @@ import {
   fromCents,
   stockExitReasonLabels,
   toCents,
+  stockSituations,
+  type StockAnalysis,
+  type StockAnalysisQuery,
   type StockCancelInput,
   type StockCount,
   type StockCountCreateInput,
@@ -34,6 +37,7 @@ import { recordAudit } from '../../core/audit.js';
 import { nextCounter } from '../../core/counters.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
+import { containsText } from '../../core/search.js';
 import type { Database, Executor } from '../../db/client.js';
 import {
   productGroups,
@@ -48,6 +52,7 @@ import {
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 import type { InventoryService } from '../inventory/service.js';
+import { analysisRows, indicatorsOf } from '../inventory/analysis.js';
 import { fefo, unitToday } from '../inventory/lots.js';
 
 const invalid = (path: string, message: string) =>
@@ -73,6 +78,62 @@ export class StockOpsService {
 
   private seeCost(auth: AuthContext) {
     return auth.permissions.has('products.view_cost');
+  }
+
+  /**
+   * Análise de estoque [p.17]: a carteira inteira classificada, com contagem e valor por situação.
+   * O resumo respeita grupo e busca; a situação filtra só a lista.
+   */
+  async analysis(auth: AuthContext, query: StockAnalysisQuery): Promise<StockAnalysis> {
+    const now = this.now();
+    const seeCost = this.seeCost(auth);
+    const extra: SQL[] = [];
+    if (query.grupo) extra.push(eq(products.groupId, query.grupo));
+    if (query.q) extra.push(containsText(products.name, query.q));
+    const [rows, groups] = await Promise.all([
+      analysisRows(this.db, auth.organizationId, auth.unitId, now, extra),
+      this.db
+        .select({ id: productGroups.id, name: productGroups.name })
+        .from(productGroups)
+        .where(eq(productGroups.organizationId, auth.organizationId))
+        .orderBy(asc(productGroups.name)),
+    ]);
+    const analysed = rows.map((row) => ({ row, ind: indicatorsOf(row, now, seeCost) }));
+    const classified = analysed.flatMap(({ row, ind }) =>
+      ind.situation ? [{ row, ind: { ...ind, situation: ind.situation } }] : [],
+    );
+    const money = (list: typeof classified) =>
+      seeCost ? Math.round(list.reduce((t, c) => t + (c.ind.totalCost ?? 0) * 100, 0)) / 100 : null;
+    const summary = stockSituations.map((situation) => {
+      const list = classified.filter((c) => c.ind.situation === situation);
+      return { situation, count: list.length, value: money(list) };
+    });
+    const shown = (
+      query.situacao ? classified.filter((c) => c.ind.situation === query.situacao) : classified
+    ).sort(
+      (a, b) =>
+        (b.ind.totalCost ?? 0) - (a.ind.totalCost ?? 0) || a.row.name.localeCompare(b.row.name),
+    );
+    const start = (query.page - 1) * query.pageSize;
+    return {
+      summary,
+      total: { count: classified.length, value: money(classified) },
+      idle: analysed.length - classified.length,
+      items: shown.slice(start, start + query.pageSize).map(({ row, ind }) => ({
+        ...ind,
+        id: row.id,
+        name: row.name,
+        unit: row.unit,
+        group: row.group,
+        onHand: row.net,
+        minStock: row.minStock,
+        idealStock: row.idealStock,
+      })),
+      matches: shown.length,
+      page: query.page,
+      pageSize: query.pageSize,
+      groups,
+    };
   }
 
   /** Produtos com estoque controlado, ativos, com os lotes que têm saldo na unidade. */

@@ -1,4 +1,6 @@
 import {
+  stockAnalysisQuerySchema,
+  stockAnalysisSchema,
   stockCancelSchema,
   stockCountCreateSchema,
   stockCountListSchema,
@@ -37,6 +39,15 @@ export const stockRoutes: FastifyPluginAsyncZod<{ stock: StockOpsService }> = as
       }
       return stock.options(auth);
     },
+  );
+
+  app.get(
+    '/analysis',
+    {
+      config: { access: { kind: 'permission', permission: 'inventory.analysis' } },
+      schema: { querystring: stockAnalysisQuerySchema, response: { 200: stockAnalysisSchema } },
+    },
+    async (request) => stock.analysis(requireAuth(request), request.query),
   );
 
   app.get(
