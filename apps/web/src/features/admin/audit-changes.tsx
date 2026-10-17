@@ -83,6 +83,7 @@ const fieldLabels: Record<string, string> = {
   defaultCommissionPercent: 'Comissão padrão (%)',
   commissions: 'Comissões por profissional',
   tracksStock: 'Controla estoque',
+  tracksLots: 'Controla lote e validade',
   minStock: 'Estoque mínimo',
   idealStock: 'Estoque ideal',
   saleType: 'Tipo de venda',
@@ -108,6 +109,7 @@ const fieldLabels: Record<string, string> = {
   amount: 'Valor (R$)',
   onHand: 'Em estoque',
   shortfall: 'Pendência de venda sem saldo',
+  lot: 'Lote',
   blocksSaleWithoutStock: 'Bloqueia venda sem saldo',
 };
 

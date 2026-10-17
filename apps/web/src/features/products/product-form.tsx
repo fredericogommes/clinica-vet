@@ -74,6 +74,7 @@ export const emptyProduct: ProductFormValues = {
   defaultCommissionPercent: '0',
   commissions: [],
   tracksStock: true,
+  tracksLots: false,
   minStock: '',
   idealStock: '',
 };
@@ -107,6 +108,7 @@ export function productToForm(p: Product): ProductFormValues {
       percent: percentInput(c.percent),
     })),
     tracksStock: p.tracksStock,
+    tracksLots: p.tracksLots,
     minStock: quantityInput(p.minStock),
     idealStock: quantityInput(p.idealStock),
   };
@@ -512,6 +514,21 @@ export function ProductForm({
               </div>
               {tracksStock ? (
                 <>
+                  <div className="sm:col-span-3">
+                    <Controller
+                      control={form.control}
+                      name="tracksLots"
+                      render={({ field }) => (
+                        <Checkbox
+                          label="Controla lote e validade"
+                          description="Para vacina e medicamento: cada entrada informa lote e validade, a venda sai do lote que vence antes e o lote é rastreável até o animal."
+                          checked={field.value ?? false}
+                          disabled={readOnly}
+                          onCheckedChange={field.onChange}
+                        />
+                      )}
+                    />
+                  </div>
                   <TextField
                     label="Estoque mínimo"
                     inputMode="decimal"

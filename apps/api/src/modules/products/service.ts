@@ -24,6 +24,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import { changeLotTracking, expiryState, lotExpiry, unitToday } from '../inventory/lots.js';
 
 const conflictMessages: Record<string, string> = {
   products_org_barcode_uq: 'Já existe um produto com este código de barras.',
@@ -75,6 +76,7 @@ export class ProductService {
           brandName: productBrands.name,
           salePrice: products.salePrice,
           tracksStock: products.tracksStock,
+          tracksLots: products.tracksLots,
           minStock: products.minStock,
           onHand: stockBalances.onHand,
           shortfall: stockBalances.shortfall,
@@ -93,20 +95,30 @@ export class ProductService {
         .offset((query.page - 1) * query.pageSize),
       this.db.select({ n: count() }).from(products).where(where),
     ]);
+    const withLots = rows.filter((r) => r.tracksStock && r.tracksLots).map((r) => r.id);
+    const today = withLots.length > 0 ? await unitToday(this.db, auth.unitId, new Date()) : '';
+    const expiry = await lotExpiry(this.db, auth.unitId, withLots, today);
     return {
-      items: rows.map(({ archivedAt, tracksStock, minStock, onHand, shortfall, ...r }) => ({
-        ...r,
-        serviceKind: r.serviceKind as ProductListItem['serviceKind'],
-        unit: r.unit as ProductListItem['unit'],
-        stock: tracksStock
-          ? {
-              onHand: onHand ?? 0,
-              shortfall: shortfall ?? 0,
-              belowMin: minStock !== null && (onHand ?? 0) < minStock,
-            }
-          : null,
-        archived: archivedAt !== null,
-      })),
+      items: rows.map(
+        ({ archivedAt, tracksStock, tracksLots, minStock, onHand, shortfall, ...r }) => {
+          const oldestExpiry = tracksLots ? (expiry.get(r.id)?.oldestExpiry ?? null) : null;
+          return {
+            ...r,
+            serviceKind: r.serviceKind as ProductListItem['serviceKind'],
+            unit: r.unit as ProductListItem['unit'],
+            stock: tracksStock
+              ? {
+                  onHand: onHand ?? 0,
+                  shortfall: shortfall ?? 0,
+                  belowMin: minStock !== null && (onHand ?? 0) < minStock,
+                  oldestExpiry,
+                  expiry: oldestExpiry ? expiryState(oldestExpiry, today) : null,
+                }
+              : null,
+            archived: archivedAt !== null,
+          };
+        },
+      ),
       total: totals[0]?.n ?? 0,
     };
   }
@@ -177,6 +189,10 @@ export class ProductService {
       if (current.archivedAt) throw conflict('Restaure o item antes de editá-lo.');
       await this.assertRefs(tx, auth, input, current);
       const before = await this.auditSnapshot(tx, id);
+      const tracksLots = columnsOf(input).tracksLots;
+      if (tracksLots !== current.tracksLots) {
+        await changeLotTracking(tx, auth.organizationId, id, tracksLots);
+      }
       await tx
         .update(products)
         .set({
@@ -323,6 +339,7 @@ export class ProductService {
       defaultCommissionPercent: p.defaultCommissionPercent,
       commissions: commissions.map((c) => `${c.name}: ${c.percent}%`).join(', '),
       tracksStock: p.tracksStock,
+      tracksLots: p.tracksLots,
       minStock: p.minStock,
       idealStock: p.idealStock,
     };
@@ -373,6 +390,7 @@ function columnsOf(input: ProductData) {
     discountLimitPercent: input.discountLimitPercent,
     defaultCommissionPercent: input.defaultCommissionPercent,
     tracksStock: service ? false : input.tracksStock,
+    tracksLots: !service && input.tracksStock && input.tracksLots,
     minStock: service || !input.tracksStock ? null : input.minStock,
     idealStock: service || !input.tracksStock ? null : input.idealStock,
   };
@@ -420,6 +438,7 @@ function toProduct(
     defaultCommissionPercent: p.defaultCommissionPercent,
     commissions,
     tracksStock: p.tracksStock,
+    tracksLots: p.tracksLots,
     minStock: p.minStock,
     idealStock: p.idealStock,
     archived: p.archivedAt !== null,

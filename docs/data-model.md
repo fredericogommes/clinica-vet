@@ -83,10 +83,12 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `cash_sessions`    | Caixa de um operador numa unidade [RN-29]              | Código sequencial; troco inicial; um caixa aberto por operador e unidade (índice único parcial); fechado guarda quem fechou, dinheiro esperado, contado e observação                     |
 | `cash_movements`   | Suprimento, sangria e devolução de estorno             | Valor > 0 e descrição; devolução sempre ligada à venda e com a forma e o tipo de pagamento copiados                                                                                      |
 
-| Tabela            | Papel                                | Regras principais                                                                                                                                                       |
-| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stock_balances`  | Saldo do produto por unidade [RN-31] | Chave (unidade, produto); saldo e pendência ≥ 0 e nunca os dois positivos; travada em toda reserva, baixa, estorno e ajuste                                             |
-| `stock_movements` | Entrada, contagem, venda e estorno   | Quantidade com sinal, parte em pendência, saldo e pendência resultantes, observação, venda de origem e autor; venda sempre negativa, entrada e estorno sempre positivos |
+| Tabela                | Papel                                           | Regras principais                                                                                                                                                       |
+| --------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stock_balances`      | Saldo do produto por unidade [RN-31]            | Chave (unidade, produto); saldo e pendência ≥ 0 (convivem só com lote vencido); travada em toda reserva, baixa, estorno, ajuste e mudança do controle de lote           |
+| `stock_movements`     | Entrada, contagem, venda e estorno              | Quantidade com sinal, parte em pendência, saldo e pendência resultantes, observação, venda de origem e autor; venda sempre negativa, entrada e estorno sempre positivos |
+| `stock_lots`          | Lote e validade por entrada [RN-32]             | Único por (unidade, produto, número); validade nula só no "SEM LOTE"; saldo ≥ 0; a soma dos lotes é o saldo do produto que controla lote                                |
+| `stock_movement_lots` | Quanto cada movimento tirou ou pôs em cada lote | Chave (movimento, lote); quantidade com sinal, nunca zero; é o rastreio do lote até a venda e o animal                                                                  |
 
 `product_groups.blocks_sale_without_stock` (padrão verdadeiro) decide se falta de saldo bloqueia a venda; a reserva não tem tabela: é a soma dos itens das vendas em aberto da unidade (migração 0009).
 
