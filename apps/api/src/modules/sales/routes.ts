@@ -1,5 +1,6 @@
 import {
   cancelSaleSchema,
+  mySalesSchema,
   pageSchema,
   patientSaleItemInputSchema,
   patientSalesSchema,
@@ -10,19 +11,27 @@ import {
   saleListItemSchema,
   saleListQuerySchema,
   saleSchema,
+  salesByItemQuerySchema,
+  salesByItemSchema,
+  salesPeriodSchema,
   salesSettingsSchema,
+  salesSummarySchema,
   sellableItemSchema,
   sellableQuerySchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { SalesReportService } from './reports.js';
 import type { SaleService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
 const patientParams = z.object({ patientId: z.uuid() });
 
-export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (app, { sales }) => {
+export const saleRoutes: FastifyPluginAsyncZod<{
+  sales: SaleService;
+  reports: SalesReportService;
+}> = async (app, { sales, reports }) => {
   app.get(
     '/',
     {
@@ -39,6 +48,35 @@ export const saleRoutes: FastifyPluginAsyncZod<{ sales: SaleService }> = async (
   );
 
   // Rotas estáticas antes de "/:id".
+  // Consulta vendas [p.9]: resumo e totais por produto e serviço do período.
+  app.get(
+    '/reports/summary',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.reports' } },
+      schema: { querystring: salesPeriodSchema, response: { 200: salesSummarySchema } },
+    },
+    async (request) => reports.summary(requireAuth(request), request.query),
+  );
+
+  app.get(
+    '/reports/items',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.reports' } },
+      schema: { querystring: salesByItemQuerySchema, response: { 200: salesByItemSchema } },
+    },
+    async (request) => reports.byItem(requireAuth(request), request.query),
+  );
+
+  // Minhas vendas [p.10]: só os itens do próprio profissional.
+  app.get(
+    '/mine',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.view_own' } },
+      schema: { querystring: salesPeriodSchema, response: { 200: mySalesSchema } },
+    },
+    async (request) => reports.mine(requireAuth(request), request.query),
+  );
+
   app.get(
     '/context',
     {

@@ -1,6 +1,7 @@
 import type { Permission } from '@clinica/contracts';
 import {
   Activity,
+  BarChart3,
   CalendarClock,
   CalendarDays,
   ClipboardList,
@@ -12,6 +13,7 @@ import {
   Package,
   Palette,
   PawPrint,
+  Receipt,
   ScrollText,
   Settings2,
   ShieldCheck,
@@ -75,6 +77,18 @@ export const navigation: NavSection[] = [
         to: '/vendas/pdv',
         icon: ShoppingCart,
         permission: 'sales.manage',
+      },
+      {
+        label: 'Consulta vendas',
+        to: '/vendas/consulta',
+        icon: BarChart3,
+        permission: 'sales.reports',
+      },
+      {
+        label: 'Minhas vendas',
+        to: '/vendas/minhas',
+        icon: Receipt,
+        permission: 'sales.view_own',
       },
       {
         label: 'Movimentos de caixa',

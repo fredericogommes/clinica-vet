@@ -131,3 +131,29 @@ export function FormActions({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/** Indicadores em cartões: rótulo, valor em destaque e um detalhe opcional. */
+export function Stats({
+  items,
+  label,
+}: {
+  items: { label: string; value: ReactNode; detail?: ReactNode }[];
+  label: string;
+}) {
+  return (
+    <dl aria-label={label} className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="min-w-0 rounded-panel border border-line bg-surface px-4 py-3 shadow-panel"
+        >
+          <dt className="text-xs text-ink-muted">{item.label}</dt>
+          <dd className="mt-1 font-mono text-lg font-medium break-words text-ink tabular-nums">
+            {item.value}
+          </dd>
+          {item.detail ? <dd className="mt-0.5 text-xs text-ink-muted">{item.detail}</dd> : null}
+        </div>
+      ))}
+    </dl>
+  );
+}

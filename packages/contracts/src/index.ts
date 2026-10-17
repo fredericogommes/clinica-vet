@@ -12,4 +12,5 @@ export * from './inventory.js';
 export * from './products.js';
 export * from './payments.js';
 export * from './sales.js';
+export * from './sales-reports.js';
 export * from './cash.js';
