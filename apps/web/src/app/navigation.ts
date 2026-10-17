@@ -4,6 +4,7 @@ import {
   BedDouble,
   History,
   Warehouse,
+  ListChecks,
   Banknote,
   Layers,
   BookUser,
@@ -97,6 +98,12 @@ export const navigation: NavSection[] = [
         label: 'Histórico de internações',
         to: '/internacao/historico',
         icon: History,
+        permission: 'hospitalization.view',
+      },
+      {
+        label: 'Mapa de execução',
+        to: '/internacao/mapa',
+        icon: ListChecks,
         permission: 'hospitalization.view',
       },
       {

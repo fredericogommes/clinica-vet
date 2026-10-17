@@ -20,9 +20,12 @@ import {
   ClipboardPlus,
   FileText,
   HeartPulse,
+  ListChecks,
   LogOut,
   Pencil,
   Phone,
+  Pill,
+  PillBottle,
   Scale,
   Stethoscope,
   XCircle,
@@ -31,6 +34,7 @@ import { useState } from 'react';
 import { Button, buttonClasses } from '../../design-system/button';
 import { Badge, PageHeader, Panel, Section } from '../../design-system/layout';
 import { ErrorState, SkeletonRows } from '../../design-system/states';
+import { Tabs, tabPanelProps } from '../../design-system/tabs';
 import { errorMessage } from '../../lib/api';
 import { formatCalendarDate, formatDateTime } from '../../lib/format';
 import { useCan } from '../../lib/session';
@@ -47,6 +51,7 @@ import {
   type EntryKind,
 } from './dialogs';
 import { formatDuration, priorityTone, statusTone } from './labels';
+import { PrescriptionTab } from './prescription-tab';
 import { hospitalizationQuery } from './queries';
 
 type Open =
@@ -84,6 +89,9 @@ const entryIcons = {
   discharge: LogOut,
   death: XCircle,
   cancel: XCircle,
+  prescription: Pill,
+  prescription_stop: PillBottle,
+  execution: ListChecks,
 } as const;
 
 function Entry({ e }: { e: HospitalizationEntry }) {
@@ -244,10 +252,17 @@ function Header({ h }: { h: HospitalizationDetail }) {
  * Ficha de internação [p.14–15]: cabeçalho com animal, responsável e prazos; ações de editar, box,
  * alta, óbito e cancelar; e o histórico com ocorrência, peso, parâmetros e relatório médico.
  */
-export function HospitalizationRecordPage({ id }: { id: string }) {
+export function HospitalizationRecordPage({
+  id,
+  initialTab = 'history',
+}: {
+  id: string;
+  initialTab?: 'history' | 'prescription';
+}) {
   const can = useCan();
   const detail = useQuery(hospitalizationQuery(id));
   const [open, setOpen] = useState<Open | null>(null);
+  const [tab, setTab] = useState(initialTab);
   if (detail.isPending) return <SkeletonRows rows={8} />;
   if (detail.isError) {
     return (
@@ -334,41 +349,58 @@ export function HospitalizationRecordPage({ id }: { id: string }) {
           </Button>
         </div>
       ) : null}
-      <Section title="Histórico" description="Do mais recente para o mais antigo.">
-        {record ? (
-          <div
-            className="mb-4 flex flex-wrap gap-2"
-            role="group"
-            aria-label="Registrar no histórico"
-          >
-            {(
-              [
-                ['occurrence', 'Ocorrência', ClipboardPlus],
-                ['weight', 'Peso', Scale],
-                ['parameters', 'Parâmetros', Activity],
-                ['report', 'Relatório médico', FileText],
-              ] as const
-            ).map(([entry, label, Icon]) => (
-              <Button
-                key={entry}
-                size="sm"
-                variant="secondary"
-                icon={<Icon className="size-4" aria-hidden />}
-                onClick={() => {
-                  setOpen({ kind: 'entry', entry });
-                }}
+      <div className="mb-4">
+        <Tabs
+          label="Ficha de internação"
+          value={tab}
+          options={[
+            { value: 'history', label: 'Histórico' },
+            { value: 'prescription', label: 'Prescrição médica' },
+          ]}
+          onChange={setTab}
+        />
+      </div>
+      <div {...tabPanelProps(tab)}>
+        {tab === 'prescription' ? (
+          <PrescriptionTab h={h} />
+        ) : (
+          <Section title="Histórico" description="Do mais recente para o mais antigo.">
+            {record ? (
+              <div
+                className="mb-4 flex flex-wrap gap-2"
+                role="group"
+                aria-label="Registrar no histórico"
               >
-                {label}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        <ol aria-label="Histórico da internação" className="-mb-3 divide-y divide-line">
-          {newest.map((e) => (
-            <Entry key={e.id} e={e} />
-          ))}
-        </ol>
-      </Section>
+                {(
+                  [
+                    ['occurrence', 'Ocorrência', ClipboardPlus],
+                    ['weight', 'Peso', Scale],
+                    ['parameters', 'Parâmetros', Activity],
+                    ['report', 'Relatório médico', FileText],
+                  ] as const
+                ).map(([entry, label, Icon]) => (
+                  <Button
+                    key={entry}
+                    size="sm"
+                    variant="secondary"
+                    icon={<Icon className="size-4" aria-hidden />}
+                    onClick={() => {
+                      setOpen({ kind: 'entry', entry });
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            <ol aria-label="Histórico da internação" className="-mb-3 divide-y divide-line">
+              {newest.map((e) => (
+                <Entry key={e.id} e={e} />
+              ))}
+            </ol>
+          </Section>
+        )}
+      </div>
       {open?.kind === 'edit' ? <EditDialog h={h} onClose={close} /> : null}
       {open?.kind === 'box' ? <BoxDialog h={h} onClose={close} /> : null}
       {open?.kind === 'close' ? <CloseDialog h={h} outcome={open.outcome} onClose={close} /> : null}

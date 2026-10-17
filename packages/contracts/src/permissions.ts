@@ -51,7 +51,12 @@ export const permissionCatalog = {
   },
   'hospitalization.record': {
     group: 'Internação',
-    label: 'Registrar ocorrência, peso, parâmetros clínicos e relatório médico na internação',
+    label:
+      'Registrar ocorrência, peso, parâmetros clínicos, relatório médico e a execução das prescrições na internação',
+  },
+  'hospitalization.prescribe': {
+    group: 'Internação',
+    label: 'Prescrever e suspender medicamentos na internação',
   },
   'hospitalization.configure': {
     group: 'Internação',

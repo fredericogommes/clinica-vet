@@ -2550,6 +2550,9 @@ export const hospitalizationEntries = pgTable(
         'discharge',
         'death',
         'cancel',
+        'prescription',
+        'prescription_stop',
+        'execution',
       ],
     }).notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
@@ -2585,6 +2588,81 @@ export const hospitalizationEntries = pgTable(
         and (${t.systolicPressure} is null or ${t.systolicPressure} between 20 and 350)
         and (${t.glucose} is null or ${t.glucose} between 10 and 1500)
         and (${t.dehydration} is null or ${t.dehydration} between 0 and 15)`,
+    ),
+  ],
+);
+
+/**
+ * Prescrição da internação [p.15, RN-42]: medicamento, dose, via, intervalo e primeiro horário.
+ * Os horários são calculados (primeiro + k × intervalo) até a duração, a suspensão ou o fim da
+ * internação; só a execução de cada horário é gravada.
+ */
+export const hospitalizationPrescriptions = pgTable(
+  'hospitalization_prescriptions',
+  {
+    id: uuid('id').primaryKey(),
+    hospitalizationId: uuid('hospitalization_id')
+      .notNull()
+      .references(() => hospitalizations.id),
+    name: text('name').notNull(),
+    dose: numeric('dose', { precision: 12, scale: 3, mode: 'number' }).notNull(),
+    doseUnit: text('dose_unit').notNull(),
+    /** Concentração por mL (mg/mL, mcg/mL ou UI/mL) para o volume final. */
+    concentration: numeric('concentration', { precision: 12, scale: 3, mode: 'number' }),
+    route: text('route').notNull(),
+    intervalHours: smallint('interval_hours').notNull(),
+    firstAt: timestamp('first_at', { withTimezone: true }).notNull(),
+    durationDays: smallint('duration_days'),
+    notes: text('notes').notNull().default(''),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    stoppedAt: timestamp('stopped_at', { withTimezone: true }),
+    stoppedBy: uuid('stopped_by').references(() => users.id),
+    stopReason: text('stop_reason'),
+  },
+  (t) => [
+    index('hospitalization_prescriptions_hosp_idx').on(t.hospitalizationId),
+    check(
+      'hospitalization_prescriptions_ck',
+      sql`${t.dose} > 0 and ${t.intervalHours} between 1 and 72
+        and (${t.durationDays} is null or ${t.durationDays} between 1 and 90)
+        and (${t.concentration} is null or ${t.concentration} > 0)
+        and (${t.stoppedAt} is null) = (${t.stoppedBy} is null)
+        and (${t.stoppedAt} is null) = (${t.stopReason} is null)`,
+    ),
+  ],
+);
+
+/**
+ * Execução de um horário da prescrição [p.15]: programado × executado, quem executou e o cálculo
+ * da dose naquele momento (peso, quantidade e volume). Um registro por horário.
+ */
+export const hospitalizationExecutions = pgTable(
+  'hospitalization_executions',
+  {
+    id: uuid('id').primaryKey(),
+    prescriptionId: uuid('prescription_id')
+      .notNull()
+      .references(() => hospitalizationPrescriptions.id),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull(),
+    executedAt: timestamp('executed_at', { withTimezone: true }).notNull(),
+    status: text('status', { enum: ['done', 'skipped'] }).notNull(),
+    notes: text('notes').notNull().default(''),
+    executedBy: uuid('executed_by')
+      .notNull()
+      .references(() => users.id),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+    weightKg: numeric('weight_kg', { precision: 8, scale: 3, mode: 'number' }),
+    amount: numeric('amount', { precision: 14, scale: 3, mode: 'number' }),
+    volumeMl: numeric('volume_ml', { precision: 12, scale: 2, mode: 'number' }),
+  },
+  (t) => [
+    uniqueIndex('hospitalization_executions_slot_uq').on(t.prescriptionId, t.scheduledAt),
+    check(
+      'hospitalization_executions_skip_ck',
+      sql`${t.status} = 'done' or length(trim(${t.notes})) > 0`,
     ),
   ],
 );

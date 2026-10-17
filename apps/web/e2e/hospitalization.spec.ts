@@ -8,66 +8,69 @@ test.use({ storageState: ADMIN_STATE });
 const tag = `in${Array.from(run).reverse().join('')}`;
 
 /** Cliente com um cão, via API. */
-async function seed(page: Page) {
+async function seed(page: Page, petName = 'Bob') {
   await page.goto('/');
-  return page.evaluate(async (suffix) => {
-    const session = (await (await fetch('/api/auth/session')).json()) as Session;
-    const send = async <T>(path: string, body: unknown): Promise<T> => {
-      const r = await fetch(`/api${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(`${path}: ${await r.text()}`);
-      return (await r.json()) as T;
-    };
-    const species = (await (await fetch('/api/catalogs/species')).json()) as CatalogItem[];
-    const tutor = `Tutor Internação ${suffix}`;
-    const client = await send<Client>('/clients', {
-      personType: 'individual',
-      name: tutor,
-      nationality: '',
-      sex: null,
-      cpf: '',
-      cnpj: '',
-      rg: '',
-      birthDate: '',
-      originId: null,
-      profession: '',
-      municipalRegistration: '',
-      notes: '',
-      contacts: [],
-      address: {
-        cep: '',
-        street: '',
-        number: '',
-        complement: '',
-        district: '',
-        city: '',
-        state: '',
-      },
-    });
-    const pet = `Bob ${suffix}`;
-    const patient = await send<Patient>('/patients', {
-      clientId: client.id,
-      patient: {
-        name: pet,
-        status: 'alive',
-        deceasedOn: '',
-        sex: 'male',
-        sterilized: null,
+  return page.evaluate(
+    async ({ suffix, petName }) => {
+      const session = (await (await fetch('/api/auth/session')).json()) as Session;
+      const send = async <T>(path: string, body: unknown): Promise<T> => {
+        const r = await fetch(`/api${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(`${path}: ${await r.text()}`);
+        return (await r.json()) as T;
+      };
+      const species = (await (await fetch('/api/catalogs/species')).json()) as CatalogItem[];
+      const tutor = `Tutor Internação ${suffix}`;
+      const client = await send<Client>('/clients', {
+        personType: 'individual',
+        name: tutor,
+        nationality: '',
+        sex: null,
+        cpf: '',
+        cnpj: '',
+        rg: '',
         birthDate: '',
-        speciesId: species.find((s) => s.name === 'Canina')?.id ?? null,
-        breedId: null,
-        coatId: null,
-        microchip: '',
-        hasPedigree: false,
-        pedigreeNumber: '',
-        markings: [],
-      },
-    });
-    return { tutor, pet, patientId: patient.id };
-  }, tag);
+        originId: null,
+        profession: '',
+        municipalRegistration: '',
+        notes: '',
+        contacts: [],
+        address: {
+          cep: '',
+          street: '',
+          number: '',
+          complement: '',
+          district: '',
+          city: '',
+          state: '',
+        },
+      });
+      const pet = `${petName} ${suffix}`;
+      const patient = await send<Patient>('/patients', {
+        clientId: client.id,
+        patient: {
+          name: pet,
+          status: 'alive',
+          deceasedOn: '',
+          sex: 'male',
+          sterilized: null,
+          birthDate: '',
+          speciesId: species.find((s) => s.name === 'Canina')?.id ?? null,
+          breedId: null,
+          coatId: null,
+          microchip: '',
+          hasPedigree: false,
+          pedigreeNumber: '',
+          markings: [],
+        },
+      });
+      return { tutor, pet, patientId: patient.id };
+    },
+    { suffix: tag, petName },
+  );
 }
 
 test('internação: box, internar pela ficha, histórico, painel e alta', async ({ page }) => {
@@ -163,8 +166,106 @@ test('internação: box, internar pela ficha, histórico, painel e alta', async 
   await expect(page.getByRole('row').filter({ hasText: code })).toContainText('0 de 1');
 });
 
+test('prescrição: dose pelo peso, execução, mapa de execução e suspensão', async ({ page }) => {
+  const { pet, patientId } = await seed(page, 'Rex');
+  const id = await page.evaluate(async (patientId) => {
+    const session = (await (await fetch('/api/auth/session')).json()) as Session;
+    const send = async (path: string, body: unknown) => {
+      const r = await fetch(`/api${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`${path}: ${await r.text()}`);
+      return (await r.json()) as { id: string };
+    };
+    const h = await send('/hospitalizations', {
+      patientId,
+      veterinarianId: session.user.id,
+      priority: 'attention',
+      reason: 'Pós-operatório',
+      expectedDischargeOn: null,
+      boxId: null,
+    });
+    await send(`/hospitalizations/${h.id}/entries`, { kind: 'weight', weightKg: 12.4, text: '' });
+    return h.id;
+  }, patientId);
+
+  await page.goto(`/internacao/${id}`);
+  await page.getByRole('tab', { name: 'Prescrição médica' }).click();
+  await expect(page.getByText('Nenhuma prescrição neste dia')).toBeVisible();
+  await page.getByRole('button', { name: 'Prescrever' }).click();
+  const form = page.getByRole('dialog', { name: 'Nova prescrição' });
+  await form.getByRole('button', { name: 'Prescrever' }).click();
+  await expect(form.getByText('Informe o medicamento')).toBeVisible();
+  await form.getByLabel('Medicamento').fill('Dipirona');
+  await form.getByLabel('Dose', { exact: true }).fill('25');
+  await form.getByLabel('Concentração (mg/mL)').fill('500');
+  // Dose por horário calculada pelo peso atual: 25 mg/kg × 12,4 kg = 310 mg ÷ 500 mg/mL.
+  await expect(form.getByRole('status')).toContainText('310 mg · 0,62 mL');
+  await form.getByLabel('Duração (dias)').fill('3');
+  await form.getByRole('button', { name: 'Prescrever' }).click();
+  await expect(toasts(page).getByText('Dipirona prescrito.')).toBeVisible();
+
+  const grid = page.getByRole('table', { name: /Prescrições de/ });
+  const row = grid.getByRole('row').filter({ hasText: 'Dipirona' });
+  await expect(row).toContainText('25 mg/kg IV a cada 8 h');
+  await expect(row).toContainText('310 mg · 0,62 mL');
+  const dose = row.getByRole('button', { name: /^Dipirona às .*: Programado$/ }).first();
+  await dose.click();
+  const execute = page.getByRole('dialog', { name: /^Dipirona às/ });
+  await expect(execute).toContainText('310 mg · 0,62 mL');
+  await execute.getByText('Não executado', { exact: true }).click();
+  await execute.getByRole('button', { name: 'Registrar' }).click();
+  await expect(execute.getByText('Diga por que não foi executado')).toBeVisible();
+  await execute.getByText('Executado', { exact: true }).click();
+  await execute.getByLabel('Observações').fill('Aplicado lento');
+  await execute.getByRole('button', { name: 'Registrar' }).click();
+  await expect(toasts(page).getByText('Executado: Dipirona.')).toBeVisible();
+  await expect(row.getByRole('button', { name: /: Executado$/ })).toHaveCount(1);
+
+  // Detalhe do horário executado: quem, quando e a dose aplicada.
+  await row.getByRole('button', { name: /: Executado$/ }).click();
+  const done = page.getByRole('dialog', { name: /^Dipirona às/ });
+  await expect(done).toContainText('Executado em');
+  await expect(done).toContainText('Aplicado lento');
+  await expect(done).toContainText('310 mg · 0,62 mL');
+  await done.getByRole('button', { name: 'Voltar' }).click();
+
+  await page.getByRole('tab', { name: 'Histórico' }).click();
+  const entries = page
+    .getByRole('list', { name: 'Histórico da internação' })
+    .locator(':scope > li');
+  await expect(entries.first()).toContainText('Executado: Dipirona 310 mg (0,62 mL) IV');
+  await expect(entries.nth(1)).toContainText('Dipirona: 25 mg/kg IV a cada 8 h, por 3 dias');
+
+  // Mapa de execução: o animal com o horário registrado.
+  await sidebar(page).getByRole('link', { name: 'Mapa de execução' }).click();
+  await page.getByLabel('Buscar no mapa').fill(pet);
+  const mapRow = page.getByRole('row').filter({ hasText: pet });
+  await expect(mapRow).toHaveCount(1);
+  await expect(mapRow.getByRole('cell', { name: /1 registrado/ })).toHaveCount(1);
+  await mapRow.getByRole('link', { name: pet }).click();
+  await expect(page.getByRole('tab', { name: 'Prescrição médica' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+
+  await page.getByRole('button', { name: 'Suspender' }).click();
+  const stop = page.getByRole('dialog', { name: 'Suspender Dipirona' });
+  await stop.getByLabel('Motivo da suspensão').fill('Dor controlada');
+  await stop.getByRole('button', { name: 'Suspender' }).click();
+  await expect(toasts(page).getByText('Dipirona suspenso.')).toBeVisible();
+  await expect(page.getByRole('table', { name: /Prescrições de/ })).toContainText('Dor controlada');
+});
+
 test('internação no celular sem rolagem lateral @mobile', async ({ page }) => {
-  for (const path of ['/internacao', '/internacao/historico', '/internacao/boxes']) {
+  for (const path of [
+    '/internacao',
+    '/internacao/historico',
+    '/internacao/mapa',
+    '/internacao/boxes',
+  ]) {
     await page.goto(path);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     expect(

@@ -31,6 +31,7 @@ import {
 import { ShieldOff } from 'lucide-react';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { z } from 'zod';
+import { localToday } from '../features/schedule/dates';
 import { Panel } from '../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../design-system/states';
 import { LoginPage } from '../features/auth/login-page';
@@ -128,6 +129,9 @@ const HospitalizationRecordPage = lazy(() =>
   import('../features/hospitalization/record-page').then((m) => ({
     default: m.HospitalizationRecordPage,
   })),
+);
+const ExecutionMapPage = lazy(() =>
+  import('../features/hospitalization/map-page').then((m) => ({ default: m.ExecutionMapPage })),
 );
 const BoxesPage = lazy(() =>
   import('../features/hospitalization/boxes-page').then((m) => ({ default: m.BoxesPage })),
@@ -1608,6 +1612,27 @@ const hospitalizationHistoryRoute = createRoute({
   },
 });
 
+/** Mapa de execução [p.15]: dia, busca e o filtro de pendências na URL. */
+const executionMapRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/internacao/mapa',
+  validateSearch: z.object({
+    data: z.iso.date().optional().catch(undefined),
+    q: z.string().max(100).optional().catch(undefined),
+    pendentes: z.boolean().optional().catch(undefined),
+  }),
+  component: function ExecutionMap() {
+    const s = executionMapRoute.useSearch();
+    return (
+      <RequirePermission permission="hospitalization.view">
+        <ExecutionMapPage
+          search={{ date: s.data ?? localToday(), q: s.q ?? '', pendingOnly: s.pendentes ?? false }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const boxesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/internacao/boxes',
@@ -1621,11 +1646,17 @@ const boxesRoute = createRoute({
 const hospitalizationRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/internacao/$hospitalizationId',
+  validateSearch: z.object({ aba: z.enum(['prescricao']).optional().catch(undefined) }),
   component: function HospitalizationRecord() {
     const { hospitalizationId } = hospitalizationRoute.useParams();
+    const { aba } = hospitalizationRoute.useSearch();
     return (
       <RequirePermission permission="hospitalization.view">
-        <HospitalizationRecordPage key={hospitalizationId} id={hospitalizationId} />
+        <HospitalizationRecordPage
+          key={hospitalizationId}
+          id={hospitalizationId}
+          initialTab={aba === 'prescricao' ? 'prescription' : 'history'}
+        />
       </RequirePermission>
     );
   },
@@ -1651,6 +1682,7 @@ const routeTree = rootRoute.addChildren([
     clinicalRecordRoute,
     hospitalizedRoute,
     hospitalizationHistoryRoute,
+    executionMapRoute,
     boxesRoute,
     hospitalizationRoute,
     agendaRoute,

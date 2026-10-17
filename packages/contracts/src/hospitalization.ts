@@ -175,6 +175,9 @@ export const hospitalizationEntryKinds = [
   'discharge',
   'death',
   'cancel',
+  'prescription',
+  'prescription_stop',
+  'execution',
 ] as const;
 export type HospitalizationEntryKind = (typeof hospitalizationEntryKinds)[number];
 export const hospitalizationEntryKindLabels: Record<HospitalizationEntryKind, string> = {
@@ -188,6 +191,9 @@ export const hospitalizationEntryKindLabels: Record<HospitalizationEntryKind, st
   discharge: 'Alta',
   death: 'Óbito',
   cancel: 'Cancelamento',
+  prescription: 'Prescrição',
+  prescription_stop: 'Prescrição suspensa',
+  execution: 'Execução',
 };
 
 export const hospitalizationEntrySchema = z.object({

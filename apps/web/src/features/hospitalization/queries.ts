@@ -1,8 +1,10 @@
 import {
   boxSchema,
+  executionMapSchema,
   hospitalizationDetailSchema,
   hospitalizationListSchema,
   hospitalizationOptionsSchema,
+  prescriptionDaySchema,
   type HospitalizationStatus,
 } from '@clinica/contracts';
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
@@ -55,4 +57,30 @@ export const openHospitalizationQuery = (patientId: string) =>
     queryKey: ['hospitalizations', 'patient', patientId],
     queryFn: () =>
       api('GET', `/hospitalizations/patient/${patientId}`, z.object({ id: z.uuid() }).nullable()),
+  });
+
+/** Prescrições da internação com os horários do dia (no fuso da unidade). */
+export const prescriptionDayQuery = (id: string, date: string) =>
+  queryOptions({
+    queryKey: ['hospitalizations', 'prescriptions', id, date],
+    queryFn: () =>
+      api('GET', `/hospitalizations/${id}/prescriptions?date=${date}`, prescriptionDaySchema),
+    placeholderData: keepPreviousData,
+  });
+
+export interface ExecutionMapSearch {
+  date: string;
+  q: string;
+  pendingOnly: boolean;
+}
+
+export const executionMapQuery = (s: ExecutionMapSearch) =>
+  queryOptions({
+    queryKey: ['hospitalizations', 'execution-map', s],
+    queryFn: () => {
+      const qs = new URLSearchParams({ date: s.date, pendingOnly: String(s.pendingOnly) });
+      if (s.q) qs.set('q', s.q);
+      return api('GET', `/hospitalizations/execution-map?${qs.toString()}`, executionMapSchema);
+    },
+    placeholderData: keepPreviousData,
   });
