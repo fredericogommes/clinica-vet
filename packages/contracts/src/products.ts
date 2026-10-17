@@ -22,6 +22,7 @@ export const serviceKinds = [
   'procedure',
   'grooming',
   'hospitalization',
+  'package',
   'other',
 ] as const;
 export type ServiceKind = (typeof serviceKinds)[number];
@@ -34,6 +35,7 @@ export const serviceKindLabels: Record<ServiceKind, string> = {
   procedure: 'Procedimento',
   grooming: 'Banho e tosa',
   hospitalization: 'Internação',
+  package: 'Pacote',
   other: 'Outro',
 };
 
@@ -151,6 +153,26 @@ export const productCommissionSchema = z.object({
   percent: percentSchema(100),
 });
 
+/**
+ * Pacote [p.10]: um serviço vendido em sessões (ex.: 10 banhos), com validade opcional contada da
+ * venda. A venda baixada abre o pacote do cliente; cada sessão usada é registrada depois.
+ */
+export const packageConfigSchema = z.object({
+  serviceId: z.uuid('Escolha o serviço do pacote'),
+  sessions: z
+    .number('Informe as sessões')
+    .int('Use um número inteiro')
+    .min(2, 'Pacote tem ao menos 2 sessões')
+    .max(100, 'Máximo de 100 sessões'),
+  validityDays: z
+    .number()
+    .int('Use um número inteiro')
+    .min(1, 'Validade de ao menos 1 dia')
+    .max(1095, 'Validade de até 3 anos')
+    .nullable(),
+});
+export type PackageConfig = z.infer<typeof packageConfigSchema>;
+
 export const productInputSchema = z
   .object({
     kind: z.enum(productKinds),
@@ -191,8 +213,16 @@ export const productInputSchema = z
     tracksLots: z.boolean().default(false),
     minStock: quantitySchema.nullable(),
     idealStock: quantitySchema.nullable(),
+    package: packageConfigSchema.nullable().default(null),
   })
   .superRefine((p, ctx) => {
+    if (p.kind === 'service' && p.serviceKind === 'package' && !p.package) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['package', 'serviceId'],
+        message: 'Escolha o serviço do pacote',
+      });
+    }
     if (p.kind === 'service' && !p.serviceKind) {
       ctx.addIssue({
         code: 'custom',
@@ -258,6 +288,10 @@ export const productSchema = z.object({
   tracksLots: z.boolean(),
   minStock: z.number().nullable(),
   idealStock: z.number().nullable(),
+  /** Só nos pacotes: o serviço, quantas sessões e a validade em dias (nula sem validade). */
+  package: z
+    .object({ service: ref, sessions: z.number().int(), validityDays: z.number().int().nullable() })
+    .nullable(),
   archived: z.boolean(),
   createdAt: z.iso.datetime({ offset: true }),
 });

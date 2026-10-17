@@ -69,11 +69,13 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 
 ## Vendas (Fase 1)
 
-| Tabela           | Papel                         | Regras principais                                                                                                                                                                                       |
-| ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sales`          | Venda ou orçamento [RN-23]    | `status` (orçamento, em aberto, baixada, cancelada); unidade e centro de custo padrão; código sequencial por organização; CHECK: animal exige cliente, líquido = bruto − desconto, cancelada tem motivo |
-| `sale_items`     | Item com profissional [RN-24] | Cópia de nome, preço de tabela, preço praticado e comissão do momento da venda; desconto rateado; CHECK de valores                                                                                      |
-| `sales_settings` | Parâmetros de venda           | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
+| Tabela            | Papel                         | Regras principais                                                                                                                                                                                       |
+| ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sales`           | Venda ou orçamento [RN-23]    | `status` (orçamento, em aberto, baixada, cancelada); unidade e centro de custo padrão; código sequencial por organização; CHECK: animal exige cliente, líquido = bruto − desconto, cancelada tem motivo |
+| `sale_items`      | Item com profissional [RN-24] | Cópia de nome, preço de tabela, preço praticado e comissão do momento da venda; desconto rateado; CHECK de valores                                                                                      |
+| `client_packages` | Pacote do cliente [p.10]      | Aberto pela venda baixada, um por unidade vendida; sessões de 2 a 100, validade opcional; cancelado no estorno                                                                                          |
+| `package_usages`  | Sessão usada do pacote        | Data, animal, profissional e observação; desfeita com motivo, fica no histórico                                                                                                                         |
+| `sales_settings`  | Parâmetros de venda           | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
 
 | Tabela             | Papel                                                  | Regras principais                                                                                                                                                                                                                           |
 | ------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -142,6 +144,8 @@ A saída grava movimentos `exit` (e `exit_cancel` no cancelamento) com `exit_id`
 `sale_payments.cash_session_id` aponta o caixa que recebeu e `reversed_at` marca o pagamento devolvido no estorno (migração 0008, que também deixa a venda estornada guardar a baixa original).
 
 A migração 0024 cria a conta do cliente: o tipo `account` em `payment_methods` (sem taxa) e a forma "Conta do cliente" em cada organização, `sale_payments.settles_payment_id` para os recebimentos que abatem a conta (sem caixa no pagamento pendurado, `cash_session_id` nulo) e a origem `client_account` em `financial_entries`, a receita em aberto que o recebimento abate e cancela na quitação.
+
+A migração 0025 cria os pacotes: em `products`, `package_service_id`, `package_sessions` e `package_validity_days` (só na classificação `package`); `client_packages`, o pacote do cliente aberto pela venda baixada (venda, item, cliente, animal, serviço, sessões, `valid_until` e `cancelled_at` do estorno); e `package_usages`, cada sessão usada com data, animal, profissional e observação, desfeita com `undone_at`, `undone_by` e `undo_reason`.
 
 `sales.closed_at`/`closed_by` marcam a baixa; CHECK garante que só venda baixada os tem (migração 0007, que também cria Dinheiro e PIX nas organizações existentes).
 

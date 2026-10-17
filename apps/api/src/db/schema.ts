@@ -764,11 +764,23 @@ export const products = pgTable(
     tracksLots: boolean('tracks_lots').notNull().default(false),
     minStock: numeric('min_stock', { precision: 14, scale: 3, mode: 'number' }),
     idealStock: numeric('ideal_stock', { precision: 14, scale: 3, mode: 'number' }),
+    /** Pacote [p.10]: o serviço incluído, quantas sessões e a validade em dias (opcional). */
+    packageServiceId: uuid('package_service_id').references((): AnyPgColumn => products.id),
+    packageSessions: smallint('package_sessions'),
+    packageValidityDays: smallint('package_validity_days'),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     uniqueIndex('products_org_code_uq').on(t.organizationId, t.code),
+    check(
+      'products_package_ck',
+      sql`(${t.serviceKind} = 'package') = (${t.packageServiceId} is not null)
+        and (${t.packageServiceId} is null) = (${t.packageSessions} is null)
+        and (${t.packageSessions} is null or ${t.packageSessions} between 2 and 100)
+        and (${t.packageValidityDays} is null or (${t.packageServiceId} is not null
+          and ${t.packageValidityDays} between 1 and 1095))`,
+    ),
     uniqueIndex('products_org_barcode_uq')
       .on(t.organizationId, t.barcode)
       .where(sql`${t.barcode} is not null`),
@@ -1175,6 +1187,78 @@ export const salePayments = pgTable(
     check(
       'sale_payments_values_ck',
       sql`${t.amount} > 0 and ${t.installments} between 1 and 24 and ${t.feePercent} between 0 and 30`,
+    ),
+  ],
+);
+
+/**
+ * Pacote do cliente [p.10]: aberto pela venda baixada (um por unidade vendida do pacote), com as
+ * sessões a usar e a validade contada da venda. A venda estornada cancela o pacote sem sessão usada.
+ */
+export const clientPackages = pgTable(
+  'client_packages',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    saleItemId: uuid('sale_item_id')
+      .notNull()
+      .references(() => saleItems.id),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id),
+    patientId: uuid('patient_id').references(() => patients.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    serviceId: uuid('service_id')
+      .notNull()
+      .references(() => products.id),
+    name: text('name').notNull(),
+    sessions: smallint('sessions').notNull(),
+    validUntil: date('valid_until'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('client_packages_org_idx').on(t.organizationId, t.createdAt),
+    index('client_packages_client_idx').on(t.clientId),
+    index('client_packages_sale_idx').on(t.saleId),
+    check('client_packages_sessions_ck', sql`${t.sessions} between 2 and 100`),
+  ],
+);
+
+/** Sessão usada do pacote; desfeita com motivo, deixa de contar e fica no histórico. */
+export const packageUsages = pgTable(
+  'package_usages',
+  {
+    id: uuid('id').primaryKey(),
+    clientPackageId: uuid('client_package_id')
+      .notNull()
+      .references(() => clientPackages.id),
+    usedOn: date('used_on').notNull(),
+    patientId: uuid('patient_id').references(() => patients.id),
+    professionalId: uuid('professional_id')
+      .notNull()
+      .references(() => users.id),
+    notes: text('notes').notNull().default(''),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
+    undoneBy: uuid('undone_by').references(() => users.id),
+    undoReason: text('undo_reason'),
+  },
+  (t) => [
+    index('package_usages_package_idx').on(t.clientPackageId),
+    check(
+      'package_usages_undo_ck',
+      sql`(${t.undoneAt} is null) = (${t.undoneBy} is null) and (${t.undoneAt} is null) = (${t.undoReason} is null)`,
     ),
   ],
 );

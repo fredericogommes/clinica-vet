@@ -67,6 +67,7 @@ import type { CashService } from '../cash/service.js';
 import type { FinanceService } from '../finance/service.js';
 import type { InventoryService } from '../inventory/service.js';
 import type { PaymentMethodService } from '../payments/service.js';
+import { cancelSalePackages, openSalePackages } from './packages.js';
 
 const invalid = (path: string, message: string) =>
   new AppError('validation_failed', 'Dados da venda inválidos.', [{ path, message }]);
@@ -735,8 +736,9 @@ export class SaleService {
         firstPosition: 0,
         settlesPaymentId: null,
       });
-      // A baixa tira os itens do estoque da unidade da venda [RN-31].
+      // A baixa tira os itens do estoque da unidade da venda [RN-31] e abre os pacotes [p.10].
       await this.inventory.consume(tx, auth, current);
+      await openSalePackages(tx, current, current.soldAt ?? now);
       await tx
         .update(sales)
         .set({ status: 'closed', closedAt: now, closedBy: auth.userId, updatedAt: now })
@@ -774,6 +776,8 @@ export class SaleService {
         throw conflict('Só venda baixada é estornada; cancele a venda em aberto.');
       }
       const session = await this.cash.openSessionFor(tx, auth, 'estornar a venda');
+      const now = new Date();
+      await cancelSalePackages(tx, id, now);
       const payments = (
         await tx
           .select()
@@ -792,7 +796,6 @@ export class SaleService {
           );
         }
       }
-      const now = new Date();
       // A conta do cliente não entrou no caixa: não há o que devolver.
       for (const p of payments.filter((x) => x.kind !== ON_ACCOUNT)) {
         await tx.insert(cashMovements).values({

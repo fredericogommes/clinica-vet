@@ -18,6 +18,11 @@ import {
   clientBalancesSchema,
   clientDebtListSchema,
   clientDebtQuerySchema,
+  clientPackageDetailSchema,
+  packageListQuerySchema,
+  packageListSchema,
+  undoPackageUsageSchema,
+  usePackageSchema,
   salesPeriodSchema,
   salesSettingsSchema,
   salesSummarySchema,
@@ -29,6 +34,7 @@ import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
 import type { ClientDebtService } from './client-debts.js';
 import type { ClientRankingService } from './client-ranking.js';
+import type { PackageService } from './packages.js';
 import type { SalesReportService } from './reports.js';
 import type { SaleService } from './service.js';
 
@@ -40,7 +46,8 @@ export const saleRoutes: FastifyPluginAsyncZod<{
   reports: SalesReportService;
   ranking: ClientRankingService;
   debts: ClientDebtService;
-}> = async (app, { sales, reports, ranking, debts }) => {
+  packages: PackageService;
+}> = async (app, { sales, reports, ranking, debts, packages }) => {
   app.get(
     '/',
     {
@@ -110,6 +117,57 @@ export const saleRoutes: FastifyPluginAsyncZod<{
       schema: { response: { 200: z.array(paymentMethodSchema) } },
     },
     async (request) => sales.settleMethods(requireAuth(request)),
+  );
+
+  // Pacotes vendidos [p.10]: consulta e sessões usadas.
+  app.get(
+    '/packages',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.packages' } },
+      schema: { querystring: packageListQuerySchema, response: { 200: packageListSchema } },
+    },
+    async (request) => packages.list(requireAuth(request), request.query),
+  );
+  app.get(
+    '/packages/:id',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.packages' } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 200: clientPackageDetailSchema },
+      },
+    },
+    async (request) => packages.get(requireAuth(request), request.params.id),
+  );
+  app.post(
+    '/packages/:id/usages',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.packages' } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: usePackageSchema,
+        response: { 200: clientPackageDetailSchema },
+      },
+    },
+    async (request) => packages.use(requireAuth(request), request.params.id, request.body),
+  );
+  app.post(
+    '/packages/:id/usages/:usageId/undo',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.packages' } },
+      schema: {
+        params: z.object({ id: z.uuid(), usageId: z.uuid() }),
+        body: undoPackageUsageSchema,
+        response: { 200: clientPackageDetailSchema },
+      },
+    },
+    async (request) =>
+      packages.undo(
+        requireAuth(request),
+        request.params.id,
+        request.params.usageId,
+        request.body.reason,
+      ),
   );
 
   // Minhas vendas [p.10]: só os itens do próprio profissional.

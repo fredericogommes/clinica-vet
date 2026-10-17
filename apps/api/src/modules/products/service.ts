@@ -16,6 +16,7 @@ import { containsText } from '../../core/search.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
 import {
+  clientPackages,
   productBrands,
   productCommissions,
   productGroups,
@@ -151,7 +152,15 @@ export class ProductService {
       .innerJoin(users, eq(users.id, productCommissions.userId))
       .where(eq(productCommissions.productId, id))
       .orderBy(asc(sql`lower(${users.name})`));
-    return toProduct(row.product, row.groupName, row.brandName, commissions, canSeeCost(auth));
+    const packageService = await packageServiceOf(db, row.product);
+    return toProduct(
+      row.product,
+      row.groupName,
+      row.brandName,
+      commissions,
+      canSeeCost(auth),
+      packageService,
+    );
   }
 
   async create(auth: AuthContext, input: ProductData): Promise<Product> {
@@ -265,6 +274,39 @@ export class ProductService {
         .where(and(eq(table.id, id), eq(table.organizationId, auth.organizationId)));
       if (!row || (row.archivedAt && id !== previous)) throw invalid(path, message);
     }
+    const pkg = packageOf(input);
+    if (pkg) {
+      const [service] = await tx
+        .select({
+          id: products.id,
+          kind: products.kind,
+          serviceKind: products.serviceKind,
+          archivedAt: products.archivedAt,
+        })
+        .from(products)
+        .where(
+          and(eq(products.id, pkg.serviceId), eq(products.organizationId, auth.organizationId)),
+        );
+      if (
+        !service ||
+        service.kind !== 'service' ||
+        service.serviceKind === 'package' ||
+        service.id === current?.id ||
+        (service.archivedAt && service.id !== current?.packageServiceId)
+      ) {
+        throw invalid('package.serviceId', 'Escolha um serviço ativo, que não seja outro pacote');
+      }
+    }
+    if (current?.serviceKind === 'package' && !pkg) {
+      // Pacote já vendido continua pacote: os pacotes dos clientes apontam para ele.
+      const [sold] = await tx
+        .select({ id: clientPackages.id })
+        .from(clientPackages)
+        .where(eq(clientPackages.productId, current.id))
+        .limit(1);
+      if (sold)
+        throw invalid('serviceKind', 'Este pacote já foi vendido e não deixa de ser pacote');
+    }
     const userIds = input.commissions.map((c) => c.userId);
     if (userIds.length === 0) return;
     const found = await tx
@@ -342,6 +384,8 @@ export class ProductService {
       tracksLots: p.tracksLots,
       minStock: p.minStock,
       idealStock: p.idealStock,
+      packageSessions: p.packageSessions,
+      packageValidityDays: p.packageValidityDays,
     };
   }
 
@@ -368,7 +412,11 @@ const canSeeCost = (auth: AuthContext) => auth.permissions.has('products.view_co
  */
 function columnsOf(input: ProductData) {
   const service = input.kind === 'service';
+  const pkg = packageOf(input);
   return {
+    packageServiceId: pkg?.serviceId ?? null,
+    packageSessions: pkg?.sessions ?? null,
+    packageValidityDays: pkg?.validityDays ?? null,
     kind: input.kind,
     serviceKind: service ? input.serviceKind : null,
     name: input.name,
@@ -396,6 +444,22 @@ function columnsOf(input: ProductData) {
   };
 }
 
+/** Só o serviço classificado como pacote guarda a configuração do pacote. */
+const packageOf = (input: ProductData) =>
+  input.kind === 'service' && input.serviceKind === 'package' ? input.package : null;
+
+async function packageServiceOf(
+  db: Executor,
+  p: Row,
+): Promise<{ id: string; name: string } | null> {
+  if (!p.packageServiceId) return null;
+  const [service] = await db
+    .select({ id: products.id, name: products.name })
+    .from(products)
+    .where(eq(products.id, p.packageServiceId));
+  return service ?? null;
+}
+
 const costColumnsOf = (input: ProductData) => ({
   cost: input.cost,
   desiredMarkup: input.desiredMarkup,
@@ -407,6 +471,7 @@ function toProduct(
   brandName: string | null,
   commissions: { userId: string; userName: string; percent: number }[],
   costVisible: boolean,
+  packageService: { id: string; name: string } | null,
 ): Product {
   return {
     id: p.id,
@@ -441,6 +506,14 @@ function toProduct(
     tracksLots: p.tracksLots,
     minStock: p.minStock,
     idealStock: p.idealStock,
+    package:
+      packageService && p.packageSessions
+        ? {
+            service: packageService,
+            sessions: p.packageSessions,
+            validityDays: p.packageValidityDays,
+          }
+        : null,
     archived: p.archivedAt !== null,
     createdAt: p.createdAt.toISOString(),
   };

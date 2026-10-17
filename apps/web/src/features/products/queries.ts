@@ -53,3 +53,20 @@ export const professionalsQuery = () =>
       api('GET', '/products/professionals', z.array(z.object({ id: z.uuid(), name: z.string() }))),
     staleTime: 60_000,
   });
+
+/** Serviços ativos que podem compor um pacote (os próprios pacotes ficam de fora), pela busca. */
+export const packageServicesQuery = (q: string) =>
+  queryOptions({
+    queryKey: ['products', 'package-services', q],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ kind: 'service', q, pageSize: '50' });
+      const page = await api(
+        'GET',
+        `/products?${qs.toString()}`,
+        pageSchema(productListItemSchema),
+      );
+      return page.items.filter((p) => p.serviceKind !== 'package');
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
