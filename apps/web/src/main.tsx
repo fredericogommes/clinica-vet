@@ -7,12 +7,19 @@ import { ToastProvider } from './design-system/toast';
 import { ApiRequestError } from './lib/api';
 import './styles.css';
 
-/** Sessão expirada em qualquer chamada: limpa o cache e volta ao login. */
+/** Sessão expirada em qualquer chamada: limpa o cache e volta ao login (da equipe ou do portal). */
 function onUnauthenticated(error: unknown) {
-  if (error instanceof ApiRequestError && error.status === 401) {
-    queryClient.setQueryData(['session'], null);
-    void router.navigate({ to: '/entrar', search: { redirect: router.state.location.href } });
+  if (!(error instanceof ApiRequestError) || error.status !== 401) return;
+  const path = router.state.location.pathname;
+  if (path === '/portal' || path.startsWith('/portal/')) {
+    // Na entrada e no link de acesso o 401 é a própria resposta do formulário.
+    if (path === '/portal/entrar' || path.startsWith('/portal/acesso/')) return;
+    queryClient.setQueryData(['portal', 'session'], null);
+    void router.navigate({ to: '/portal/entrar' });
+    return;
   }
+  queryClient.setQueryData(['session'], null);
+  void router.navigate({ to: '/entrar', search: { redirect: router.state.location.href } });
 }
 
 const queryClient = new QueryClient({

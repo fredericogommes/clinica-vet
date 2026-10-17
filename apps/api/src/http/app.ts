@@ -57,6 +57,9 @@ import { AppointmentService } from '../modules/scheduling/appointment-service.js
 import { ScheduleConfigService } from '../modules/scheduling/config-service.js';
 import { appointmentRoutes, scheduleRoutes } from '../modules/scheduling/routes.js';
 import { authRoutes } from '../modules/auth/routes.js';
+import { portalAdminRoutes, portalRoutes } from '../modules/portal/routes.js';
+import { PortalAdminService, PortalService } from '../modules/portal/service.js';
+import { PortalSessionService } from '../modules/portal/sessions.js';
 import { SessionService } from '../modules/auth/sessions.js';
 import { accessGuard } from './access-guard.js';
 import { registerErrorHandling } from './error-handler.js';
@@ -91,7 +94,9 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   }
 
   const sessions = new SessionService(db, config.SESSION_TTL_HOURS * 3_600_000);
-  await app.register(accessGuard, { sessions });
+  // Sessão do tutor: 30 dias deslizantes, separada da equipe.
+  const portalSessions = new PortalSessionService(db, 30 * 24 * 3_600_000);
+  await app.register(accessGuard, { sessions, portalSessions });
 
   app.get('/api/health', { config: { access: { kind: 'public' } } }, async () => ({
     status: 'ok',
@@ -105,6 +110,16 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     prefix: '/api/auth',
     sessions,
     secureCookies: config.NODE_ENV === 'production',
+  });
+  await app.register(portalRoutes, {
+    prefix: '/api/portal',
+    portal: new PortalService(db, portalSessions),
+    sessions: portalSessions,
+    secureCookies: config.NODE_ENV === 'production',
+  });
+  await app.register(portalAdminRoutes, {
+    prefix: '/api/portal-admin',
+    admin: new PortalAdminService(db, config.WEB_ORIGIN),
   });
   await app.register(adminRoutes, { prefix: '/api/admin', admin: new AdminService(db) });
   await app.register(catalogRoutes, { prefix: '/api/catalogs', catalogs: new CatalogService(db) });

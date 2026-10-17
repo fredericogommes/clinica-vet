@@ -40,6 +40,7 @@
 - Análise de estoque: cada produto em Repor, Em excesso, Parado, Novos ou Adequado, com contagem e valor por situação, consumo médio, duração e excedente; a ficha do produto mostra os mesmos indicadores.
 - Pedido de compra por fornecedor, com sugestão do que repor, texto pronto para copiar, mandar no WhatsApp ou por e-mail, e recebimento que vira rascunho de compra.
 - Comissionamento: comissões em aberto por profissional, extratos que fecham em contas a pagar, com revisão, pagamento e arquivo, ajustes quando a venda muda, Minhas comissões para a equipe e configuração de base, critério, integração e quem recebe.
+- Portal do tutor: convite e recuperação de senha por link na ficha do cliente (para copiar ou mandar no WhatsApp), login próprio do tutor, animais com próximos agendamentos, peso, vacinas, exames e receitas conforme a clínica escolhe, bloqueio de acesso e lista de clientes com acesso.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

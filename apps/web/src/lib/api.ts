@@ -14,21 +14,32 @@ export class ApiRequestError extends Error {
 }
 
 let csrfToken: string | undefined;
+let portalCsrfToken: string | undefined;
 
 /** Definido pela sessão carregada; enviado em toda requisição que altera dados. */
 export function setCsrfToken(token: string | undefined): void {
   csrfToken = token;
 }
 
+/** Token da sessão do portal do tutor, guardado à parte do token da equipe. */
+export function setPortalCsrfToken(token: string | undefined): void {
+  portalCsrfToken = token;
+}
+
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
-async function request(method: Method, path: string, body?: unknown): Promise<Response> {
+async function request(
+  method: Method,
+  path: string,
+  body?: unknown,
+  token = csrfToken,
+): Promise<Response> {
   const headers: Record<string, string> = {};
   // Arquivos vão crus, com o tipo do próprio arquivo; o resto vai como JSON.
   const file = body instanceof Blob ? body : null;
   if (file) headers['content-type'] = file.type;
   else if (body !== undefined) headers['content-type'] = 'application/json';
-  if (method !== 'GET' && csrfToken) headers['x-csrf-token'] = csrfToken;
+  if (method !== 'GET' && token) headers['x-csrf-token'] = token;
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
@@ -68,6 +79,21 @@ export async function api<T extends z.ZodType>(
 
 export async function apiVoid(method: Method, path: string, body?: unknown): Promise<void> {
   await request(method, path, body);
+}
+
+/** Requisição do portal do tutor: caminho relativo a /api/portal e CSRF da sessão do portal. */
+export async function portalApi<T extends z.ZodType>(
+  method: Method,
+  path: string,
+  schema: T,
+  body?: unknown,
+): Promise<z.infer<T>> {
+  const response = await request(method, `/portal${path}`, body, portalCsrfToken);
+  return schema.parse(await response.json());
+}
+
+export async function portalApiVoid(method: Method, path: string, body?: unknown): Promise<void> {
+  await request(method, `/portal${path}`, body, portalCsrfToken);
 }
 
 export function errorMessage(error: unknown): string {

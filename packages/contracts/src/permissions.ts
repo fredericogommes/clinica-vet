@@ -197,6 +197,14 @@ export const permissionCatalog = {
     group: 'Comissionamento',
     label: 'Ver as próprias comissões (quando a clínica mostra à equipe)',
   },
+  'portal.manage': {
+    group: 'Portal do tutor',
+    label: 'Convidar clientes para o portal, recuperar a senha e bloquear o acesso',
+  },
+  'portal.configure': {
+    group: 'Portal do tutor',
+    label: 'Ligar o portal, escolher o que o tutor vê e consultar os acessos',
+  },
 } as const satisfies Record<string, { group: string; label: string }>;
 
 export type Permission = keyof typeof permissionCatalog;

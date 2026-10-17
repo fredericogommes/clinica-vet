@@ -29,6 +29,7 @@ import { useToast } from '../../design-system/toast';
 import { api, errorMessage } from '../../lib/api';
 import { formatDateTime, formatDay } from '../../lib/format';
 import { useCan } from '../../lib/session';
+import { ClientPortalSection } from '../portal/staff-pages';
 import { DeleteRecordButton } from '../shared/delete-record';
 import { ConsentsDialog, currentConsents } from './consents-dialog';
 import { formatDate, formatDocument, formatPhone, whatsappUrl } from './format';
@@ -283,6 +284,10 @@ export function ClientPage({ clientId }: { clientId: string }) {
               </ul>
             )}
           </Section>
+
+          {can('portal.manage') ? (
+            <ClientPortalSection clientId={clientId} clientName={c.name} archived={c.archived} />
+          ) : null}
 
           <Section title="Endereço">
             {address.length === 0 ? (
