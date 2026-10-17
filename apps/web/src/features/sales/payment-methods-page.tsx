@@ -4,6 +4,7 @@ import {
   paymentKinds,
   paymentMethodInputSchema,
   paymentMethodSchema,
+  type FinancialAccount,
   type PaymentKind,
   type PaymentMethod,
 } from '@clinica/contracts';
@@ -19,6 +20,8 @@ import { Badge, PageHeader, Section } from '../../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states';
 import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
+import { useCan } from '../../lib/session';
+import { accountsQuery } from '../finance/queries';
 import { formatPercent, parseDecimal, percentInput } from '../products/format';
 
 export const paymentMethodsQuery = queryOptions({
@@ -32,6 +35,9 @@ const settlementLabel = (days: number) =>
 /** Formas de recebimento por adquirente e bandeira [p.9, RN-27]. */
 export function PaymentMethodsPage() {
   const methods = useQuery(paymentMethodsQuery);
+  const can = useCan();
+  // A conta de destino é do financeiro: só aparece para quem o enxerga.
+  const accounts = useQuery({ ...accountsQuery, enabled: can('finance.view') });
   const [editing, setEditing] = useState<PaymentMethod | null | undefined>(undefined);
   return (
     <>
@@ -80,6 +86,9 @@ export function PaymentMethodsPage() {
                       settlementLabel(m.settlementDays),
                       m.maxInstallments > 1 ? `até ${String(m.maxInstallments)}×` : null,
                       m.feePercent > 0 ? `taxa ${formatPercent(m.feePercent)}` : null,
+                      m.accountId
+                        ? `cai em ${accounts.data?.find((a) => a.id === m.accountId)?.name ?? '…'}`
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -104,6 +113,7 @@ export function PaymentMethodsPage() {
       {editing !== undefined ? (
         <MethodDialog
           method={editing}
+          accounts={accounts.data ?? null}
           onClose={() => {
             setEditing(undefined);
           }}
@@ -113,7 +123,16 @@ export function PaymentMethodsPage() {
   );
 }
 
-function MethodDialog({ method, onClose }: { method: PaymentMethod | null; onClose: () => void }) {
+function MethodDialog({
+  method,
+  accounts,
+  onClose,
+}: {
+  method: PaymentMethod | null;
+  /** Contas financeiras; nulo para quem não vê o financeiro (a conta atual é mantida). */
+  accounts: FinancialAccount[] | null;
+  onClose: () => void;
+}) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [name, setName] = useState(method?.name ?? '');
@@ -122,6 +141,7 @@ function MethodDialog({ method, onClose }: { method: PaymentMethod | null; onClo
   const [brand, setBrand] = useState(method?.brand ?? '');
   const [settlementDays, setSettlementDays] = useState(String(method?.settlementDays ?? 30));
   const [maxInstallments, setMaxInstallments] = useState(method?.maxInstallments ?? 1);
+  const [accountId, setAccountId] = useState(method?.accountId ?? '');
   const [fee, setFee] = useState(percentInput(method?.feePercent ?? 0));
   const [archived, setArchived] = useState(method?.archived ?? false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -155,6 +175,7 @@ function MethodDialog({ method, onClose }: { method: PaymentMethod | null; onClo
       settlementDays: days,
       maxInstallments: installable ? maxInstallments : 1,
       feePercent: parseDecimal(fee) ?? 0,
+      accountId: accountId || null,
       archived,
     });
     if (!parsed.success) {
@@ -292,6 +313,22 @@ function MethodDialog({ method, onClose }: { method: PaymentMethod | null; onClo
             }}
           />
         </div>
+        {accounts ? (
+          <SelectField
+            label="Conta de destino"
+            value={accountId}
+            placeholder={kind === 'cash' ? 'Padrão: conta de dinheiro' : 'Padrão: conta bancária'}
+            options={accounts
+              .filter((a) => !a.archived || a.id === method?.accountId)
+              .map((a) => ({ value: a.id, label: a.name }))}
+            error={errors.accountId}
+            hint="Onde o dinheiro cai no financeiro e onde a conciliação de cartões confere o depósito."
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              clear('accountId');
+            }}
+          />
+        ) : null}
         {method ? (
           <Checkbox
             label="Arquivada"

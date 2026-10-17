@@ -1,5 +1,8 @@
 import {
   cancelEntrySchema,
+  cardDepositListSchema,
+  cardDepositQuerySchema,
+  reconcileInputSchema,
   entryInputSchema,
   entryListSchema,
   entryQuerySchema,
@@ -18,6 +21,7 @@ import {
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { CardReconciliationService } from './reconciliation.js';
 import type { FinanceService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
@@ -26,10 +30,38 @@ const manage = { access: { kind: 'permission', permission: 'finance.manage' } } 
 const configure = { access: { kind: 'permission', permission: 'finance.configure' } } as const;
 
 /** Financeiro [p.18–19, RN-35]: lançamentos, contas, plano de contas e fornecedores. */
-export const financeRoutes: FastifyPluginAsyncZod<{ finance: FinanceService }> = async (
-  app,
-  { finance },
-) => {
+export const financeRoutes: FastifyPluginAsyncZod<{
+  finance: FinanceService;
+  reconciliation: CardReconciliationService;
+}> = async (app, { finance, reconciliation }) => {
+  app.get(
+    '/card-deposits',
+    {
+      config: view,
+      schema: { querystring: cardDepositQuerySchema, response: { 200: cardDepositListSchema } },
+    },
+    async (request) => reconciliation.list(requireAuth(request), request.query),
+  );
+
+  app.post(
+    '/card-deposits/reconcile',
+    {
+      config: manage,
+      schema: { body: reconcileInputSchema, response: { 201: z.object({ id: z.uuid() }) } },
+    },
+    async (request, reply) =>
+      reply.status(201).send(await reconciliation.reconcile(requireAuth(request), request.body)),
+  );
+
+  app.post(
+    '/card-deposits/:id/undo',
+    { config: manage, schema: { params: idParams, response: { 204: z.null() } } },
+    async (request, reply) => {
+      await reconciliation.undo(requireAuth(request), request.params.id);
+      return reply.status(204).send(null);
+    },
+  );
+
   app.get(
     '/options',
     { config: view, schema: { response: { 200: financeOptionsSchema } } },

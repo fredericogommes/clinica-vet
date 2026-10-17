@@ -133,7 +133,7 @@ export const entryStatusLabels: Record<EntryStatus, string> = {
   paid: 'Pago',
   cancelled: 'Cancelado',
 };
-export const entryOrigins = ['manual', 'sale', 'card_fee', 'transfer'] as const;
+export const entryOrigins = ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer'] as const;
 export type EntryOrigin = (typeof entryOrigins)[number];
 
 export const ENTRY_MAX_REPEAT = 60;
@@ -291,3 +291,77 @@ export const financeOptionsSchema = z.object({
   today: z.string(),
 });
 export type FinanceOptions = z.infer<typeof financeOptionsSchema>;
+
+// Conciliação de cartões ---------------------------------------------------------------------------
+
+/**
+ * Depósito esperado de uma adquirente [p.18, RN-37]: as parcelas de uma forma de recebimento que
+ * vencem no mesmo dia na mesma conta. Conciliar confirma o que caiu e lança a diferença.
+ */
+export const cardDepositStatuses = ['expected', 'unreconciled', 'reconciled'] as const;
+export type CardDepositStatus = (typeof cardDepositStatuses)[number];
+export const cardDepositStatusLabels: Record<CardDepositStatus, string> = {
+  expected: 'Previsto',
+  unreconciled: 'Não conciliado',
+  reconciled: 'Conciliado',
+};
+
+export const cardDepositSchema = z.object({
+  /** Forma, data prevista e conta: identifica o depósito ainda não conciliado. */
+  key: z.string(),
+  paymentMethod: ref,
+  account: ref,
+  expectedDate: z.string(),
+  status: z.enum(cardDepositStatuses),
+  /** Parcelas de venda no depósito. */
+  count: z.number().int(),
+  gross: z.number(),
+  fee: z.number(),
+  expectedNet: z.number(),
+  settlement: z
+    .object({
+      id: z.string(),
+      depositDate: z.string(),
+      receivedNet: z.number(),
+      /** Recebido menos o líquido previsto: negativo é dinheiro a menos. */
+      difference: z.number(),
+      by: z.string(),
+      at: z.string(),
+    })
+    .nullable(),
+});
+export type CardDeposit = z.infer<typeof cardDepositSchema>;
+
+export const cardDepositQuerySchema = z.object({
+  situacao: z
+    .enum(['nao-conciliados', 'previstos', 'conciliados', 'todos'])
+    .default('nao-conciliados'),
+  forma: z.uuid().optional(),
+  de: isoDate.optional(),
+  ate: isoDate.optional(),
+});
+export type CardDepositQuery = z.infer<typeof cardDepositQuerySchema>;
+
+const countAmount = z.object({ count: z.number().int(), amount: z.number() });
+export const cardDepositListSchema = z.object({
+  items: z.array(cardDepositSchema),
+  /** Contadores do topo, com os filtros de forma e período. */
+  counts: z.object({
+    unreconciled: countAmount,
+    expected: countAmount,
+    reconciled: countAmount,
+    difference: z.number(),
+  }),
+  today: z.string(),
+});
+export type CardDepositList = z.infer<typeof cardDepositListSchema>;
+
+export const reconcileInputSchema = z.object({
+  paymentMethodId: z.uuid(),
+  accountId: z.uuid(),
+  expectedDate: isoDate,
+  depositDate: isoDate,
+  /** Valor que caiu na conta. */
+  receivedNet: positiveMoney,
+});
+export type ReconcileInput = z.input<typeof reconcileInputSchema>;

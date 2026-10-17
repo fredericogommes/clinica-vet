@@ -2,11 +2,13 @@ import {
   categoryKindLabels,
   entryStatusLabels,
   financialAccountKindLabels,
+  acquirerKinds,
   fromCents,
   splitInstallments,
   toCents,
   type CancelEntryInput,
   type Entry,
+  type PaymentKind,
   type EntryInput,
   type EntryList,
   type EntryQuery,
@@ -28,6 +30,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -253,7 +256,7 @@ export class FinanceService {
     }
   }
 
-  private async today(db: Executor, auth: AuthContext): Promise<string> {
+  async today(db: Executor, auth: AuthContext): Promise<string> {
     return instantToZoned(new Date(), await unitTimeZone(db, auth.unitId)).date;
   }
 
@@ -982,6 +985,9 @@ export class FinanceService {
         throw conflict('Transferência não se reabre: cancele e lance de novo.');
       }
       if (current.status !== 'paid') throw conflict('Só lançamento pago pode ser reaberto.');
+      if (current.cardSettlementId) {
+        throw conflict('Lançamento conciliado: desfaça a conciliação do depósito.');
+      }
       await tx
         .update(financialEntries)
         .set({
@@ -1011,6 +1017,9 @@ export class FinanceService {
   async cancel(auth: AuthContext, id: string, input: CancelEntryInput): Promise<Entry> {
     return this.db.transaction(async (tx) => {
       const current = await this.lock(tx, auth, id);
+      if (current.origin === 'card_adjustment') {
+        throw conflict('Ajuste de conciliação: desfaça a conciliação do depósito para cancelar.');
+      }
       if (current.origin === 'sale' || current.origin === 'card_fee') {
         throw conflict('Lançamento de venda acompanha a venda: estorne a venda para cancelar.');
       }
@@ -1131,7 +1140,12 @@ export class FinanceService {
     tx: Executor,
     auth: AuthContext,
     sale: SaleRow,
-    payment: { kind: string; methodName: string; installments: number },
+    payment: {
+      kind: string;
+      methodName: string;
+      installments: number;
+      accountId: string | null;
+    },
     receivables: {
       id: string;
       number: number;
@@ -1154,6 +1168,7 @@ export class FinanceService {
       );
     const wanted = payment.kind === 'cash' ? 'cash' : 'bank';
     const account =
+      accounts.find((a) => a.id === payment.accountId && a.archivedAt === null) ??
       accounts.find((a) => a.kind === wanted && a.archivedAt === null) ??
       accounts.find((a) => a.archivedAt === null) ??
       accounts[0];
@@ -1180,7 +1195,8 @@ export class FinanceService {
     const many = payment.installments > 1;
     const rows: (typeof financialEntries.$inferInsert)[] = [];
     for (const r of receivables) {
-      const paid = r.dueDate <= today;
+      // Cartão e convênio só ficam pagos na conciliação, quando o depósito cai [RN-37].
+      const paid = !acquirerKinds.includes(payment.kind as PaymentKind) && r.dueDate <= today;
       const common = {
         organizationId: auth.organizationId,
         unitId: sale.unitId,
@@ -1230,6 +1246,16 @@ export class FinanceService {
 
   /** Estorno da venda cancela as receitas e taxas que ela lançou, guardando o motivo. */
   async cancelSaleEntries(tx: Executor, saleId: string, code: number, reason: string) {
+    const [reconciled] = await tx
+      .select({ id: financialEntries.id })
+      .from(financialEntries)
+      .where(and(eq(financialEntries.saleId, saleId), isNotNull(financialEntries.cardSettlementId)))
+      .limit(1);
+    if (reconciled) {
+      throw conflict(
+        'O cartão desta venda já foi conciliado: desfaça a conciliação do depósito antes de estornar.',
+      );
+    }
     await tx
       .update(financialEntries)
       .set({

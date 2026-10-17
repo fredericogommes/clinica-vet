@@ -1090,6 +1090,8 @@ export const paymentMethods = pgTable(
     feePercent: numeric('fee_percent', { precision: 5, scale: 2, mode: 'number' })
       .notNull()
       .default(0),
+    /** Conta financeira onde o dinheiro cai [RN-37]; nula usa a conta padrão do tipo. */
+    accountId: uuid('account_id').references((): AnyPgColumn => financialAccounts.id),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     ...timestamps,
   },
@@ -1657,7 +1659,9 @@ export const financialEntries = pgTable(
       .references(() => units.id),
     kind: text('kind', { enum: ['income', 'expense', 'transfer'] }).notNull(),
     direction: text('direction', { enum: ['in', 'out'] }).notNull(),
-    origin: text('origin', { enum: ['manual', 'sale', 'card_fee', 'transfer'] }).notNull(),
+    origin: text('origin', {
+      enum: ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer'],
+    }).notNull(),
     status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
     description: text('description').notNull(),
     document: text('document').notNull().default(''),
@@ -1671,6 +1675,7 @@ export const financialEntries = pgTable(
     saleId: uuid('sale_id').references(() => sales.id),
     saleReceivableId: uuid('sale_receivable_id').references(() => saleReceivables.id),
     transferId: uuid('transfer_id'),
+    cardSettlementId: uuid('card_settlement_id').references((): AnyPgColumn => cardSettlements.id),
     groupId: uuid('group_id'),
     installmentNumber: smallint('installment_number'),
     installmentTotal: smallint('installment_total'),
@@ -1699,6 +1704,7 @@ export const financialEntries = pgTable(
     index('financial_entries_sale_idx').on(t.saleId),
     index('financial_entries_group_idx').on(t.groupId),
     index('financial_entries_transfer_idx').on(t.transferId),
+    index('financial_entries_settlement_idx').on(t.cardSettlementId),
     uniqueIndex('financial_entries_receivable_uq')
       .on(t.saleReceivableId, t.origin)
       .where(sql`${t.saleReceivableId} is not null`),
@@ -1722,6 +1728,48 @@ export const financialEntries = pgTable(
       'financial_entries_installment_ck',
       sql`(${t.installmentNumber} is null) = (${t.installmentTotal} is null)
         and (${t.installmentNumber} is null or ${t.installmentNumber} between 1 and ${t.installmentTotal})`,
+    ),
+  ],
+);
+
+/**
+ * Depósito de adquirente conciliado [p.18, RN-37]: as parcelas de cartão de uma forma, previstas
+ * para o mesmo dia na mesma conta, confirmadas com a data e o valor que caíram. A diferença para
+ * o líquido previsto vira um lançamento de ajuste.
+ */
+export const cardSettlements = pgTable(
+  'card_settlements',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    paymentMethodId: uuid('payment_method_id')
+      .notNull()
+      .references(() => paymentMethods.id),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => financialAccounts.id),
+    expectedDate: date('expected_date').notNull(),
+    depositDate: date('deposit_date').notNull(),
+    gross: money('gross').notNull(),
+    fee: money('fee').notNull(),
+    expectedNet: money('expected_net').notNull(),
+    receivedNet: money('received_net').notNull(),
+    adjustmentEntryId: uuid('adjustment_entry_id').references(
+      (): AnyPgColumn => financialEntries.id,
+    ),
+    reconciledBy: uuid('reconciled_by')
+      .notNull()
+      .references(() => users.id),
+    reconciledAt: timestamp('reconciled_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index('card_settlements_org_date_idx').on(t.organizationId, t.expectedDate),
+    check(
+      'card_settlements_values_ck',
+      sql`${t.gross} > 0 and ${t.fee} >= 0 and ${t.expectedNet} = ${t.gross} - ${t.fee}
+        and ${t.receivedNet} > 0`,
     ),
   ],
 );

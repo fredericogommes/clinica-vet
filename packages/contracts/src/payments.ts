@@ -16,6 +16,9 @@ export const paymentKindLabels: Record<PaymentKind, string> = {
   other: 'Outra',
 };
 
+/** Cartão e convênio: caem pela adquirente e passam pela conciliação de cartões. */
+export const acquirerKinds: readonly PaymentKind[] = ['debit', 'credit', 'voucher'];
+
 /** Só cartão de crédito e convênio parcelam. */
 export const installableKinds: readonly PaymentKind[] = ['credit', 'voucher'];
 
@@ -46,6 +49,8 @@ export const paymentMethodInputSchema = z
       .max(MAX_INSTALLMENTS, `Máximo de ${String(MAX_INSTALLMENTS)} parcelas`),
     /** Taxa da adquirente sobre o valor recebido; alimenta a conciliação de cartões. */
     feePercent,
+    /** Conta financeira onde o dinheiro cai; vazia, vale a conta padrão do tipo. */
+    accountId: z.uuid({ message: 'Escolha a conta' }).nullable().default(null),
     archived: z.boolean().default(false),
   })
   .superRefine((m, ctx) => {
@@ -69,6 +74,7 @@ export const paymentMethodSchema = z.object({
   settlementDays: z.number().int(),
   maxInstallments: z.number().int(),
   feePercent: z.number(),
+  accountId: z.uuid().nullable(),
   archived: z.boolean(),
 });
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;

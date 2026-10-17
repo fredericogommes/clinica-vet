@@ -2,11 +2,11 @@ import { paymentKindLabels, type PaymentMethod, type PaymentMethodData } from '@
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
-import { conflict, notFound } from '../../core/errors.js';
+import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { Database, Executor } from '../../db/client.js';
 import { isUniqueViolation } from '../../db/errors.js';
-import { paymentMethods } from '../../db/schema.js';
+import { financialAccounts, paymentMethods } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 
 type Row = typeof paymentMethods.$inferSelect;
@@ -20,6 +20,7 @@ const toMethod = (r: Row): PaymentMethod => ({
   settlementDays: r.settlementDays,
   maxInstallments: r.maxInstallments,
   feePercent: r.feePercent,
+  accountId: r.accountId,
   archived: r.archivedAt !== null,
 });
 
@@ -31,6 +32,7 @@ const snapshot = (m: PaymentMethod) => ({
   settlementDays: m.settlementDays,
   maxInstallments: m.maxInstallments,
   feePercent: m.feePercent,
+  accountId: m.accountId,
   archived: m.archived,
 });
 
@@ -55,6 +57,7 @@ export class PaymentMethodService {
 
   async create(auth: AuthContext, input: PaymentMethodData): Promise<PaymentMethod> {
     return this.write(async (tx) => {
+      await this.checkAccount(tx, auth, input.accountId, null);
       const row: Row = {
         id: newId(),
         organizationId: auth.organizationId,
@@ -84,6 +87,7 @@ export class PaymentMethodService {
         )
         .for('update');
       if (!current) throw notFound('Forma de recebimento');
+      await this.checkAccount(tx, auth, input.accountId, current.accountId);
       const next = fields(input);
       // Arquivar de novo não muda a data original do arquivamento.
       const archivedAt = input.archived ? (current.archivedAt ?? new Date()) : null;
@@ -103,6 +107,30 @@ export class PaymentMethodService {
       });
       return method;
     });
+  }
+
+  /** Conta de destino da organização; a atual continua valendo mesmo se arquivada depois. */
+  private async checkAccount(
+    tx: Executor,
+    auth: AuthContext,
+    accountId: string | null,
+    current: string | null,
+  ) {
+    if (!accountId) return;
+    const [account] = await tx
+      .select()
+      .from(financialAccounts)
+      .where(
+        and(
+          eq(financialAccounts.id, accountId),
+          eq(financialAccounts.organizationId, auth.organizationId),
+        ),
+      );
+    if (!account || (account.archivedAt && account.id !== current)) {
+      throw new AppError('validation_failed', 'Dados da forma de recebimento inválidos.', [
+        { path: 'accountId', message: 'Conta indisponível' },
+      ]);
+    }
   }
 
   private async write<T>(work: (tx: Executor) => Promise<T>): Promise<T> {
@@ -126,6 +154,7 @@ function fields(input: PaymentMethodData) {
     settlementDays: input.settlementDays,
     maxInstallments: input.maxInstallments,
     feePercent: input.feePercent,
+    accountId: input.accountId,
     archivedAt: input.archived ? new Date() : null,
   };
 }
