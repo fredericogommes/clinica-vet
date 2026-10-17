@@ -163,12 +163,12 @@ export function Segmented<T extends string>({
   return (
     <fieldset className="space-y-1.5">
       <legend className="text-[13px] font-medium text-ink">{label}</legend>
-      <div className="inline-flex rounded-control border border-line-strong bg-sunken p-0.5">
+      <div className="inline-flex flex-wrap rounded-control border border-line-strong bg-sunken p-0.5">
         {options.map((o) => (
           <label
             key={o.value}
             className={clsx(
-              'cursor-pointer rounded-[6px] px-3 py-1.5 text-sm transition-colors has-focus-visible:ring-2 has-focus-visible:ring-sage-500/40',
+              'cursor-pointer rounded-[6px] px-3 py-1.5 text-sm whitespace-nowrap transition-colors has-focus-visible:ring-2 has-focus-visible:ring-sage-500/40',
               value === o.value ? 'bg-surface font-medium text-ink shadow-panel' : 'text-ink-muted',
             )}
           >

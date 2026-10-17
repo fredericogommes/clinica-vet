@@ -31,6 +31,9 @@ import { paymentMethodRoutes } from '../modules/payments/routes.js';
 import { PaymentMethodService } from '../modules/payments/service.js';
 import { examRoutes } from '../modules/exams/routes.js';
 import { ExamService } from '../modules/exams/service.js';
+import { messagingRoutes } from '../modules/messaging/routes.js';
+import { CloudApiSender } from '../modules/messaging/sender.js';
+import { MessagingService } from '../modules/messaging/service.js';
 import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
 import { DashboardService } from '../modules/dashboard/service.js';
@@ -131,6 +134,18 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     methods: paymentMethods,
   });
   await app.register(cashRoutes, { prefix: '/api/cash', cash });
+  await app.register(messagingRoutes, {
+    prefix: '/api/messages',
+    messaging: new MessagingService(db, whatsappSender(config)),
+  });
 
   return app;
 }
+
+export const whatsappSender = (config: Config): CloudApiSender =>
+  new CloudApiSender({
+    token: config.WHATSAPP_TOKEN,
+    phoneNumberId: config.WHATSAPP_PHONE_NUMBER_ID,
+    apiUrl: config.WHATSAPP_API_URL,
+    language: config.WHATSAPP_TEMPLATE_LANGUAGE,
+  });

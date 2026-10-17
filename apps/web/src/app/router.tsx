@@ -1,4 +1,10 @@
-import { productKinds, saleStatuses, vaccineKinds, type Permission } from '@clinica/contracts';
+import {
+  messageTriggers,
+  productKinds,
+  saleStatuses,
+  vaccineKinds,
+  type Permission,
+} from '@clinica/contracts';
 import { defaultPeriod, reportTabs } from '../features/sales/report-search';
 import type { QueryClient } from '@tanstack/react-query';
 import {
@@ -118,6 +124,14 @@ const ClinicalTemplatesPage = lazy(() =>
 );
 const VaccinesPage = lazy(() =>
   import('../features/catalogs/vaccines-page').then((m) => ({ default: m.VaccinesPage })),
+);
+const MessagesPage = lazy(() =>
+  import('../features/messaging/queue-page').then((m) => ({ default: m.MessagesPage })),
+);
+const AutomaticMessagesPage = lazy(() =>
+  import('../features/messaging/settings-page').then((m) => ({
+    default: m.AutomaticMessagesPage,
+  })),
 );
 const VaccinationPage = lazy(() =>
   import('../features/clinical/vaccination-page').then((m) => ({
@@ -521,6 +535,37 @@ const vaccinationRoute = createRoute({
   },
 });
 
+/** Situação e tipo na URL, como nas demais consultas. */
+const messagesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/mensagens',
+  validateSearch: z.object({
+    situacao: z.enum(['enviadas', 'nao-enviadas', 'todas']).optional().catch(undefined),
+    tipo: z.enum(messageTriggers).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function Messages() {
+    const s = messagesRoute.useSearch();
+    return (
+      <RequirePermission permission="messages.view">
+        <MessagesPage
+          search={{ situacao: s.situacao ?? 'aguardando', tipo: s.tipo, page: s.page ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const automaticMessagesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/mensagens/automaticas',
+  component: () => (
+    <RequirePermission permission="messages.configure">
+      <AutomaticMessagesPage />
+    </RequirePermission>
+  ),
+});
+
 const examsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/cadastros/exames',
@@ -861,6 +906,8 @@ const routeTree = rootRoute.addChildren([
     examsRoute,
     vaccinesRoute,
     vaccinationRoute,
+    messagesRoute,
+    automaticMessagesRoute,
     examNewRoute,
     examEditRoute,
     clinicalTemplatesRoute,

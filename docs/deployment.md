@@ -17,6 +17,17 @@ Alvo recomendado: um servidor Linux com Docker. A pilha tem três contêineres: 
      api node dist/scripts/seed.js
    ```
 
+## WhatsApp (mensagens automáticas)
+
+A API gera os lembretes a cada `MESSAGES_INTERVAL_MINUTES` minutos (padrão 5). Sem credenciais, eles ficam em Mensagens › Fila de mensagens para a recepção enviar pelo WhatsApp da clínica. Para o envio automático:
+
+1. Crie a conta do WhatsApp Business Platform (Cloud API) da clínica na Meta e um número remetente.
+2. Cadastre e aprove na Meta um modelo por mensagem, em português (`pt_BR`), com o mesmo texto da tela Mensagens automáticas; cada variável do texto vira `{{1}}`, `{{2}}`... na ordem em que aparece.
+3. Defina `WHATSAPP_TOKEN` (token permanente de usuário do sistema) e `WHATSAPP_PHONE_NUMBER_ID` no `.env` e reinicie a API.
+4. Em Mensagens automáticas, informe o nome de cada modelo aprovado. Mensagem sem modelo continua indo pela fila.
+
+O envio automático só acontece das 8h às 20h no fuso da clínica, com até 3 tentativas por mensagem. O token nunca é exibido nem gravado no banco.
+
 ## Atualização
 
 `git pull && docker compose up -d --build`. As migrações rodam na subida da API.

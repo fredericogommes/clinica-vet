@@ -25,6 +25,9 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:?defina WEB_ORIGIN no .env}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      MESSAGES_INTERVAL_MINUTES: ${MESSAGES_INTERVAL_MINUTES:-5}
 
   web:
     build: { context: ., dockerfile: deploy/web.Dockerfile }

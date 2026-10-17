@@ -1,6 +1,7 @@
 import type { Permission } from '@clinica/contracts';
 import {
   Activity,
+  BellRing,
   BarChart3,
   CalendarClock,
   CalendarDays,
@@ -12,6 +13,7 @@ import {
   FolderTree,
   House,
   Package,
+  MessageCircle,
   Palette,
   PawPrint,
   Receipt,
@@ -144,6 +146,23 @@ export const navigation: NavSection[] = [
         to: '/consultas/vacinacao',
         icon: Syringe,
         permission: 'reports.vaccination',
+      },
+    ],
+  },
+  {
+    label: 'Mensagens',
+    items: [
+      {
+        label: 'Fila de mensagens',
+        to: '/mensagens',
+        icon: MessageCircle,
+        permission: 'messages.view',
+      },
+      {
+        label: 'Mensagens automáticas',
+        to: '/mensagens/automaticas',
+        icon: BellRing,
+        permission: 'messages.configure',
       },
     ],
   },

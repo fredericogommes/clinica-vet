@@ -139,6 +139,14 @@ export const permissionCatalog = {
     group: 'Consultas',
     label: 'Vacinação: animais com dose vencida ou a vencer e contato do responsável',
   },
+  'messages.view': {
+    group: 'Mensagens',
+    label: 'Ver a fila e o histórico de mensagens e enviar pelo WhatsApp da clínica',
+  },
+  'messages.configure': {
+    group: 'Mensagens',
+    label: 'Ligar, desligar e editar as mensagens automáticas',
+  },
 } as const satisfies Record<string, { group: string; label: string }>;
 
 export type Permission = keyof typeof permissionCatalog;
