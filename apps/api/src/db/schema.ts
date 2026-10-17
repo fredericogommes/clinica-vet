@@ -1246,3 +1246,15 @@ export const cashMovements = pgTable(
     ),
   ],
 );
+
+/** Montagem do painel de cada usuário [p.3]: ordem e widgets ligados, entre os liberados ao perfil. */
+export const dashboardLayouts = pgTable('dashboard_layouts', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id),
+  widgets: jsonb('widgets').$type<{ id: string; visible: boolean }[]>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

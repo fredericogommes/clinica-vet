@@ -14,3 +14,4 @@ export * from './payments.js';
 export * from './sales.js';
 export * from './sales-reports.js';
 export * from './cash.js';
+export * from './dashboard.js';
