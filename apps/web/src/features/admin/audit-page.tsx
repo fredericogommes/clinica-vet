@@ -37,6 +37,7 @@ const entityLabels: Record<string, string> = {
   financial_category: 'Categoria financeira',
   financial_entry: 'Lançamento financeiro',
   supplier: 'Fornecedor',
+  card_settlement: 'Conciliação de cartão',
 };
 const actionLabels: Record<string, string> = {
   create: 'Criou',
@@ -65,6 +66,8 @@ const actionLabels: Record<string, string> = {
   pay: 'Registrou pagamento',
   reopen: 'Desfez a baixa',
   transfer: 'Transferiu entre contas',
+  reconcile: 'Conciliou depósito',
+  undo: 'Desfez',
 };
 
 export interface AuditFilter {

@@ -785,6 +785,7 @@ export class SaleService {
             kind: l.method.kind,
             methodName: l.method.name,
             installments: l.input.installments,
+            accountId: l.method.accountId,
           },
           receivables,
           today,

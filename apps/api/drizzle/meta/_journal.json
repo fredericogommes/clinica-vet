@@ -120,6 +120,13 @@
       "when": 1792206192990,
       "tag": "0016_finance",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792208319160,
+      "tag": "0017_card_settlements",
+      "breakpoints": true
     }
   ]
 }

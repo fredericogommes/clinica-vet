@@ -35,6 +35,7 @@ import { messagingRoutes } from '../modules/messaging/routes.js';
 import { CloudApiSender } from '../modules/messaging/sender.js';
 import { MessagingService } from '../modules/messaging/service.js';
 import { financeRoutes } from '../modules/finance/routes.js';
+import { CardReconciliationService } from '../modules/finance/reconciliation.js';
 import { FinanceService } from '../modules/finance/service.js';
 import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
@@ -137,7 +138,11 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     methods: paymentMethods,
   });
   await app.register(cashRoutes, { prefix: '/api/cash', cash });
-  await app.register(financeRoutes, { prefix: '/api/finance', finance });
+  await app.register(financeRoutes, {
+    prefix: '/api/finance',
+    finance,
+    reconciliation: new CardReconciliationService(db, finance),
+  });
   await app.register(messagingRoutes, {
     prefix: '/api/messages',
     messaging: new MessagingService(db, whatsappSender(config)),

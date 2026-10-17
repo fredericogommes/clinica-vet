@@ -137,6 +137,12 @@ export const navigation: NavSection[] = [
         permission: 'finance.view',
       },
       {
+        label: 'Conciliação de cartões',
+        to: '/financeiro/conciliacao',
+        icon: CreditCard,
+        permission: 'finance.view',
+      },
+      {
         label: 'Contas financeiras',
         to: '/financeiro/contas',
         icon: Landmark,

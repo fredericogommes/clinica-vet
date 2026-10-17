@@ -138,6 +138,11 @@ const MessagesPage = lazy(() =>
 const EntriesPage = lazy(() =>
   import('../features/finance/entries-page').then((m) => ({ default: m.EntriesPage })),
 );
+const ReconciliationPage = lazy(() =>
+  import('../features/finance/reconciliation-page').then((m) => ({
+    default: m.ReconciliationPage,
+  })),
+);
 const AccountsPage = lazy(() =>
   import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
 );
@@ -650,6 +655,32 @@ const receivableRoute = createRoute({
   },
 });
 
+const reconciliationRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/financeiro/conciliacao',
+  validateSearch: z.object({
+    situacao: z.enum(['previstos', 'conciliados', 'todos']).optional().catch(undefined),
+    forma: z.uuid().optional().catch(undefined),
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+  }),
+  component: function Reconciliation() {
+    const s = reconciliationRoute.useSearch();
+    return (
+      <RequirePermission permission="finance.view">
+        <ReconciliationPage
+          search={{
+            situacao: s.situacao ?? 'nao-conciliados',
+            forma: s.forma,
+            de: s.de,
+            ate: s.ate,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const accountsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/financeiro/contas',
@@ -1025,6 +1056,7 @@ const routeTree = rootRoute.addChildren([
     ledgerRoute,
     payableRoute,
     receivableRoute,
+    reconciliationRoute,
     accountsRoute,
     financeCategoriesRoute,
     suppliersRoute,

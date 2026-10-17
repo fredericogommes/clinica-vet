@@ -149,11 +149,12 @@ export const permissionCatalog = {
   },
   'finance.view': {
     group: 'Financeiro',
-    label: 'Ver lançamentos, saldos das contas e contas a pagar',
+    label: 'Ver lançamentos, saldos das contas, contas a pagar e conciliação de cartões',
   },
   'finance.manage': {
     group: 'Financeiro',
-    label: 'Lançar receitas, despesas e transferências; baixar, editar e cancelar lançamentos',
+    label:
+      'Lançar receitas, despesas e transferências; baixar, editar e cancelar lançamentos; conciliar cartões',
   },
   'finance.configure': {
     group: 'Financeiro',

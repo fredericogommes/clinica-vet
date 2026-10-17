@@ -659,6 +659,7 @@ export function EntryDetailDialog({
 }) {
   const can = useCan();
   const fromSale = entry.origin === 'sale' || entry.origin === 'card_fee';
+  const adjustment = entry.origin === 'card_adjustment';
   const status = entryStatus(entry);
   const { mutation: reopen, generalError } = useFinanceMutation(
     (_: null) => api('POST', `/finance/entries/${entry.id}/reopen`, entrySchema),
@@ -692,7 +693,7 @@ export function EntryDetailDialog({
       );
     }
   }
-  if (manage && entry.status === 'paid' && entry.kind !== 'transfer') {
+  if (manage && entry.status === 'paid' && entry.kind !== 'transfer' && !adjustment) {
     actions.push(
       <Button
         key="reopen"
@@ -706,7 +707,7 @@ export function EntryDetailDialog({
       </Button>,
     );
   }
-  if (manage && entry.status !== 'cancelled' && !fromSale) {
+  if (manage && entry.status !== 'cancelled' && !fromSale && !adjustment) {
     actions.push(
       <Button
         key="cancel"
