@@ -29,11 +29,13 @@
 - Venda pela ficha clínica: o tipo de atendimento aponta o serviço cobrado, o atendimento finalizado lança esse serviço na venda aberta do animal e a coluna "Venda" da ficha mostra o carrinho, lança produtos e serviços e leva ao PDV.
 - Consulta vendas por período: resumo com venda bruta, desconto, líquido, ticket médio, recebido e em aberto, quebras por dia, forma de recebimento, profissional e tipo; totais por produto e serviço; lista de vendas com busca e situação. Minhas vendas mostra ao profissional os itens que vendeu.
 - Painel de controle na tela Início: indicadores (animais, responsáveis, venda líquida, débitos de clientes, descontos, ticket médio, médias de espera e atendimento, arquivos) e widgets de animais por mês e por ano, consultas por mês, últimos atendimentos, últimos animais, ciclo de vida dos clientes, estoque abaixo do mínimo e últimos acessos. Cada perfil vê só o que libera, e cada usuário liga, desliga e reordena os widgets em Configurar.
+- Exames: cadastro com campos decimais, inteiros ou de texto agrupados em seções e valores de referência por espécie e idade; resultado na ficha clínica com a faixa do animal e marcação Abaixo/Acima ao digitar, tabela na linha do tempo, gráfico de evolução de cada campo e cobrança do serviço do exame na venda aberta. Clínicas novas começam com o Hemograma.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido
 
 - O campo "Serviço cobrado" do tipo de atendimento lista todos os serviços, não só os 100 primeiros.
+- Os botões do rodapé das janelas quebram linha no celular em vez de sair da tela.
 
 ### Segurança
 

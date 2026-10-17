@@ -9,6 +9,7 @@ import {
 import {
   Activity,
   Camera,
+  FlaskConical,
   FileText,
   Pill,
   Scale,
@@ -25,6 +26,7 @@ export const kindIcons: Record<ClinicalEventKind, LucideIcon> = {
   photo: Camera,
   document: FileText,
   prescription: Pill,
+  exam: FlaskConical,
 };
 
 /** Ordem dos botões de "Adicionar" e dos filtros por tipo. */
@@ -32,6 +34,7 @@ export const kindOrder: ClinicalEventKind[] = [
   'encounter',
   'weight',
   'pathology',
+  'exam',
   'prescription',
   'document',
   'photo',
@@ -90,6 +93,10 @@ export function eventHeadline(e: ClinicalEvent): string {
     case 'document':
     case 'prescription':
       return d.title;
+    case 'exam': {
+      const out = d.values.filter((v) => v.flag === 'low' || v.flag === 'high').length;
+      return out ? `${d.exam.name} · ${String(out)} fora da referência` : d.exam.name;
+    }
   }
 }
 

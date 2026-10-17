@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states
 import { useToast } from '../../design-system/toast';
 import { api, apiVoid, errorMessage } from '../../lib/api';
 import { useCan } from '../../lib/session';
+import { ExamSeriesDialog, ExamValuesTable } from './exam-result';
 import { eventHeadline, kindIcons, kindLabel, kindOrder, vitalsSummary, zoned } from './labels';
 import { timelineQuery, type TimelineFilters } from './queries';
 
@@ -43,6 +44,7 @@ export function TimelinePanel({
   const timeline = useInfiniteQuery(timelineQuery(patientId, filters));
   const [voiding, setVoiding] = useState<ClinicalEvent | null>(null);
   const [discarding, setDiscarding] = useState<ClinicalEvent | null>(null);
+  const [series, setSeries] = useState<{ attributeId: string; name: string } | null>(null);
   const z = zoned(timeZone);
 
   const items = timeline.data?.pages.flatMap((p) => p.items) ?? [];
@@ -182,6 +184,7 @@ export function TimelinePanel({
                     onEdit={onEdit}
                     onVoid={setVoiding}
                     onDiscard={setDiscarding}
+                    onSeries={setSeries}
                   />
                 ))}
               </ol>
@@ -212,6 +215,16 @@ export function TimelinePanel({
           }}
         />
       ) : null}
+      {series ? (
+        <ExamSeriesDialog
+          patientId={patientId}
+          attribute={series}
+          timeZone={timeZone}
+          onClose={() => {
+            setSeries(null);
+          }}
+        />
+      ) : null}
       {discarding ? (
         <DiscardDialog
           event={discarding}
@@ -231,6 +244,7 @@ function EventItem({
   onEdit,
   onVoid,
   onDiscard,
+  onSeries,
 }: {
   event: ClinicalEvent;
   time: string;
@@ -238,6 +252,7 @@ function EventItem({
   onEdit: (event: ClinicalEvent) => void;
   onVoid: (event: ClinicalEvent) => void;
   onDiscard: (event: ClinicalEvent) => void;
+  onSeries: (attribute: { attributeId: string; name: string }) => void;
 }) {
   const can = useCan();
   const Icon = kindIcons[e.kind];
@@ -315,6 +330,18 @@ function EventItem({
         ) : null}
         {d.kind === 'document' || d.kind === 'prescription' ? (
           <LongText label="Ver texto" text={d.body} />
+        ) : null}
+        {d.kind === 'exam' ? (
+          <>
+            <ExamValuesTable
+              values={d.values}
+              referenceLabel={d.referenceLabel}
+              onSeries={e.status === 'published' && !voided ? onSeries : undefined}
+            />
+            {d.notes ? (
+              <p className="mt-2 text-sm whitespace-pre-line text-ink-muted">{d.notes}</p>
+            ) : null}
+          </>
         ) : null}
         {d.kind === 'photo' ? (
           <a

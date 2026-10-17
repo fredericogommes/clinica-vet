@@ -611,6 +611,7 @@ export const clinicalEvents = pgTable(
         'photo',
         'document',
         'prescription',
+        'exam',
       ],
     }).notNull(),
     status: text('status', { enum: ['draft', 'published', 'voided'] }).notNull(),
@@ -1258,3 +1259,141 @@ export const dashboardLayouts = pgTable('dashboard_layouts', {
   widgets: jsonb('widgets').$type<{ id: string; visible: boolean }[]>().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+const examNumber = (name: string) => numeric(name, { precision: 14, scale: 4, mode: 'number' });
+
+/** Exame do catálogo [RN-33]; o serviço, quando houver, é lançado na venda do animal [RN-19]. */
+export const exams = pgTable(
+  'exams',
+  {
+    ...catalogColumns,
+    serviceId: uuid('service_id').references((): AnyPgColumn => products.id),
+  },
+  (t) => [uniqueIndex('exams_org_name_uq').on(t.organizationId, sql`lower(${t.name})`)],
+);
+
+/**
+ * Linha do exame, na ordem de exibição: título de seção ou campo tipado. Campo já usado em
+ * resultado não é apagado, só arquivado, para o histórico continuar apontando para ele.
+ */
+export const examAttributes = pgTable(
+  'exam_attributes',
+  {
+    id: uuid('id').primaryKey(),
+    examId: uuid('exam_id')
+      .notNull()
+      .references(() => exams.id, { onDelete: 'cascade' }),
+    position: smallint('position').notNull(),
+    kind: text('kind', { enum: ['section', 'field'] }).notNull(),
+    name: text('name').notNull(),
+    unit: text('unit').notNull().default(''),
+    dataType: text('data_type', { enum: ['decimal', 'integer', 'text'] }),
+    decimals: smallint('decimals'),
+    maxLength: smallint('max_length'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('exam_attributes_exam_idx').on(t.examId, t.position),
+    check(
+      'exam_attributes_type_ck',
+      sql`(${t.kind} = 'section' and ${t.dataType} is null)
+        or (${t.kind} = 'field' and ${t.dataType} is not null
+          and (${t.dataType} <> 'decimal' or ${t.decimals} between 0 and 4)
+          and (${t.dataType} <> 'text' or ${t.maxLength} between 1 and 200))`,
+    ),
+  ],
+);
+
+/** Faixa etária (meses, inclusiva) de uma espécie na tabela de referência do exame. */
+export const examReferences = pgTable(
+  'exam_references',
+  {
+    id: uuid('id').primaryKey(),
+    examId: uuid('exam_id')
+      .notNull()
+      .references(() => exams.id, { onDelete: 'cascade' }),
+    speciesId: uuid('species_id')
+      .notNull()
+      .references(() => species.id),
+    label: text('label').notNull(),
+    minMonths: integer('min_months').notNull(),
+    maxMonths: integer('max_months').notNull(),
+  },
+  (t) => [
+    index('exam_references_exam_idx').on(t.examId, t.speciesId),
+    check(
+      'exam_references_months_ck',
+      sql`${t.minMonths} >= 0 and ${t.maxMonths} >= ${t.minMonths} and ${t.maxMonths} <= 9999`,
+    ),
+  ],
+);
+
+export const examReferenceRanges = pgTable(
+  'exam_reference_ranges',
+  {
+    referenceId: uuid('reference_id')
+      .notNull()
+      .references(() => examReferences.id, { onDelete: 'cascade' }),
+    attributeId: uuid('attribute_id')
+      .notNull()
+      .references(() => examAttributes.id, { onDelete: 'cascade' }),
+    low: examNumber('low'),
+    high: examNumber('high'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.referenceId, t.attributeId] }),
+    check(
+      'exam_reference_ranges_ck',
+      sql`(${t.low} is not null or ${t.high} is not null)
+        and (${t.low} is null or ${t.high} is null or ${t.low} <= ${t.high})`,
+    ),
+  ],
+);
+
+/** Resultado de exame lançado na ficha: um por evento clínico do tipo exame. */
+export const clinicalExamResults = pgTable('clinical_exam_results', {
+  eventId: uuid('event_id')
+    .primaryKey()
+    .references(() => clinicalEvents.id, { onDelete: 'cascade' }),
+  examId: uuid('exam_id')
+    .notNull()
+    .references(() => exams.id),
+  referenceLabel: text('reference_label'),
+});
+
+/**
+ * Valor de cada campo do resultado, com nome, unidade e faixa copiados ao registrar: mudar o
+ * cadastro ou a referência depois não reescreve resultado antigo. Numérico em coluna própria
+ * para a evolução do parâmetro [p.14].
+ */
+export const clinicalExamValues = pgTable(
+  'clinical_exam_values',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => clinicalExamResults.eventId, { onDelete: 'cascade' }),
+    attributeId: uuid('attribute_id')
+      .notNull()
+      .references(() => examAttributes.id),
+    position: smallint('position').notNull(),
+    section: text('section'),
+    name: text('name').notNull(),
+    unit: text('unit').notNull(),
+    dataType: text('data_type', { enum: ['decimal', 'integer', 'text'] }).notNull(),
+    numericValue: examNumber('numeric_value'),
+    textValue: text('text_value'),
+    low: examNumber('low'),
+    high: examNumber('high'),
+    flag: text('flag', { enum: ['low', 'normal', 'high'] }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.attributeId] }),
+    index('clinical_exam_values_attribute_idx').on(t.attributeId),
+    check(
+      'clinical_exam_values_ck',
+      sql`(${t.dataType} = 'text' and ${t.textValue} is not null and ${t.numericValue} is null
+          and ${t.flag} is null)
+        or (${t.dataType} <> 'text' and ${t.numericValue} is not null and ${t.textValue} is null)`,
+    ),
+  ],
+);

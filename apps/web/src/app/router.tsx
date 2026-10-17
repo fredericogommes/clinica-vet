@@ -116,6 +116,12 @@ const ClinicalTemplatesPage = lazy(() =>
     default: m.ClinicalTemplatesPage,
   })),
 );
+const ExamsPage = lazy(() =>
+  import('../features/catalogs/exams-pages').then((m) => ({ default: m.ExamsPage })),
+);
+const ExamEditPage = lazy(() =>
+  import('../features/catalogs/exams-pages').then((m) => ({ default: m.ExamEditPage })),
+);
 const AppointmentTypesPage = lazy(() =>
   import('../features/catalogs/appointment-types-page').then((m) => ({
     default: m.AppointmentTypesPage,
@@ -468,6 +474,39 @@ const pathologiesRoute = createRoute({
   ),
 });
 
+const examsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/exames',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <ExamsPage />
+    </RequirePermission>
+  ),
+});
+
+const examNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/exames/novo',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <ExamEditPage examId={null} />
+    </RequirePermission>
+  ),
+});
+
+const examEditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/exames/$examId',
+  component: function ExamEdit() {
+    const { examId } = examEditRoute.useParams();
+    return (
+      <RequirePermission permission="catalogs.manage">
+        <ExamEditPage key={examId} examId={examId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const clinicalTemplatesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/cadastros/modelos',
@@ -772,6 +811,9 @@ const routeTree = rootRoute.addChildren([
     speciesRoute,
     appointmentTypesRoute,
     pathologiesRoute,
+    examsRoute,
+    examNewRoute,
+    examEditRoute,
     clinicalTemplatesRoute,
     productsRoute,
     productNewRoute,

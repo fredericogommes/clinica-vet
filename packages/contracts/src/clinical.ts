@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { examResultValueSchema } from './exams.js';
 import { patientSchema } from './patients.js';
 import { appointmentSchema } from './scheduling.js';
 
 /**
  * Evento clínico polimórfico [RN-17]: uma tabela de eventos com tipo e conteúdo validado por tipo.
- * Exame, vacina, vídeo e internação entram com os módulos das Fases 2 e 3.
+ * Vacina, vídeo e internação entram com os módulos das Fases 2 e 3.
  */
 export const clinicalEventKinds = [
   'encounter',
@@ -14,6 +15,7 @@ export const clinicalEventKinds = [
   'photo',
   'document',
   'prescription',
+  'exam',
 ] as const;
 export type ClinicalEventKind = (typeof clinicalEventKinds)[number];
 
@@ -25,6 +27,7 @@ export const clinicalEventKindLabels: Record<ClinicalEventKind, string> = {
   photo: 'Foto',
   document: 'Documento',
   prescription: 'Receita',
+  exam: 'Exame',
 };
 
 /** Rascunho só é visto pelo autor; publicado entra na linha do tempo; invalidado fica visível riscado. */
@@ -117,6 +120,16 @@ const documentInput = (kind: 'document' | 'prescription') =>
     publish: z.boolean(),
   });
 
+/** Resultado de exame [RN-33]: o valor de cada campo como digitado; a API converte pelo tipo. */
+const examInput = z.object({
+  kind: z.literal('exam'),
+  occurredAt: occurredAtSchema,
+  examId: z.uuid({ message: 'Escolha o exame' }),
+  values: z.array(z.object({ attributeId: z.uuid(), value: z.string().max(200) })).max(120),
+  notes: text(2_000),
+  publish: z.boolean(),
+});
+
 /** Corpo de criação e de edição. Foto tem rota própria, porque o corpo é a imagem. */
 export const clinicalEventInputSchema = z
   .discriminatedUnion('kind', [
@@ -126,6 +139,7 @@ export const clinicalEventInputSchema = z
     observationInput,
     documentInput('document'),
     documentInput('prescription'),
+    examInput,
   ])
   .superRefine((e, ctx) => {
     if (e.kind !== 'encounter' || !e.publish) return;
@@ -182,6 +196,14 @@ export const clinicalEventDataSchema = z.discriminatedUnion('kind', [
     template: ref.nullable(),
     title: z.string(),
     body: z.string(),
+  }),
+  z.object({
+    kind: z.literal('exam'),
+    exam: ref,
+    /** Faixa etária usada ("Adulto"), ou nula quando o animal não tinha referência. */
+    referenceLabel: z.string().nullable(),
+    values: z.array(examResultValueSchema),
+    notes: z.string(),
   }),
 ]);
 export type ClinicalEventContent = z.infer<typeof clinicalEventDataSchema>;
