@@ -1,3 +1,10 @@
+import {
+  toMinutes,
+  type PortalBook,
+  type PortalBookingOptions,
+  type PortalSlotQuery,
+  type PortalSlots,
+} from '@clinica/contracts';
 import type {
   PortalAccount,
   PortalAccountList,
@@ -40,6 +47,8 @@ import {
   vaccines,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import type { AppointmentService } from '../scheduling/appointment-service.js';
+import { addDays, instantToZoned, zonedToInstant } from '../../core/zoned-time.js';
 import {
   hashToken,
   isPortalEnabled,
@@ -61,6 +70,7 @@ const DEFAULT_SETTINGS: PortalSettings = {
     exams: false,
     prescriptions: false,
   },
+  booking: { enabled: false, typeIds: [], leadHours: 2, windowDays: 30 },
 };
 
 type SettingsRow = typeof portalSettings.$inferSelect;
@@ -74,6 +84,12 @@ const settingsOf = (row: SettingsRow | undefined): PortalSettings =>
           vaccines: row.showVaccines,
           exams: row.showExams,
           prescriptions: row.showPrescriptions,
+        },
+        booking: {
+          enabled: row.bookingEnabled,
+          typeIds: row.bookingTypeIds,
+          leadHours: row.bookingLeadHours,
+          windowDays: row.bookingWindowDays,
         },
       }
     : DEFAULT_SETTINGS;
@@ -113,8 +129,29 @@ export class PortalAdminService {
         showVaccines: input.sections.vaccines,
         showExams: input.sections.exams,
         showPrescriptions: input.sections.prescriptions,
+        bookingEnabled: input.booking.enabled,
+        bookingTypeIds: input.booking.typeIds,
+        bookingLeadHours: input.booking.leadHours,
+        bookingWindowDays: input.booking.windowDays,
         updatedAt: this.now(),
       };
+      if (input.booking.typeIds.length > 0) {
+        const found = await tx
+          .select({ id: appointmentTypes.id })
+          .from(appointmentTypes)
+          .where(
+            and(
+              inArray(appointmentTypes.id, input.booking.typeIds),
+              eq(appointmentTypes.organizationId, auth.organizationId),
+              isNull(appointmentTypes.archivedAt),
+            ),
+          );
+        if (found.length !== new Set(input.booking.typeIds).size) {
+          throw new AppError('validation_failed', 'Tipo de atendimento não encontrado.', [
+            { path: 'booking.typeIds', message: 'Tipo de atendimento não encontrado ou arquivado' },
+          ]);
+        }
+      }
       await tx
         .insert(portalSettings)
         .values({ organizationId: auth.organizationId, ...values })
@@ -309,6 +346,7 @@ export class PortalService {
   constructor(
     private readonly db: Database,
     private readonly sessions: PortalSessionService,
+    private readonly appointmentService: AppointmentService,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -370,6 +408,7 @@ export class PortalService {
       client: { name: row.clientName, email: row.email },
       timeZone: await this.timeZone(ctx),
       sections: settings.sections,
+      booking: bookingOpen(settings),
       csrfToken: ctx.csrfToken,
     };
   }
@@ -377,12 +416,16 @@ export class PortalService {
   async home(ctx: PortalContext): Promise<PortalHome> {
     const settings = await this.settings(ctx);
     const list = await this.patientRows(ctx);
-    if (!settings.sections.appointments) return { patients: list, appointments: null };
+    // Quem agenda pelo portal sempre vê os próprios agendamentos.
+    if (!settings.sections.appointments && !bookingOpen(settings)) {
+      return { patients: list, appointments: null };
+    }
     const rows = await this.db
       .select({
         id: appointments.id,
         startsAt: appointments.startsAt,
         status: appointments.status,
+        origin: appointments.origin,
         type: appointmentTypes.name,
         professional: users.name,
         unit: units.name,
@@ -423,8 +466,155 @@ export class PortalService {
         unit: r.unit,
         status: r.status,
         patients: names.filter((n) => n.appointmentId === r.id).map((n) => n.name),
+        bookedOnline: r.origin === 'portal',
+        cancellable:
+          r.origin === 'portal' &&
+          (r.status === 'scheduled' || r.status === 'confirmed') &&
+          r.startsAt > this.earliest(settings),
       })),
     };
+  }
+
+  /** O que o tutor pode escolher para agendar: unidades, tipos liberados e os próprios animais. */
+  async bookingOptions(ctx: PortalContext): Promise<PortalBookingOptions> {
+    const settings = await this.bookingSettings(ctx);
+    const unitRows = await this.db
+      .select({ id: units.id, name: units.name, timeZone: units.timeZone })
+      .from(units)
+      .where(and(eq(units.organizationId, ctx.organizationId), isNull(units.archivedAt)))
+      .orderBy(asc(units.name));
+    const types = await this.db
+      .select({
+        id: appointmentTypes.id,
+        name: appointmentTypes.name,
+        durationMinutes: appointmentTypes.durationMinutes,
+      })
+      .from(appointmentTypes)
+      .where(
+        and(
+          inArray(appointmentTypes.id, settings.booking.typeIds),
+          eq(appointmentTypes.organizationId, ctx.organizationId),
+          isNull(appointmentTypes.archivedAt),
+        ),
+      )
+      .orderBy(asc(appointmentTypes.name));
+    const timeZone = unitRows[0]?.timeZone ?? (await this.timeZone(ctx));
+    const firstDate = instantToZoned(this.earliest(settings), timeZone).date;
+    const today = instantToZoned(this.now(), timeZone).date;
+    return {
+      units: unitRows.map(({ id, name }) => ({ id, name })),
+      types,
+      patients: (await this.patientRows(ctx))
+        .filter((p) => !p.deceased)
+        .map(({ id, name }) => ({ id, name })),
+      firstDate,
+      lastDate: addDays(today, settings.booking.windowDays),
+      leadHours: settings.booking.leadHours,
+    };
+  }
+
+  async bookingSlots(ctx: PortalContext, query: PortalSlotQuery): Promise<PortalSlots> {
+    const settings = await this.bookingSettings(ctx);
+    const { type, timeZone } = await this.bookable(ctx, settings, query.unitId, query.typeId);
+    if (
+      query.date > addDays(instantToZoned(this.now(), timeZone).date, settings.booking.windowDays)
+    ) {
+      return [];
+    }
+    const slots = await this.appointmentService.openSlots(
+      { organizationId: ctx.organizationId, unitId: query.unitId },
+      { date: query.date, durationMinutes: type.durationMinutes },
+      this.earliest(settings),
+    );
+    return slots.map(({ start, professionalId, professionalName }) => ({
+      start,
+      professionalId,
+      professionalName,
+    }));
+  }
+
+  async book(ctx: PortalContext, input: PortalBook): Promise<void> {
+    const settings = await this.bookingSettings(ctx);
+    const { type, timeZone } = await this.bookable(ctx, settings, input.unitId, input.typeId);
+    const startsAt = zonedToInstant(input.date, toMinutes(input.start), timeZone);
+    const lastDate = addDays(
+      instantToZoned(this.now(), timeZone).date,
+      settings.booking.windowDays,
+    );
+    if (startsAt <= this.earliest(settings) || input.date > lastDate) {
+      throw new AppError('conflict', 'Este horário está fora do período aberto para agendamento.');
+    }
+    await this.appointmentService.bookFromPortal(
+      { organizationId: ctx.organizationId, unitId: input.unitId },
+      {
+        clientId: ctx.clientId,
+        patientIds: input.patientIds,
+        typeId: input.typeId,
+        professionalId: input.professionalId,
+        date: input.date,
+        start: input.start,
+        durationMinutes: type.durationMinutes,
+        notes: input.notes === '' ? null : input.notes,
+      },
+      ctx.accountId,
+    );
+  }
+
+  async cancel(ctx: PortalContext, appointmentId: string): Promise<void> {
+    const settings = await this.bookingSettings(ctx);
+    await this.appointmentService.cancelFromPortal(
+      ctx.organizationId,
+      ctx.clientId,
+      appointmentId,
+      this.earliest(settings),
+      ctx.accountId,
+    );
+  }
+
+  /** Primeiro instante que o tutor pode marcar ou cancelar: agora mais a antecedência. */
+  private earliest(settings: PortalSettings): Date {
+    return new Date(this.now().getTime() + settings.booking.leadHours * 3_600_000);
+  }
+
+  private async bookingSettings(ctx: PortalContext): Promise<PortalSettings> {
+    const settings = await this.settings(ctx);
+    if (!bookingOpen(settings)) {
+      throw new AppError('forbidden', 'A clínica não está recebendo agendamentos pelo portal.');
+    }
+    return settings;
+  }
+
+  private async bookable(
+    ctx: PortalContext,
+    settings: PortalSettings,
+    unitId: string,
+    typeId: string,
+  ) {
+    const [unit] = await this.db
+      .select({ timeZone: units.timeZone })
+      .from(units)
+      .where(
+        and(
+          eq(units.id, unitId),
+          eq(units.organizationId, ctx.organizationId),
+          isNull(units.archivedAt),
+        ),
+      );
+    if (!unit) throw notFound('Unidade');
+    const [type] = settings.booking.typeIds.includes(typeId)
+      ? await this.db
+          .select({ durationMinutes: appointmentTypes.durationMinutes })
+          .from(appointmentTypes)
+          .where(
+            and(
+              eq(appointmentTypes.id, typeId),
+              eq(appointmentTypes.organizationId, ctx.organizationId),
+              isNull(appointmentTypes.archivedAt),
+            ),
+          )
+      : [];
+    if (!type) throw notFound('Tipo de atendimento');
+    return { type, timeZone: unit.timeZone };
   }
 
   /** Ficha do animal no portal. Animal de outro cliente responde como inexistente. */
@@ -625,6 +815,8 @@ export class PortalService {
     return row;
   }
 }
+
+const bookingOpen = (s: PortalSettings) => s.booking.enabled && s.booking.typeIds.length > 0;
 
 const textOf = (payload: unknown, key: string): string => {
   if (typeof payload !== 'object' || payload === null) return '';

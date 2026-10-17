@@ -162,6 +162,13 @@
       "when": 1792255065216,
       "tag": "0022_portal",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792257303897,
+      "tag": "0023_portal_booking",
+      "breakpoints": true
     }
   ]
 }

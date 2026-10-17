@@ -1,4 +1,9 @@
 import type {
+  Appointment,
+  AppointmentType,
+  PortalBookingOptions,
+  PortalSlots,
+  Session,
   Client,
   PortalAccount,
   PortalHome,
@@ -10,6 +15,7 @@ import type {
 } from '@clinica/contracts';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { addDays, instantToZoned, weekdayOf } from '../../core/zoned-time.js';
 import { clientInput, patientInput, VALID_CNPJ, VALID_CPF } from '../../test/fixtures.js';
 import { ADMIN, createHarness, loginAs, TestClient, type Harness } from '../../test/harness.js';
 
@@ -55,10 +61,10 @@ class Tutor {
       headers: this.cookie ? { cookie: this.cookie } : {},
     });
   }
-  post(url: string, csrf = true) {
+  post(url: string, csrf = true, payload?: object) {
     const headers: Record<string, string> = this.cookie ? { cookie: this.cookie } : {};
     if (csrf && this.csrf) headers['x-csrf-token'] = this.csrf;
-    return this.app.inject({ method: 'POST', url, headers });
+    return this.app.inject({ method: 'POST', url, headers, ...(payload ? { payload } : {}) });
   }
   async session() {
     return (await this.get('/api/portal/session')).json<PortalSession>();
@@ -79,8 +85,15 @@ const SECTIONS_ON = {
   prescriptions: true,
 };
 
-async function configure(settings: PortalSettings) {
-  const res = await admin.send('PUT', '/api/portal-admin/settings', settings);
+const BOOKING_OFF = { enabled: false, typeIds: [], leadHours: 2, windowDays: 30 };
+
+async function configure(
+  settings: Omit<PortalSettings, 'booking'> & { booking?: PortalSettings['booking'] },
+) {
+  const res = await admin.send('PUT', '/api/portal-admin/settings', {
+    booking: BOOKING_OFF,
+    ...settings,
+  });
   expect(res.statusCode, res.body).toBe(200);
 }
 
@@ -328,5 +341,168 @@ describe('o que o tutor vê', () => {
     expect((await reception.get('/api/portal-admin/settings')).statusCode).toBe(403);
     const vet = await loginAs(h, admin, 'Veterinário');
     expect((await vet.get(`/api/portal-admin/clients/${carla.id}`)).statusCode).toBe(403);
+  });
+});
+
+describe('agendamento online [p.20–21]', () => {
+  let tutor: Tutor;
+  let consulta: AppointmentType;
+  let banho: AppointmentType;
+  let unitId: string;
+  let monday: string;
+
+  beforeEach(async () => {
+    const session = (await admin.get('/api/auth/session')).json<Session>();
+    unitId = session.currentUnit.id;
+    const member = await admin.send('PUT', `/api/schedule/members/${session.user.id}`, {
+      mode: 'fixed',
+      fixedHours: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '12:00' })),
+    });
+    expect(member.statusCode, member.body).toBe(200);
+    const types = (await admin.get('/api/catalogs/appointment-types')).json<AppointmentType[]>();
+    consulta = types.find((t) => t.name === 'Consulta')!;
+    banho = types.find((t) => t.id !== consulta.id)!;
+    monday = addDays(instantToZoned(new Date(), 'America/Sao_Paulo').date, 7);
+    while (weekdayOf(monday) !== 1) monday = addDays(monday, 1);
+    await configure({ enabled: true, sections: SECTIONS_ON });
+    tutor = new Tutor(h.app);
+    await tutor.activate((await invite(carla.id, 'carla@exemplo.com')).link, 'senha-do-tutor-1');
+  });
+
+  const open = (overrides: Partial<PortalSettings['booking']> = {}) =>
+    configure({
+      enabled: true,
+      sections: SECTIONS_ON,
+      booking: {
+        enabled: true,
+        typeIds: [consulta.id],
+        leadHours: 2,
+        windowDays: 30,
+        ...overrides,
+      },
+    });
+  const slots = async (date = monday, typeId = consulta.id) =>
+    (
+      await tutor.get(`/api/portal/booking/slots?unitId=${unitId}&typeId=${typeId}&date=${date}`)
+    ).json<PortalSlots>();
+  const book = (start: string, overrides: Record<string, unknown> = {}) =>
+    tutor.post('/api/portal/appointments', true, {
+      unitId,
+      typeId: consulta.id,
+      patientIds: [thor.id],
+      date: monday,
+      start,
+      professionalId: slotsCache[0]?.professionalId,
+      notes: 'Primeira consulta do Thor',
+      ...overrides,
+    });
+  let slotsCache: PortalSlots = [];
+
+  it('só abre com a clínica ligando e exige um tipo liberado', async () => {
+    expect((await tutor.get('/api/portal/booking')).statusCode).toBe(403);
+    expect((await tutor.session()).booking).toBe(false);
+    const res = await admin.send('PUT', '/api/portal-admin/settings', {
+      enabled: true,
+      sections: SECTIONS_ON,
+      booking: { enabled: true, typeIds: [], leadHours: 2, windowDays: 30 },
+    });
+    expect(res.statusCode).toBe(400);
+    await open();
+    expect((await tutor.session()).booking).toBe(true);
+    const options = (await tutor.get('/api/portal/booking')).json<PortalBookingOptions>();
+    expect(options.types.map((t) => t.id)).toEqual([consulta.id]);
+    expect(options.patients.map((p) => p.name)).toEqual(['Thor']);
+    expect(options.units).toHaveLength(1);
+  });
+
+  it('marca um horário livre, aparece para a equipe e o tutor cancela', async () => {
+    await open();
+    slotsCache = await slots();
+    // Consulta de 60 minutos na faixa 09:00–12:00, grade de 15 minutos.
+    expect(slotsCache.map((s) => s.start)).toEqual([
+      '09:00',
+      '09:15',
+      '09:30',
+      '09:45',
+      '10:00',
+      '10:15',
+      '10:30',
+      '10:45',
+      '11:00',
+    ]);
+    expect((await book('09:00')).statusCode).toBe(204);
+    expect((await slots()).map((s) => s.start)).toEqual([
+      '10:00',
+      '10:15',
+      '10:30',
+      '10:45',
+      '11:00',
+    ]);
+    // O mesmo horário de novo: ocupado.
+    expect((await book('09:30')).statusCode).toBe(409);
+
+    const home = (await tutor.get('/api/portal/home')).json<PortalHome>();
+    const mine = home.appointments?.[0];
+    expect(mine).toMatchObject({ bookedOnline: true, cancellable: true, patients: ['Thor'] });
+    const staff = (await admin.get(`/api/appointments/${mine?.id ?? ''}`)).json<Appointment>();
+    expect(staff).toMatchObject({
+      bookedOnline: true,
+      status: 'scheduled',
+      start: '09:00',
+      notes: 'Primeira consulta do Thor',
+    });
+
+    expect((await tutor.post(`/api/portal/appointments/${mine?.id ?? ''}/cancel`)).statusCode).toBe(
+      204,
+    );
+    const after = (await admin.get(`/api/appointments/${mine?.id ?? ''}`)).json<Appointment>();
+    expect(after).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'Cancelado pelo tutor no portal',
+    });
+    expect((await slots()).map((s) => s.start)).toContain('09:00');
+  });
+
+  it('respeita tipo liberado, alcance, antecedência e os próprios animais', async () => {
+    await open({ windowDays: 3 });
+    slotsCache = await slots(monday);
+    expect(slotsCache).toEqual([]);
+    expect((await book('09:00', { professionalId: carla.id })).statusCode).toBe(409);
+    await open();
+    slotsCache = await slots();
+    expect(
+      (
+        await tutor.get(
+          `/api/portal/booking/slots?unitId=${unitId}&typeId=${banho.id}&date=${monday}`,
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect((await book('09:00', { typeId: banho.id })).statusCode).toBe(404);
+    expect((await book('09:00', { patientIds: [bidu.id] })).statusCode).toBe(400);
+    // Antecedência de uma semana: segunda que vem fica fora quando falta menos que isso.
+    await open({ leadHours: 168 });
+    const tooSoon = addDays(instantToZoned(new Date(), 'America/Sao_Paulo').date, 1);
+    expect(await slots(tooSoon)).toEqual([]);
+    // Agendamento marcado pela equipe não é cancelado pelo portal.
+    const staff = await admin.send('POST', '/api/appointments', {
+      clientId: carla.id,
+      patientIds: [thor.id],
+      typeId: consulta.id,
+      durationMinutes: 60,
+      date: addDays(monday, 1),
+      start: '10:00',
+      professionalId: slotsCache[0]?.professionalId,
+      notes: '',
+    });
+    expect(staff.statusCode, staff.body).toBe(201);
+    const [created] = staff.json<{ items: Appointment[] }>().items;
+    const home = (await tutor.get('/api/portal/home')).json<PortalHome>();
+    expect(home.appointments?.find((a) => a.id === created?.id)).toMatchObject({
+      bookedOnline: false,
+      cancellable: false,
+    });
+    expect(
+      (await tutor.post(`/api/portal/appointments/${created?.id ?? ''}/cancel`)).statusCode,
+    ).toBe(409);
   });
 });

@@ -47,6 +47,12 @@ const brDate = (date: string) => date.split('-').reverse().join('/');
 /** Status que ocupam horário: os demais liberam o profissional. */
 const inactiveStatuses: AppointmentStatus[] = ['cancelled', 'no_show'];
 
+/** Organização e unidade onde o agendamento acontece; a sessão da equipe já é uma. */
+export interface Scope {
+  organizationId: string;
+  unitId: string;
+}
+
 interface Schedule {
   professionalId: string;
   date: string;
@@ -104,10 +110,15 @@ export class AppointmentService {
 
   /** Horários livres do dia já cruzados com o profissional, como "15/10 às 12:00 – Laís". */
   async slots(auth: AuthContext, query: SlotQuery): Promise<Slot[]> {
-    const calendar = await loadCalendar(this.db, auth.unitId, query.date, query.date);
-    const now = instantToZoned(this.now(), calendar.timeZone);
-    if (query.date < now.date) return [];
-    const notBefore = query.date === now.date ? now.minutes + 1 : 0;
+    return this.openSlots(auth, query, this.now());
+  }
+
+  /** Horários livres que começam depois de `earliest` (agora, ou agora + antecedência). */
+  async openSlots(scope: Scope, query: SlotQuery, earliest: Date): Promise<Slot[]> {
+    const calendar = await loadCalendar(this.db, scope.unitId, query.date, query.date);
+    const first = instantToZoned(earliest, calendar.timeZone);
+    if (query.date < first.date) return [];
+    const notBefore = query.date === first.date ? first.minutes + 1 : 0;
     const professionals = calendar.professionals.filter(
       (p) => !query.professionalId || p.id === query.professionalId,
     );
@@ -226,6 +237,126 @@ export class AppointmentService {
     });
   }
 
+  /**
+   * Agendamento feito pelo tutor no portal: sem encaixe, dentro da escala e sem sobreposição,
+   * como o da recepção. Sem usuário autor; a auditoria registra a conta do portal.
+   */
+  async bookFromPortal(
+    scope: Scope,
+    input: Omit<Schedule, 'fitIn'> & {
+      clientId: string;
+      patientIds: string[];
+      typeId: string;
+      notes: string | null;
+    },
+    portalAccountId: string,
+  ): Promise<Appointment> {
+    return this.write(async (tx) => {
+      await this.assertClientAndPatients(tx, scope, input.clientId, input.patientIds);
+      await this.assertType(tx, scope, input.typeId, null);
+      const timeZone = await unitTimeZone(tx, scope.unitId);
+      const [range] = await this.checkSchedule(
+        tx,
+        scope,
+        { ...input, fitIn: false },
+        [input.date],
+        null,
+      );
+      if (!range) throw invalid('date', 'Informe a data');
+      const id = newId();
+      await tx.insert(appointments).values({
+        id,
+        organizationId: scope.organizationId,
+        unitId: scope.unitId,
+        professionalId: input.professionalId,
+        clientId: input.clientId,
+        typeId: input.typeId,
+        startsAt: range.startsAt,
+        endsAt: range.endsAt,
+        status: 'scheduled',
+        notes: input.notes,
+        origin: 'portal',
+      });
+      await tx.insert(appointmentPatients).values(
+        input.patientIds.map((patientId, position) => ({
+          appointmentId: id,
+          patientId,
+          position,
+        })),
+      );
+      const [after] = await this.load(tx, timeZone, eq(appointments.id, id));
+      if (!after) throw notFound('Agendamento');
+      await recordAudit(
+        tx,
+        { organizationId: scope.organizationId, unitId: scope.unitId, userId: null },
+        {
+          entity: 'appointment',
+          entityId: id,
+          action: 'portal_create',
+          after: { ...snapshot(after), portalAccountId },
+        },
+      );
+      return after;
+    });
+  }
+
+  /**
+   * Cancelamento pelo tutor: só o que ele marcou pelo portal, ainda agendado ou confirmado e
+   * que começa depois de `earliest` (agora + antecedência).
+   */
+  async cancelFromPortal(
+    organizationId: string,
+    clientId: string,
+    id: string,
+    earliest: Date,
+    portalAccountId: string,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.id, id),
+            eq(appointments.organizationId, organizationId),
+            eq(appointments.clientId, clientId),
+          ),
+        )
+        .for('update');
+      if (!row) throw notFound('Agendamento');
+      if (
+        row.origin !== 'portal' ||
+        !['scheduled', 'confirmed'].includes(row.status) ||
+        row.startsAt <= earliest
+      ) {
+        throw conflict(
+          'Este agendamento não pode mais ser cancelado pelo portal. Fale com a clínica.',
+        );
+      }
+      const now = this.now();
+      await tx
+        .update(appointments)
+        .set({
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelReason: 'Cancelado pelo tutor no portal',
+          updatedAt: now,
+        })
+        .where(eq(appointments.id, id));
+      await recordAudit(
+        tx,
+        { organizationId, unitId: row.unitId, userId: null },
+        {
+          entity: 'appointment',
+          entityId: id,
+          action: 'status',
+          before: { status: row.status },
+          after: { status: 'cancelled', reason: 'Cancelado pelo tutor no portal', portalAccountId },
+        },
+      );
+    });
+  }
+
   /** Remarcar ou corrigir dados: só antes da chegada do animal. */
   async update(auth: AuthContext, id: string, input: UpdateAppointmentData): Promise<Appointment> {
     return this.write(async (tx) => {
@@ -322,7 +453,7 @@ export class AppointmentService {
    */
   private async checkSchedule(
     tx: Executor,
-    auth: AuthContext,
+    auth: Scope,
     schedule: Schedule,
     dates: string[],
     excludeId: string | null,
@@ -439,7 +570,7 @@ export class AppointmentService {
 
   private async assertClientAndPatients(
     tx: Executor,
-    auth: AuthContext,
+    auth: Pick<Scope, 'organizationId'>,
     clientId: string,
     patientIds: string[],
   ): Promise<void> {
@@ -475,7 +606,7 @@ export class AppointmentService {
   /** O tipo precisa estar ativo, salvo quando é o mesmo já gravado no agendamento. */
   private async assertType(
     tx: Executor,
-    auth: AuthContext,
+    auth: Pick<Scope, 'organizationId'>,
     typeId: string,
     currentTypeId: string | null,
   ): Promise<void> {
@@ -559,6 +690,7 @@ export class AppointmentService {
         nextStatuses: [...nextStatuses(a.status)],
         editable: isEditable(a.status),
         fitIn: a.fitIn,
+        bookedOnline: a.origin === 'portal',
         seriesId: a.seriesId,
         professional: { id: a.professionalId, name: professionalName },
         client: {

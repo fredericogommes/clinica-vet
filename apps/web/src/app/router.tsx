@@ -58,6 +58,9 @@ const PortalTutor = {
   Patient: lazy(() =>
     import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalPatientPage })),
   ),
+  Booking: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalBookingPage })),
+  ),
 };
 
 // Telas de módulos carregadas sob demanda; o login e o shell ficam no pacote inicial.
@@ -412,6 +415,12 @@ const portalPatientRoute = createRoute({
     const { patientId } = portalPatientRoute.useParams();
     return <PortalTutor.Patient key={patientId} patientId={patientId} />;
   },
+});
+
+const portalBookingRoute = createRoute({
+  getParentRoute: () => portalRoute,
+  path: '/portal/agendar',
+  component: () => <PortalTutor.Booking />,
 });
 
 const portalSettingsRoute = createRoute({
@@ -1466,7 +1475,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   portalLoginRoute,
   portalLinkRoute,
-  portalRoute.addChildren([portalHomeRoute, portalPatientRoute]),
+  portalRoute.addChildren([portalHomeRoute, portalPatientRoute, portalBookingRoute]),
   printRoute.addChildren([printEventRoute]),
   appRoute.addChildren([
     homeRoute,

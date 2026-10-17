@@ -41,6 +41,7 @@
 - Pedido de compra por fornecedor, com sugestão do que repor, texto pronto para copiar, mandar no WhatsApp ou por e-mail, e recebimento que vira rascunho de compra.
 - Comissionamento: comissões em aberto por profissional, extratos que fecham em contas a pagar, com revisão, pagamento e arquivo, ajustes quando a venda muda, Minhas comissões para a equipe e configuração de base, critério, integração e quem recebe.
 - Portal do tutor: convite e recuperação de senha por link na ficha do cliente (para copiar ou mandar no WhatsApp), login próprio do tutor, animais com próximos agendamentos, peso, vacinas, exames e receitas conforme a clínica escolhe, bloqueio de acesso e lista de clientes com acesso.
+- Agendamento online no portal: a clínica escolhe os tipos, a antecedência e o alcance; o tutor marca um horário livre da escala para os seus animais e cancela o que marcou; a agenda mostra o selo "Pelo portal".
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

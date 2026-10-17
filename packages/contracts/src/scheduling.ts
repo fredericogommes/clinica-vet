@@ -274,6 +274,8 @@ export const appointmentSchema = z.object({
   nextStatuses: z.array(z.enum(appointmentStatuses)),
   editable: z.boolean(),
   fitIn: z.boolean(),
+  /** Marcado pelo tutor no portal [RN-44]. */
+  bookedOnline: z.boolean(),
   seriesId: z.uuid().nullable(),
   professional: z.object({ id: z.uuid(), name: z.string() }),
   client: z.object({
