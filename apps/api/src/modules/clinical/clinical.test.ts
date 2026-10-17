@@ -440,7 +440,7 @@ describe('linha do tempo [p.4]', () => {
       (await admin.get(`/api/clinical/patients/${thor.id}/timeline?cursor=lixo`)).statusCode,
     ).toBe(400);
     expect(
-      (await admin.get(`/api/clinical/patients/${thor.id}/timeline?kinds=vaccine`)).statusCode,
+      (await admin.get(`/api/clinical/patients/${thor.id}/timeline?kinds=video`)).statusCode,
     ).toBe(400);
   });
 });

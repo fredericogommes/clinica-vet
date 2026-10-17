@@ -1,4 +1,5 @@
 import {
+  doseLabel,
   emptyVitals,
   formatAge,
   formatCnpj,
@@ -10,6 +11,8 @@ import {
   type ClinicalSearchItem,
   type ExamForm,
   type ExamSeries,
+  type Protocol,
+  type VaccinationForm,
   type Patient,
   type Permission,
   type TemplatePlaceholder,
@@ -56,6 +59,7 @@ import {
   clinicalExamValues,
   clinicalFiles,
   clinicalTemplates,
+  clinicalVaccinations,
   clinicalVitals,
   exams,
   pathologies,
@@ -65,12 +69,14 @@ import {
   species,
   units,
   users,
+  vaccines,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
 import type { ExamService } from '../exams/service.js';
 import type { PatientService } from '../patients/service.js';
 import type { SaleService } from '../sales/service.js';
 import type { AppointmentService } from '../scheduling/appointment-service.js';
+import type { VaccineService } from '../vaccines/service.js';
 import { unitTimeZone } from '../scheduling/availability.js';
 import { renderTemplate } from './render.js';
 
@@ -97,6 +103,7 @@ export class ClinicalService {
     private readonly appointments: AppointmentService,
     private readonly sales: SaleService,
     private readonly exams: ExamService,
+    private readonly vaccines: VaccineService,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -243,6 +250,51 @@ export class ClinicalService {
     return this.exams.form(auth, examId, patient, on);
   }
 
+  /** Sugestão de dose e próxima data para a aplicação na data informada [RN-20]. */
+  async vaccinationForm(
+    auth: AuthContext,
+    patientId: string,
+    vaccineId: string,
+    occurredAt: string | undefined,
+  ): Promise<VaccinationForm> {
+    await this.assertPatient(this.db, auth, patientId);
+    const tz = await unitTimeZone(this.db, auth.unitId);
+    const on = instantToZoned(occurredAt ? new Date(occurredAt) : this.now(), tz).date;
+    return this.vaccines.form(auth, patientId, vaccineId, on);
+  }
+
+  /** Protocolos vacinais do animal com a situação de hoje na unidade [p.5]. */
+  async protocols(auth: AuthContext, patientId: string): Promise<Protocol[]> {
+    await this.assertPatient(this.db, auth, patientId);
+    const today = instantToZoned(this.now(), await unitTimeZone(this.db, auth.unitId)).date;
+    return this.vaccines.protocols(auth, patientId, today);
+  }
+
+  /** Encerra o protocolo de uma vacina no animal, com motivo, sem apagar as aplicações. */
+  async closeProtocol(
+    auth: AuthContext,
+    patientId: string,
+    vaccineId: string,
+    reason: string,
+  ): Promise<Protocol[]> {
+    await this.db.transaction(async (tx) => {
+      await this.lockActivePatient(tx, auth, patientId);
+      const current = await this.vaccines.protocols(auth, patientId, '0000-01-01', tx);
+      const protocol = current.find((p) => p.vaccine.id === vaccineId);
+      if (!protocol) throw notFound('Protocolo');
+      if (protocol.closure) throw conflict('Este protocolo já está encerrado.');
+      await this.vaccines.close(tx, auth, patientId, vaccineId, reason, this.now());
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'vaccine_protocol',
+        entityId: patientId,
+        action: 'close',
+        before: { vaccine: protocol.vaccine.name, nextDueOn: protocol.nextDueOn },
+        after: { vaccine: protocol.vaccine.name, closed: true, reason },
+      });
+    });
+    return this.protocols(auth, patientId);
+  }
+
   /** Evolução de um campo de exame no animal [p.14]. */
   async examSeries(auth: AuthContext, patientId: string, attributeId: string): Promise<ExamSeries> {
     await this.assertPatient(this.db, auth, patientId);
@@ -365,6 +417,7 @@ export class ClinicalService {
       });
       await this.writeDetails(tx, id, input, refs.pathologyIds);
       await this.writeExam(tx, auth, id, patientId, input, occurredAt, null);
+      await this.writeVaccination(tx, auth, id, patientId, input, occurredAt, null);
       if (publish) await this.charge(tx, auth, id, patientId, input, refs.typeId, auth.userId);
       const after = await this.get(auth, id, tx);
       await recordAudit(tx, actorOf(auth), {
@@ -407,6 +460,7 @@ export class ClinicalService {
         .where(eq(clinicalEvents.id, id));
       await this.writeDetails(tx, id, input, refs.pathologyIds);
       await this.writeExam(tx, auth, id, row.patientId, input, occurredAt, before);
+      await this.writeVaccination(tx, auth, id, row.patientId, input, occurredAt, before);
       if (row.status === 'draft' && publish) {
         await this.charge(tx, auth, id, row.patientId, input, refs.typeId, row.authorId);
       }
@@ -423,7 +477,8 @@ export class ClinicalService {
   }
 
   /**
-   * Atendimento finalizado lança o serviço do seu tipo, e resultado de exame o serviço do exame,
+   * Atendimento finalizado lança o serviço do seu tipo; resultado de exame e aplicação de vacina,
+   * o serviço do cadastro,
    * na venda aberta do animal, com o autor como profissional [RN-19]. Uma vez só por evento;
    * serviço arquivado, de consumo interno ou autor inativo não bloqueiam o prontuário: o
    * lançamento é que não acontece.
@@ -458,6 +513,16 @@ export class ClinicalService {
         .from(exams)
         .innerJoin(products, eq(products.id, exams.serviceId))
         .where(eq(exams.id, input.examId));
+    } else if (input.kind === 'vaccine') {
+      [type] = await tx
+        .select({
+          serviceId: vaccines.serviceId,
+          archivedAt: products.archivedAt,
+          purpose: products.purpose,
+        })
+        .from(vaccines)
+        .innerJoin(products, eq(products.id, vaccines.serviceId))
+        .where(eq(vaccines.id, input.vaccineId));
     }
     if (!type?.serviceId || type.archivedAt || type.purpose === 'internal') return;
     const [author] = await tx
@@ -924,6 +989,46 @@ export class ClinicalService {
     }
   }
 
+  /**
+   * Aplicação de vacina [RN-20]: a dose informada (sugerida pelo formulário) e a próxima data,
+   * que precisa vir depois da aplicação. Aplicar de novo reabre um protocolo encerrado.
+   */
+  private async writeVaccination(
+    tx: Executor,
+    auth: AuthContext,
+    eventId: string,
+    patientId: string,
+    input: ClinicalEventData,
+    occurredAt: Date,
+    before: ClinicalEvent | null,
+  ): Promise<void> {
+    if (input.kind !== 'vaccine') return;
+    const previous = before?.data.kind === 'vaccine' ? before.data.vaccine.id : null;
+    const { vaccine } = await this.vaccines.details(
+      tx,
+      auth,
+      patientId,
+      input.vaccineId,
+      eventId,
+      previous === input.vaccineId,
+    );
+    const appliedOn = instantToZoned(occurredAt, await unitTimeZone(tx, auth.unitId)).date;
+    if (input.nextDueOn !== null && input.nextDueOn <= appliedOn) {
+      throw invalid('nextDueOn', 'A próxima dose precisa ser depois da aplicação');
+    }
+    await tx.delete(clinicalVaccinations).where(eq(clinicalVaccinations.eventId, eventId));
+    await tx.insert(clinicalVaccinations).values({
+      eventId,
+      patientId,
+      vaccineId: vaccine.id,
+      doseNumber: input.doseNumber,
+      doseLabel: doseLabel(input.doseNumber, vaccine.primaryDoses),
+      lotNumber: input.lotNumber,
+      nextDueOn: input.nextDueOn,
+    });
+    await this.vaccines.reopen(tx, patientId, vaccine.id);
+  }
+
   /** Publicados e invalidados de todos; rascunhos só do próprio autor. */
   private visibleTo(auth: AuthContext, patientId: string): SQL {
     return and(
@@ -994,6 +1099,20 @@ export class ClinicalService {
           .where(inArray(clinicalExamValues.eventId, ids))
           .orderBy(asc(clinicalExamValues.position))
       : [];
+    const vaccinationRows = await db
+      .select({
+        eventId: clinicalVaccinations.eventId,
+        vaccineId: vaccines.id,
+        vaccineName: vaccines.name,
+        vaccineKind: vaccines.kind,
+        doseNumber: clinicalVaccinations.doseNumber,
+        doseLabel: clinicalVaccinations.doseLabel,
+        lotNumber: clinicalVaccinations.lotNumber,
+        nextDueOn: clinicalVaccinations.nextDueOn,
+      })
+      .from(clinicalVaccinations)
+      .innerJoin(vaccines, eq(vaccines.id, clinicalVaccinations.vaccineId))
+      .where(inArray(clinicalVaccinations.eventId, ids));
     const byId = new Map(
       rows.map(({ e, authorName, voiderName, typeName, templateName, patientArchivedAt }) => {
         const own = e.authorId === auth.userId;
@@ -1046,6 +1165,7 @@ export class ClinicalService {
               examRows.find((r) => r.eventId === e.id),
               examValueRows.filter((v) => v.eventId === e.id),
             ),
+            vaccination: vaccinationOf(vaccinationRows.find((r) => r.eventId === e.id)),
           }),
         };
         return [e.id, event] as const;
@@ -1108,6 +1228,7 @@ function payloadOf(input: ClinicalEventData): Record<string, string> {
     case 'prescription':
       return { title: input.title, body: input.body };
     case 'exam':
+    case 'vaccine':
       return { notes: input.notes };
   }
 }
@@ -1121,6 +1242,7 @@ function contentOf(
     typeName: string | null;
     templateName: string | null;
     exam: Omit<Extract<ClinicalEventContent, { kind: 'exam' }>, 'kind' | 'notes'> | null;
+    vaccination: Omit<Extract<ClinicalEventContent, { kind: 'vaccine' }>, 'kind' | 'notes'> | null;
   },
 ): ClinicalEventContent {
   const p = (e.payload ?? {}) as Record<string, unknown>;
@@ -1170,6 +1292,9 @@ function contentOf(
     case 'exam':
       if (!related.exam) throw new Error(`Evento ${e.id} de exame sem resultado.`);
       return { kind: 'exam', ...related.exam, notes: str('notes') };
+    case 'vaccine':
+      if (!related.vaccination) throw new Error(`Evento ${e.id} de vacina sem aplicação.`);
+      return { kind: 'vaccine', ...related.vaccination, notes: str('notes') };
   }
 }
 
@@ -1195,6 +1320,29 @@ function examResultOf(
   };
 }
 
+function vaccinationOf(
+  row:
+    | {
+        vaccineId: string;
+        vaccineName: string;
+        vaccineKind: Extract<ClinicalEventContent, { kind: 'vaccine' }>['vaccine']['kind'];
+        doseNumber: number;
+        doseLabel: string;
+        lotNumber: string;
+        nextDueOn: string | null;
+      }
+    | undefined,
+): Omit<Extract<ClinicalEventContent, { kind: 'vaccine' }>, 'kind' | 'notes'> | null {
+  if (!row) return null;
+  return {
+    vaccine: { id: row.vaccineId, name: row.vaccineName, kind: row.vaccineKind },
+    doseNumber: row.doseNumber,
+    dose: row.doseLabel,
+    lotNumber: row.lotNumber,
+    nextDueOn: row.nextDueOn,
+  };
+}
+
 /** Campos planos, para o log mostrar "campo: antes → depois" (sinais vitais um a um). */
 function snapshot(e: ClinicalEvent, patientId: string) {
   const content = e.data;
@@ -1204,6 +1352,7 @@ function snapshot(e: ClinicalEvent, patientId: string) {
     delete flat.vitals;
     Object.assign(flat, content.vitals);
   }
+  if (content.kind === 'vaccine') flat.vaccine = content.vaccine.name;
   if (content.kind === 'exam') {
     flat.exam = content.exam.name;
     flat.values = content.values

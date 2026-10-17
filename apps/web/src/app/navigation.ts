@@ -21,6 +21,7 @@ import {
   ShoppingCart,
   SlidersHorizontal,
   Signpost,
+  Syringe,
   Stethoscope,
   Tag,
   Users,
@@ -138,6 +139,12 @@ export const navigation: NavSection[] = [
         icon: ScrollText,
         permission: 'admin.audit.view',
       },
+      {
+        label: 'Vacinação',
+        to: '/consultas/vacinacao',
+        icon: Syringe,
+        permission: 'reports.vaccination',
+      },
     ],
   },
   {
@@ -171,6 +178,12 @@ export const navigation: NavSection[] = [
         label: 'Exames',
         to: '/cadastros/exames',
         icon: FlaskConical,
+        permission: 'catalogs.manage',
+      },
+      {
+        label: 'Vacinas',
+        to: '/cadastros/vacinas',
+        icon: Syringe,
         permission: 'catalogs.manage',
       },
       {

@@ -4,16 +4,19 @@ import {
   clinicalRecordSchema,
   clinicalSearchItemSchema,
   clinicalSearchQuerySchema,
+  closeProtocolSchema,
   examFormSchema,
   examSeriesQuerySchema,
   examSeriesSchema,
   pageSchema,
+  protocolSchema,
   PHOTO_MAX_BYTES,
   photoContentTypes,
   renderedTemplateSchema,
   renderQuerySchema,
   timelineQuerySchema,
   timelineSchema,
+  vaccinationFormSchema,
   voidEventSchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
@@ -41,6 +44,53 @@ export const clinicalRoutes: FastifyPluginAsyncZod<{ clinical: ClinicalService }
     (_request, body, done) => {
       done(null, body);
     },
+  );
+
+  app.get(
+    '/patients/:patientId/vaccination-form/:vaccineId',
+    {
+      config: { access: { kind: 'permission', permission: 'clinical.record' } },
+      schema: {
+        params: z.object({ patientId: z.uuid(), vaccineId: z.uuid() }),
+        querystring: z.object({ occurredAt: z.iso.datetime({ offset: true }).optional() }),
+        response: { 200: vaccinationFormSchema },
+      },
+    },
+    async (request) =>
+      clinical.vaccinationForm(
+        requireAuth(request),
+        request.params.patientId,
+        request.params.vaccineId,
+        request.query.occurredAt,
+      ),
+  );
+
+  app.get(
+    '/patients/:patientId/protocols',
+    {
+      config: { access: { kind: 'permission', permission: 'clinical.view' } },
+      schema: { params: patientParams, response: { 200: z.array(protocolSchema) } },
+    },
+    async (request) => clinical.protocols(requireAuth(request), request.params.patientId),
+  );
+
+  app.post(
+    '/patients/:patientId/protocols/:vaccineId/close',
+    {
+      config: { access: { kind: 'permission', permission: 'clinical.record' } },
+      schema: {
+        params: z.object({ patientId: z.uuid(), vaccineId: z.uuid() }),
+        body: closeProtocolSchema,
+        response: { 200: z.array(protocolSchema) },
+      },
+    },
+    async (request) =>
+      clinical.closeProtocol(
+        requireAuth(request),
+        request.params.patientId,
+        request.params.vaccineId,
+        request.body.reason,
+      ),
   );
 
   app.get(

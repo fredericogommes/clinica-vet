@@ -7,9 +7,12 @@ import {
   examListItemSchema,
   examSeriesSchema,
   pageSchema,
+  protocolSchema,
   pathologySchema,
   renderedTemplateSchema,
   timelineSchema,
+  vaccinationFormSchema,
+  vaccineSchema,
   type ClinicalEventKind,
 } from '@clinica/contracts';
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
@@ -131,4 +134,33 @@ export const examSeriesQuery = (patientId: string, attributeId: string) =>
         `/clinical/patients/${patientId}/exam-series?attributeId=${attributeId}`,
         examSeriesSchema,
       ),
+  });
+
+/** Vacinas do cadastro, para a aplicação na ficha e para Cadastros › Vacinas. */
+export const vaccinesQuery = queryOptions({
+  queryKey: ['catalogs', 'vaccines'],
+  queryFn: () => api('GET', '/vaccines', z.array(vaccineSchema)),
+  staleTime: 60_000,
+});
+
+/** Dose sugerida e próxima data para a aplicação na data informada. */
+export const vaccinationFormQuery = (patientId: string, vaccineId: string, occurredAt: string) =>
+  queryOptions({
+    queryKey: ['clinical', 'vaccination-form', patientId, vaccineId, occurredAt],
+    queryFn: () => {
+      const search = occurredAt ? `?${new URLSearchParams({ occurredAt }).toString()}` : '';
+      return api(
+        'GET',
+        `/clinical/patients/${patientId}/vaccination-form/${vaccineId}${search}`,
+        vaccinationFormSchema,
+      );
+    },
+    enabled: vaccineId !== '',
+  });
+
+/** Protocolos do animal; muda a cada aplicação, por isso fica sob a chave da linha do tempo. */
+export const protocolsQuery = (patientId: string) =>
+  queryOptions({
+    queryKey: ['clinical', 'timeline', patientId, 'protocols'],
+    queryFn: () => api('GET', `/clinical/patients/${patientId}/protocols`, z.array(protocolSchema)),
   });

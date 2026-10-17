@@ -612,6 +612,7 @@ export const clinicalEvents = pgTable(
         'document',
         'prescription',
         'exam',
+        'vaccine',
       ],
     }).notNull(),
     status: text('status', { enum: ['draft', 'published', 'voided'] }).notNull(),
@@ -1396,4 +1397,78 @@ export const clinicalExamValues = pgTable(
         or (${t.dataType} <> 'text' and ${t.numericValue} is not null and ${t.textValue} is null)`,
     ),
   ],
+);
+
+/**
+ * Vacina, vermífugo ou antiparasitário do cadastro [RN-20]: a série inicial e o reforço definem
+ * a próxima dose sugerida na aplicação.
+ */
+export const vaccines = pgTable(
+  'vaccines',
+  {
+    ...catalogColumns,
+    kind: text('kind', { enum: ['vaccine', 'dewormer', 'antiparasitic'] }).notNull(),
+    primaryDoses: smallint('primary_doses').notNull(),
+    primaryIntervalDays: smallint('primary_interval_days'),
+    boosterIntervalDays: smallint('booster_interval_days'),
+    serviceId: uuid('service_id').references((): AnyPgColumn => products.id),
+  },
+  (t) => [
+    uniqueIndex('vaccines_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    check(
+      'vaccines_doses_ck',
+      sql`${t.primaryDoses} between 1 and 6
+        and (${t.primaryDoses} = 1 or ${t.primaryIntervalDays} is not null)
+        and (${t.primaryIntervalDays} is null or ${t.primaryIntervalDays} between 1 and 1095)
+        and (${t.boosterIntervalDays} is null or ${t.boosterIntervalDays} between 1 and 1095)`,
+    ),
+  ],
+);
+
+/** Aplicação registrada na ficha: um por evento clínico do tipo vacina. */
+export const clinicalVaccinations = pgTable(
+  'clinical_vaccinations',
+  {
+    eventId: uuid('event_id')
+      .primaryKey()
+      .references(() => clinicalEvents.id, { onDelete: 'cascade' }),
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    vaccineId: uuid('vaccine_id')
+      .notNull()
+      .references(() => vaccines.id),
+    doseNumber: smallint('dose_number').notNull(),
+    /** "2ª dose" ou "Reforço", pela série do cadastro no dia da aplicação. */
+    doseLabel: text('dose_label').notNull(),
+    lotNumber: text('lot_number').notNull().default(''),
+    nextDueOn: date('next_due_on', { mode: 'string' }),
+  },
+  (t) => [
+    index('clinical_vaccinations_patient_idx').on(t.patientId, t.vaccineId),
+    index('clinical_vaccinations_due_idx').on(t.nextDueOn),
+    check('clinical_vaccinations_dose_ck', sql`${t.doseNumber} between 1 and 50`),
+  ],
+);
+
+/**
+ * Protocolo encerrado pelo veterinário (animal não volta, troca de vacina). Uma aplicação
+ * posterior ao encerramento reabre o protocolo.
+ */
+export const vaccineProtocolClosures = pgTable(
+  'vaccine_protocol_closures',
+  {
+    patientId: uuid('patient_id')
+      .notNull()
+      .references(() => patients.id),
+    vaccineId: uuid('vaccine_id')
+      .notNull()
+      .references(() => vaccines.id),
+    closedAt: timestamp('closed_at', { withTimezone: true }).notNull(),
+    closedBy: uuid('closed_by')
+      .notNull()
+      .references(() => users.id),
+    reason: text('reason').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.patientId, t.vaccineId] })],
 );
