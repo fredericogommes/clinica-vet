@@ -31,6 +31,10 @@
 - Painel de controle na tela Início: indicadores (animais, responsáveis, venda líquida, débitos de clientes, descontos, ticket médio, médias de espera e atendimento, arquivos) e widgets de animais por mês e por ano, consultas por mês, últimos atendimentos, últimos animais, ciclo de vida dos clientes, estoque abaixo do mínimo e últimos acessos. Cada perfil vê só o que libera, e cada usuário liga, desliga e reordena os widgets em Configurar.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
+### Corrigido
+
+- O campo "Serviço cobrado" do tipo de atendimento lista todos os serviços, não só os 100 primeiros.
+
 ### Segurança
 
 - Bloqueio de login por e-mail após 5 falhas em 15 minutos, além do limite por IP.

@@ -23,11 +23,24 @@ import { applyFieldErrors } from '../../lib/forms';
 import { appointmentTypesQuery } from '../schedule/queries';
 import { PlaceholderHelp } from './clinical-catalog-pages';
 
-/** Serviços ativos, para ligar ao tipo de atendimento [RN-19]. */
+/**
+ * Serviços ativos, para ligar ao tipo de atendimento [RN-19]. Busca todas as páginas: a lista
+ * aceita no máximo 100 por vez, e a clínica pode ter mais serviços que isso.
+ */
 const servicesQuery = queryOptions({
   queryKey: ['products', 'list', 'services-for-types'],
-  queryFn: () =>
-    api('GET', '/products?kind=service&pageSize=100', pageSchema(productListItemSchema)),
+  queryFn: async () => {
+    const items = [];
+    for (let page = 1; ; page++) {
+      const result = await api(
+        'GET',
+        `/products?kind=service&pageSize=100&page=${String(page)}`,
+        pageSchema(productListItemSchema),
+      );
+      items.push(...result.items);
+      if (result.items.length === 0 || items.length >= result.total) return items;
+    }
+  },
   retry: false,
 });
 
@@ -200,7 +213,7 @@ function TypeDialog({ type, onClose }: { type: AppointmentType | null; onClose: 
           control={form.control}
           name="serviceId"
           render={({ field }) => {
-            const options = (services.data?.items ?? []).map((p) => ({
+            const options = (services.data ?? []).map((p) => ({
               value: p.id,
               label: p.name,
             }));
