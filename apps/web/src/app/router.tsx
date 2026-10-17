@@ -1,4 +1,5 @@
 import {
+  clientPackageStatuses,
   commissionStatementSituations,
   messageTriggers,
   productKinds,
@@ -114,6 +115,9 @@ const MySalesPage = lazy(() =>
 );
 const ClientRankingPage = lazy(() =>
   import('../features/sales/reports-page').then((m) => ({ default: m.ClientRankingPage })),
+);
+const PackagesPage = lazy(() =>
+  import('../features/sales/packages-page').then((m) => ({ default: m.PackagesPage })),
 );
 const ClientDebtsPage = lazy(() =>
   import('../features/sales/debts-pages').then((m) => ({ default: m.ClientDebtsPage })),
@@ -1444,6 +1448,27 @@ const clientRankingRoute = createRoute({
   },
 });
 
+const packagesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/pacotes',
+  validateSearch: z.object({
+    q: z.string().max(100).optional().catch(undefined),
+    situacao: z.enum(clientPackageStatuses).optional().catch(undefined),
+    cliente: z.uuid().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function Packages() {
+    const s = packagesRoute.useSearch();
+    return (
+      <RequirePermission permission="sales.packages">
+        <PackagesPage
+          search={{ q: s.q ?? '', status: s.situacao, clientId: s.cliente, page: s.page ?? 1 }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 /** Busca, cliente e "só vencidos" na URL: o Saldo dos clientes abre os débitos de um cliente. */
 const clientDebtsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -1599,6 +1624,7 @@ const routeTree = rootRoute.addChildren([
     salesReportRoute,
     mySalesRoute,
     clientRankingRoute,
+    packagesRoute,
     clientDebtsRoute,
     clientBalancesRoute,
     cashListRoute,

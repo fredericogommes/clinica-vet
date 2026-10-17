@@ -2,6 +2,7 @@ import type { Permission } from '@clinica/contracts';
 import {
   Trophy,
   Banknote,
+  Layers,
   BookUser,
   Activity,
   ArrowLeftRight,
@@ -113,6 +114,12 @@ export const navigation: NavSection[] = [
         to: '/vendas/ranking-clientes',
         icon: Trophy,
         permission: 'sales.ranking',
+      },
+      {
+        label: 'Pacotes vendidos',
+        to: '/vendas/pacotes',
+        icon: Layers,
+        permission: 'sales.packages',
       },
       {
         label: 'Recebimentos',

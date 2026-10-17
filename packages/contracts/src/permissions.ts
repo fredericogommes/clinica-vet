@@ -118,6 +118,10 @@ export const permissionCatalog = {
     group: 'Vendas',
     label: 'Ver o saldo dos clientes e receber o que está pendurado (Recebimentos)',
   },
+  'sales.packages': {
+    group: 'Vendas',
+    label: 'Ver os pacotes vendidos e registrar ou desfazer as sessões usadas',
+  },
   'sales.ranking': {
     group: 'Vendas',
     label: 'Ver o ranking de clientes (curva ABC) com o valor comprado por cliente',

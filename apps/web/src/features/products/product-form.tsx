@@ -18,13 +18,15 @@ import {
 } from '@clinica/contracts';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Search, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch, type Resolver } from 'react-hook-form';
 import { Button } from '../../design-system/button';
 import { Checkbox } from '../../design-system/checkbox';
-import { Segmented, SelectField, TextField } from '../../design-system/field';
+import { SearchField, Segmented, SelectField, TextField } from '../../design-system/field';
 import { Section } from '../../design-system/layout';
 import { applyFieldErrors, emptyToNull } from '../../lib/forms';
+import { useDebounced } from '../../lib/use-debounced';
 import { catalogQuery } from '../catalogs/queries';
 import {
   formatMoney,
@@ -34,7 +36,7 @@ import {
   percentInput,
   quantityInput,
 } from './format';
-import { professionalsQuery } from './queries';
+import { packageServicesQuery, professionalsQuery } from './queries';
 
 type NumberField =
   | 'salePrice'
@@ -46,8 +48,15 @@ type NumberField =
   | 'idealStock';
 
 /** Números ficam como texto no formulário, para aceitar vírgula; viram número só ao validar. */
-export type ProductFormValues = Omit<ProductInput, NumberField | 'commissions'> &
-  Record<NumberField, string> & { commissions: { userId: string; percent: string }[] };
+export type ProductFormValues = Omit<ProductInput, NumberField | 'commissions' | 'package'> &
+  Record<NumberField, string> & {
+    commissions: { userId: string; percent: string }[];
+    /** Pacote [p.10]: serviço incluído, sessões e validade em dias, como texto. */
+    packageServiceId: string;
+    packageServiceName: string;
+    packageSessions: string;
+    packageValidityDays: string;
+  };
 
 export const emptyProduct: ProductFormValues = {
   kind: 'product',
@@ -77,6 +86,10 @@ export const emptyProduct: ProductFormValues = {
   tracksLots: false,
   minStock: '',
   idealStock: '',
+  packageServiceId: '',
+  packageServiceName: '',
+  packageSessions: '',
+  packageValidityDays: '',
 };
 
 export function productToForm(p: Product): ProductFormValues {
@@ -111,6 +124,10 @@ export function productToForm(p: Product): ProductFormValues {
     tracksLots: p.tracksLots,
     minStock: quantityInput(p.minStock),
     idealStock: quantityInput(p.idealStock),
+    packageServiceId: p.package?.service.id ?? '',
+    packageServiceName: p.package?.service.name ?? '',
+    packageSessions: p.package ? String(p.package.sessions) : '',
+    packageValidityDays: p.package?.validityDays ? String(p.package.validityDays) : '',
   };
 }
 
@@ -118,8 +135,19 @@ export function productToForm(p: Product): ProductFormValues {
 const required = (text: string) => parseDecimal(text) ?? Number.NaN;
 
 export function formToInput(v: ProductFormValues): ProductInput {
+  // O nome do serviço só serve à tela; o contrato descarta campos que não conhece.
+  const { packageServiceId, packageSessions, packageValidityDays, ...rest } = v;
+  const isPackage = v.kind === 'service' && v.serviceKind === 'package';
   return {
-    ...v,
+    ...rest,
+    package:
+      isPackage && packageServiceId
+        ? {
+            serviceId: packageServiceId,
+            sessions: required(packageSessions),
+            validityDays: parseDecimal(packageValidityDays),
+          }
+        : null,
     salePrice: required(v.salePrice),
     cost: parseDecimal(v.cost),
     desiredMarkup: parseDecimal(v.desiredMarkup),
@@ -160,10 +188,40 @@ export function ProductForm({
   const form = useForm<ProductFormValues, unknown, ProductData>({ resolver, defaultValues });
   const { errors } = form.formState;
   const commissions = useFieldArray({ control: form.control, name: 'commissions' });
-  const [kind, tracksStock, salePrice, cost, desiredMarkup, picked] = useWatch({
+  const [kind, serviceKind, tracksStock, salePrice, cost, desiredMarkup, picked] = useWatch({
     control: form.control,
-    name: ['kind', 'tracksStock', 'salePrice', 'cost', 'desiredMarkup', 'commissions'],
+    name: [
+      'kind',
+      'serviceKind',
+      'tracksStock',
+      'salePrice',
+      'cost',
+      'desiredMarkup',
+      'commissions',
+    ],
   });
+  // Serviços que podem entrar num pacote: ativos e que não são pacote.
+  const [serviceSearch, setServiceSearch] = useState('');
+  const serviceTerm = useDebounced(serviceSearch.trim());
+  const services = useQuery({
+    ...packageServicesQuery(serviceTerm),
+    enabled: kind === 'service' && serviceKind === 'package',
+  });
+  const packageServices = (services.data ?? []).map((p) => ({ value: p.id, label: p.name }));
+  if (
+    defaultValues.packageServiceId &&
+    !packageServices.some((o) => o.value === defaultValues.packageServiceId)
+  ) {
+    packageServices.push({
+      value: defaultValues.packageServiceId,
+      label: defaultValues.packageServiceName,
+    });
+  }
+  const packageErrors = (
+    errors as {
+      package?: Partial<Record<'serviceId' | 'sessions' | 'validityDays', { message?: string }>>;
+    }
+  ).package;
   const groups = useQuery(catalogQuery('product-groups'));
   const brands = useQuery(catalogQuery('product-brands'));
   const professionals = useQuery({ ...professionalsQuery(), enabled: !readOnly });
@@ -312,6 +370,51 @@ export function ProductForm({
             />
           </div>
         </Section>
+        {service && serviceKind === 'package' ? (
+          <Section
+            title="Pacote"
+            description="A venda baixada abre o pacote do cliente, e cada sessão usada é registrada em Vendas › Pacotes vendidos."
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="sm:col-span-3">
+                <SearchField
+                  label="Buscar serviço"
+                  placeholder="Nome ou código do serviço"
+                  icon={<Search className="size-4" aria-hidden />}
+                  value={serviceSearch}
+                  onChange={(e) => {
+                    setServiceSearch(e.target.value);
+                  }}
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <SelectField
+                  label="Serviço do pacote"
+                  placeholder="Escolha o serviço"
+                  options={packageServices}
+                  error={packageErrors?.serviceId?.message}
+                  {...form.register('packageServiceId')}
+                />
+              </div>
+              <TextField
+                label="Sessões"
+                inputMode="numeric"
+                autoComplete="off"
+                hint="De 2 a 100."
+                error={packageErrors?.sessions?.message}
+                {...form.register('packageSessions')}
+              />
+              <TextField
+                label="Validade (dias)"
+                inputMode="numeric"
+                autoComplete="off"
+                hint="Contada do dia da venda. Em branco, não vence."
+                error={packageErrors?.validityDays?.message}
+                {...form.register('packageValidityDays')}
+              />
+            </div>
+          </Section>
+        ) : null}
 
         <Section
           title="Custo e preço"
