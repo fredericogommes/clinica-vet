@@ -21,3 +21,4 @@ export * from './messaging.js';
 export * from './finance.js';
 export * from './purchases.js';
 export * from './stock-ops.js';
+export * from './stock-analysis.js';

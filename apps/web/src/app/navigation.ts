@@ -9,6 +9,7 @@ import {
   Truck,
   BellRing,
   BarChart3,
+  ChartColumn,
   CalendarClock,
   CalendarDays,
   ClipboardList,
@@ -205,6 +206,12 @@ export const navigation: NavSection[] = [
         to: '/estoque/inventario',
         icon: ClipboardCheck,
         permission: 'inventory.counts',
+      },
+      {
+        label: 'Análise de estoque',
+        to: '/estoque/analise',
+        icon: ChartColumn,
+        permission: 'inventory.analysis',
       },
       {
         label: 'Grupos de produtos',

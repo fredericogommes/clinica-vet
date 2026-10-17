@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { stockIndicatorsSchema } from './stock-analysis.js';
 
 /**
  * Estoque por unidade com reserva na venda [RN-31, D4]: o saldo nunca fica negativo. A venda em
@@ -132,6 +133,8 @@ export const productStockSchema = z.object({
   lots: z.array(stockLotSchema),
   /** Entradas e saídas dos últimos 3 meses [p.17]. */
   movements: z.array(stockMovementSchema),
+  /** Situação, consumo, duração e excesso, como na análise de estoque. */
+  indicators: stockIndicatorsSchema,
   canAdjust: z.boolean(),
 });
 export type ProductStock = z.infer<typeof productStockSchema>;

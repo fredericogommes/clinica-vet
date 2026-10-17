@@ -31,6 +31,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import { productIndicators } from './analysis.js';
 import { expiryState, fefo, legacyLot, lotExpiry, unitToday } from './lots.js';
 
 const qty = (milli: number) =>
@@ -935,6 +936,14 @@ export class InventoryService {
           .map((l) => ({ code: l.code, quantity: l.quantity })),
         by: m.by,
       })),
+      indicators: await productIndicators(
+        executor,
+        auth.organizationId,
+        auth.unitId,
+        productId,
+        this.now(),
+        auth.permissions.has('products.view_cost'),
+      ),
       canAdjust: auth.permissions.has('inventory.adjust'),
     };
     return result;

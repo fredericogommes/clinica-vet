@@ -1,10 +1,12 @@
 import {
+  stockAnalysisSchema,
   stockCountListSchema,
   stockCountSchema,
   stockExitListSchema,
   stockExitSchema,
   stockOptionsSchema,
   type StockExitReason,
+  type StockSituation,
 } from '@clinica/contracts';
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import { api } from '../../lib/api';
@@ -56,4 +58,24 @@ export const stockCountQuery = (id: string) =>
   queryOptions({
     queryKey: ['stock', 'count', id],
     queryFn: () => api('GET', `/stock/counts/${id}`, stockCountSchema),
+  });
+
+export interface StockAnalysisSearch {
+  situacao: StockSituation | undefined;
+  grupo: string | undefined;
+  q: string;
+  page: number;
+}
+
+export const stockAnalysisQuery = (s: StockAnalysisSearch) =>
+  queryOptions({
+    queryKey: ['stock', 'analysis', s],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(s.page) });
+      if (s.situacao) params.set('situacao', s.situacao);
+      if (s.grupo) params.set('grupo', s.grupo);
+      if (s.q) params.set('q', s.q);
+      return api('GET', `/stock/analysis?${params.toString()}`, stockAnalysisSchema);
+    },
+    placeholderData: keepPreviousData,
   });

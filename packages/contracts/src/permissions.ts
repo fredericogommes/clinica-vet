@@ -75,6 +75,10 @@ export const permissionCatalog = {
     group: 'Estoque e serviços',
     label: 'Fazer inventário e aplicar a contagem ao estoque',
   },
+  'inventory.analysis': {
+    group: 'Estoque e serviços',
+    label: 'Ver a análise de estoque (repor, excesso, parado, novos e adequado)',
+  },
   'purchases.view': { group: 'Estoque e serviços', label: 'Ver compras e notas de entrada' },
   'purchases.manage': {
     group: 'Estoque e serviços',

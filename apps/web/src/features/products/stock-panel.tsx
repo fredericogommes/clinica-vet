@@ -2,6 +2,7 @@ import {
   lotTraceSchema,
   productStockSchema,
   stockMovementLabels,
+  stockSituationLabels,
   type ProductStock,
   type SaleUnit,
   type StockLot,
@@ -18,7 +19,8 @@ import { ErrorState, SkeletonRows } from '../../design-system/states';
 import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { formatCalendarDate, formatDateTime } from '../../lib/format';
-import { parseDecimal, quantityInput } from './format';
+import { durationLabel, situationTones } from '../stock/situation';
+import { formatMoney, parseDecimal, quantityInput } from './format';
 
 export const productStockQuery = (id: string) =>
   queryOptions({
@@ -138,6 +140,39 @@ export function ProductStockPanel({ productId, unit }: { productId: string; unit
                     s.idealStock === null ? '—' : q(s.idealStock)
                   }`,
           },
+          {
+            label: 'Situação',
+            value: s.indicators.situation ? (
+              <Badge tone={situationTones[s.indicators.situation]}>
+                {stockSituationLabels[s.indicators.situation]}
+              </Badge>
+            ) : (
+              'Sem saldo e sem giro'
+            ),
+          },
+          {
+            label: 'Média mensal de consumo',
+            value: q(s.indicators.monthlyConsumption),
+          },
+          { label: 'Duração estimada', value: durationLabel(s.indicators.durationDays) },
+          ...(s.indicators.totalCost !== null
+            ? [{ label: 'Custo total em estoque', value: formatMoney(s.indicators.totalCost) }]
+            : []),
+          ...(s.indicators.excess !== null
+            ? [
+                {
+                  label: 'Excesso',
+                  value: (
+                    <span className="text-amber-700">
+                      {q(s.indicators.excess)}
+                      {s.indicators.excessCost !== null
+                        ? ` · ${formatMoney(s.indicators.excessCost)}`
+                        : ''}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
       {s.tracksLots ? (
