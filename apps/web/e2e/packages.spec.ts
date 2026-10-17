@@ -5,7 +5,7 @@ import { ADMIN_STATE, run, sidebar, toasts } from './helpers';
 test.use({ storageState: ADMIN_STATE });
 
 // Sufixo próprio: a busca por `run` em outros testes não deve achar estes cadastros.
-const tag = [...run].reverse().join('');
+const tag = Array.from(run).reverse().join('');
 
 /** Cliente com animal e o serviço avulso que o pacote vai conter, via API. */
 async function seed(page: Page) {
