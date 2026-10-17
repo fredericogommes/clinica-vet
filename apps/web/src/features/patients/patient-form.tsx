@@ -1,15 +1,18 @@
 import {
+  insurerOptionSchema,
   patientInputSchema,
   type Patient,
   type PatientData,
   type PatientInput,
 } from '@clinica/contracts';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery } from '@tanstack/react-query';
 import { Controller, useForm, useWatch } from 'react-hook-form';
+import { z } from 'zod';
 import { Checkbox } from '../../design-system/checkbox';
 import { Segmented, SelectField, TextField } from '../../design-system/field';
 import { Section } from '../../design-system/layout';
+import { api } from '../../lib/api';
 import { applyFieldErrors } from '../../lib/forms';
 import { breedsQuery, catalogQuery } from '../catalogs/queries';
 import { patientSexLabels } from './labels';
@@ -29,7 +32,13 @@ export const emptyPatient: PatientInput = {
   hasPedigree: false,
   pedigreeNumber: '',
   markings: [],
+  insurance: null,
 };
+
+const insurerOptionsQuery = queryOptions({
+  queryKey: ['insurers', 'options'],
+  queryFn: () => api('GET', '/insurers/options', z.array(insurerOptionSchema)),
+});
 
 export function patientToInput(p: Patient): PatientInput {
   return {
@@ -46,6 +55,13 @@ export function patientToInput(p: Patient): PatientInput {
     hasPedigree: p.hasPedigree,
     pedigreeNumber: p.pedigreeNumber ?? '',
     markings: p.markings,
+    insurance: p.insurance
+      ? {
+          insurerId: p.insurance.insurerId,
+          cardNumber: p.insurance.cardNumber,
+          validUntil: p.insurance.validUntil ?? '',
+        }
+      : null,
   };
 }
 
@@ -61,11 +77,14 @@ const visible = <T extends { id: string; archived: boolean }>(
 export function PatientForm({
   formId,
   defaultValues,
+  currentInsurer = null,
   errorPrefix = '',
   onSubmit,
 }: {
   formId: string;
   defaultValues: PatientInput;
+  /** Convênio do plano atual, que continua na lista mesmo arquivado. */
+  currentInsurer?: { id: string; name: string } | null;
   /** Prefixo dos caminhos de erro na resposta da API, ex. "patient." na criação. */
   errorPrefix?: string;
   onSubmit: (data: PatientData, setServerErrors: (error: unknown) => void) => void;
@@ -75,10 +94,17 @@ export function PatientForm({
     defaultValues,
   });
   const { errors } = form.formState;
-  const [status, speciesId, hasPedigree] = useWatch({
+  const [status, speciesId, hasPedigree, insurance] = useWatch({
     control: form.control,
-    name: ['status', 'speciesId', 'hasPedigree'],
+    name: ['status', 'speciesId', 'hasPedigree', 'insurance'],
   });
+  const insurers = useQuery(insurerOptionsQuery);
+  const insurerOptions = [
+    ...(insurers.data ?? []),
+    ...(currentInsurer && !insurers.data?.some((i) => i.id === currentInsurer.id)
+      ? [currentInsurer]
+      : []),
+  ];
   const species = useQuery(catalogQuery('species'));
   const coats = useQuery(catalogQuery('coats'));
   const breeds = useQuery({ ...breedsQuery(speciesId ?? ''), enabled: Boolean(speciesId) });
@@ -282,6 +308,54 @@ export function PatientForm({
               />
             ) : null}
           </div>
+        </div>
+      </Section>
+
+      <Section title="Plano de saúde">
+        <div className="space-y-4">
+          <Checkbox
+            label="Possui plano de saúde"
+            description="Com o plano, a venda do animal pode sair pela tabela do convênio."
+            checked={insurance !== null && insurance !== undefined}
+            onCheckedChange={(checked) => {
+              form.setValue(
+                'insurance',
+                checked ? { insurerId: '', cardNumber: '', validUntil: '' } : null,
+                { shouldDirty: true },
+              );
+              form.clearErrors('insurance');
+            }}
+          />
+          {insurance ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <SelectField
+                label="Convênio"
+                placeholder={
+                  insurers.isPending
+                    ? 'Carregando…'
+                    : insurerOptions.length === 0
+                      ? 'Nenhum convênio cadastrado'
+                      : 'Escolha o convênio'
+                }
+                options={insurerOptions.map((i) => ({ value: i.id, label: i.name }))}
+                error={errors.insurance?.insurerId?.message}
+                {...form.register('insurance.insurerId')}
+              />
+              <TextField
+                label="Carteirinha"
+                autoComplete="off"
+                error={errors.insurance?.cardNumber?.message}
+                {...form.register('insurance.cardNumber')}
+              />
+              <TextField
+                label="Validade"
+                type="date"
+                hint="Vazia, o plano vale sem prazo."
+                error={errors.insurance?.validUntil?.message}
+                {...form.register('insurance.validUntil')}
+              />
+            </div>
+          ) : null}
         </div>
       </Section>
     </form>

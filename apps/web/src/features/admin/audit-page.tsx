@@ -37,6 +37,8 @@ const entityLabels: Record<string, string> = {
   prescription_template: 'Modelo de prescrição',
   sales_settings: 'Configuração de vendas',
   payment_method: 'Forma de recebimento',
+  insurer: 'Convênio',
+  insurer_prices: 'Tabela de preços do convênio',
   cash_session: 'Caixa',
   financial_account: 'Conta financeira',
   financial_category: 'Categoria financeira',

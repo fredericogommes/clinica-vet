@@ -37,6 +37,7 @@ import {
   PackageMinus,
   PackagePlus,
   ClipboardCheck,
+  ShieldPlus,
   MessageCircle,
   Palette,
   PawPrint,
@@ -189,6 +190,17 @@ export const navigation: NavSection[] = [
         to: '/vendas/configuracao',
         icon: SlidersHorizontal,
         permission: 'sales.configure',
+      },
+    ],
+  },
+  {
+    label: 'Convênios',
+    items: [
+      {
+        label: 'Convênios',
+        to: '/convenios',
+        icon: ShieldPlus,
+        permission: 'insurers.configure',
       },
     ],
   },

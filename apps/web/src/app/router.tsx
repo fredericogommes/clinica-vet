@@ -156,6 +156,12 @@ const CashListPage = lazy(() =>
 const CashPage = lazy(() =>
   import('../features/cash/cash-pages').then((m) => ({ default: m.CashPage })),
 );
+const InsurersPage = lazy(() =>
+  import('../features/insurers/insurers-page').then((m) => ({ default: m.InsurersPage })),
+);
+const InsurerPricesPage = lazy(() =>
+  import('../features/insurers/prices-page').then((m) => ({ default: m.InsurerPricesPage })),
+);
 const PaymentMethodsPage = lazy(() =>
   import('../features/sales/payment-methods-page').then((m) => ({
     default: m.PaymentMethodsPage,
@@ -1435,6 +1441,29 @@ const paymentMethodsRoute = createRoute({
   ),
 });
 
+const insurersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/convenios',
+  component: () => (
+    <RequirePermission permission="insurers.configure">
+      <InsurersPage />
+    </RequirePermission>
+  ),
+});
+
+const insurerPricesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/convenios/$insurerId',
+  component: function InsurerPricesRoute() {
+    const { insurerId } = insurerPricesRoute.useParams();
+    return (
+      <RequirePermission permission="insurers.configure">
+        <InsurerPricesPage id={insurerId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const optionalDate = z.iso.date().optional().catch(undefined);
 
 /** Período, aba e filtros na URL: o link copiado abre a mesma consulta. */
@@ -1749,6 +1778,8 @@ const routeTree = rootRoute.addChildren([
     pdvRoute,
     salesSettingsRoute,
     paymentMethodsRoute,
+    insurersRoute,
+    insurerPricesRoute,
     salesReportRoute,
     mySalesRoute,
     clientRankingRoute,

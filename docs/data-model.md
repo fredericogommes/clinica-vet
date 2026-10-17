@@ -81,6 +81,8 @@ A disponibilidade é a interseção do funcionamento com o horário fixo ou os t
 | `hospitalization_prescriptions` | Prescrição da internação            | Medicamento, dose e unidade, concentração, via, intervalo, primeiro horário, duração e suspensão com motivo; os horários são calculados                                                                 |
 | `hospitalization_executions`    | Execução de um horário              | Programado × executado, situação, motivo ou observação, quem registrou e o peso, a quantidade e o volume calculados; um por horário                                                                     |
 | `prescription_templates`        | Modelo de prescrição                | Nome único na clínica e os itens (medicamento, dose, via, intervalo, duração) em JSON, validados pelo contrato ao salvar e ao usar                                                                      |
+| `insurers`                      | Convênio                            | Nome único na clínica, CNPJ opcional, prazo de repasse, coparticipação do tutor e autorização prévia padrão; arquivado não vale para novos planos                                                       |
+| `insurer_prices`                | Tabela de preços do convênio        | Um preço por convênio e item do catálogo, com coparticipação própria opcional e se exige autorização                                                                                                    |
 | `sales_settings`                | Parâmetros de venda                 | Limite de desconto da clínica (padrão 10%) e tipo de venda padrão; `users.discount_limit_percent` sobrepõe o limite por pessoa                                                                          |
 
 | Tabela             | Papel                                                  | Regras principais                                                                                                                                                                                                                           |
@@ -150,6 +152,8 @@ A saída grava movimentos `exit` (e `exit_cancel` no cancelamento) com `exit_id`
 `sale_payments.cash_session_id` aponta o caixa que recebeu e `reversed_at` marca o pagamento devolvido no estorno (migração 0008, que também deixa a venda estornada guardar a baixa original).
 
 A migração 0024 cria a conta do cliente: o tipo `account` em `payment_methods` (sem taxa) e a forma "Conta do cliente" em cada organização, `sale_payments.settles_payment_id` para os recebimentos que abatem a conta (sem caixa no pagamento pendurado, `cash_session_id` nulo) e a origem `client_account` em `financial_entries`, a receita em aberto que o recebimento abate e cancela na quitação.
+
+A migração 0029 cria `insurers` e `insurer_prices` e acrescenta o plano de saúde em `patients` (`insurer_id`, `insurance_card_number` e `insurance_valid_until`), com checagem de que convênio e carteirinha vêm juntos e validade só com convênio.
 
 A migração 0028 cria `prescription_templates`, com índice único por organização e nome sem diferenciar maiúsculas, e o histórico da internação passa a aceitar o registro `message` (mensagem ao tutor), sem mudança no banco porque o tipo é validado na aplicação.
 
