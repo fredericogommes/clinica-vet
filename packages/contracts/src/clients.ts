@@ -142,6 +142,15 @@ const storedContactSchema = z.object({
   isWhatsapp: z.boolean(),
 });
 
+/** Curva ABC [RN-10]: A até 80% do valor comprado acumulado, B até 95%, C o restante. */
+export const abcClasses = ['A', 'B', 'C'] as const;
+export type AbcClass = (typeof abcClasses)[number];
+export const abcClassHints: Record<AbcClass, string> = {
+  A: 'Clientes que somam os primeiros 80% do valor comprado',
+  B: 'Clientes que levam o acumulado de 80% a 95%',
+  C: 'Clientes dos últimos 5% do valor comprado',
+};
+
 export const clientSchema = z.object({
   id: z.uuid(),
   code: z.number().int(),
@@ -172,6 +181,8 @@ export const clientSchema = z.object({
   patients: z.array(patientSummarySchema),
   archived: z.boolean(),
   createdAt: z.string(),
+  /** Classe na curva ABC dos últimos 12 meses; nula sem compras no período [RN-10]. */
+  abcClass: z.enum(abcClasses).nullable(),
 });
 export type Client = z.infer<typeof clientSchema>;
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { abcClasses } from './clients.js';
 import { paymentKinds } from './payments.js';
 import { productKinds, saleUnits } from './products.js';
 import { saleStatuses } from './sales.js';
@@ -131,3 +132,29 @@ export const mySalesSchema = z.object({
   truncated: z.boolean(),
 });
 export type MySales = z.infer<typeof mySalesSchema>;
+
+/** Ranking de clientes [p.10, RN-10]: valor líquido comprado no período, da clínica toda. */
+export const clientRankingSchema = z.object({
+  total: money,
+  classes: z.array(
+    z.object({
+      class: z.enum(abcClasses),
+      clients: z.number().int(),
+      net: money,
+      share: z.number(),
+    }),
+  ),
+  items: z.array(
+    z.object({
+      position: z.number().int(),
+      client: z.object({ id: z.uuid(), code: z.number().int(), name: z.string() }),
+      salesCount: z.number().int(),
+      net: money,
+      /** Participação no total, em %. */
+      share: z.number(),
+      cumulativeShare: z.number(),
+      class: z.enum(abcClasses),
+    }),
+  ),
+});
+export type ClientRanking = z.infer<typeof clientRankingSchema>;

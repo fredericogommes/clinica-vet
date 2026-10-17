@@ -1,5 +1,5 @@
 import type { ProductKind, SaleStatus } from '@clinica/contracts';
-import { localToday, startOfMonth } from '../schedule/dates';
+import { addDays, localToday, startOfMonth } from '../schedule/dates';
 
 export const reportTabs = ['resumo', 'itens', 'lista'] as const;
 export type ReportTab = (typeof reportTabs)[number];
@@ -19,4 +19,10 @@ export interface ReportSearch {
 export const defaultPeriod = () => {
   const today = localToday();
   return { from: startOfMonth(today), to: today };
+};
+
+/** Últimos 365 dias até hoje (12 meses): padrão do ranking de clientes, dentro do limite de um ano. */
+export const lastTwelveMonths = () => {
+  const today = localToday();
+  return { from: addDays(today, -364), to: today };
 };

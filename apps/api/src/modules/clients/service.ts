@@ -25,6 +25,7 @@ import { nextCounter } from '../../core/counters.js';
 import { newId } from '../../core/ids.js';
 import { containsText, likeEscape } from '../../core/search.js';
 import type { Database, Executor } from '../../db/client.js';
+import { clientAbcClass } from '../sales/client-ranking.js';
 import { isUniqueViolation, violatedConstraint } from '../../db/errors.js';
 import {
   appointments,
@@ -205,6 +206,7 @@ export class ClientService {
       patients: pets.map(({ archivedAt, ...p }) => ({ ...p, archived: archivedAt !== null })),
       archived: c.archivedAt !== null,
       createdAt: c.createdAt.toISOString(),
+      abcClass: await clientAbcClass(db, auth.organizationId, id),
     };
   }
 

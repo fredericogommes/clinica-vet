@@ -1,4 +1,5 @@
 import {
+  abcClassHints,
   clientSchema,
   consentChannelLabels,
   consentChannels,
@@ -85,6 +86,17 @@ export function ClientPage({ clientId }: { clientId: string }) {
         title={c.name}
         actions={
           <>
+            {c.abcClass ? (
+              <span
+                title={`Curva ABC dos últimos 12 meses: ${abcClassHints[c.abcClass].toLowerCase()}`}
+              >
+                <Badge
+                  tone={c.abcClass === 'A' ? 'sage' : c.abcClass === 'B' ? 'amber' : 'neutral'}
+                >
+                  Classe {c.abcClass}
+                </Badge>
+              </span>
+            ) : null}
             {c.archived ? <Badge tone="amber">Arquivado</Badge> : null}
             {can('clients.manage') && !c.archived ? (
               <Link

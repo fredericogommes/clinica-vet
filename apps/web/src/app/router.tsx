@@ -11,7 +11,7 @@ import {
   vaccineKinds,
   type Permission,
 } from '@clinica/contracts';
-import { defaultPeriod, reportTabs } from '../features/sales/report-search';
+import { defaultPeriod, lastTwelveMonths, reportTabs } from '../features/sales/report-search';
 import {
   entrySituations,
   entryTypes,
@@ -111,6 +111,9 @@ const SalesReportPage = lazy(() =>
 );
 const MySalesPage = lazy(() =>
   import('../features/sales/reports-page').then((m) => ({ default: m.MySalesPage })),
+);
+const ClientRankingPage = lazy(() =>
+  import('../features/sales/reports-page').then((m) => ({ default: m.ClientRankingPage })),
 );
 const CashListPage = lazy(() =>
   import('../features/cash/cash-pages').then((m) => ({ default: m.CashListPage })),
@@ -1420,6 +1423,21 @@ const salesReportRoute = createRoute({
   },
 });
 
+const clientRankingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/ranking-clientes',
+  validateSearch: z.object({ de: optionalDate, ate: optionalDate }),
+  component: function ClientRanking() {
+    const s = clientRankingRoute.useSearch();
+    const period = lastTwelveMonths();
+    return (
+      <RequirePermission permission="sales.ranking">
+        <ClientRankingPage from={s.de ?? period.from} to={s.ate ?? period.to} />
+      </RequirePermission>
+    );
+  },
+});
+
 const mySalesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vendas/minhas',
@@ -1537,6 +1555,7 @@ const routeTree = rootRoute.addChildren([
     paymentMethodsRoute,
     salesReportRoute,
     mySalesRoute,
+    clientRankingRoute,
     cashListRoute,
     cashRoute,
     saleRoute,

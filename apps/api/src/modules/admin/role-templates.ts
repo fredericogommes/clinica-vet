@@ -72,6 +72,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.reverse',
       'sales.configure',
       'sales.reports',
+      'sales.ranking',
       'sales.view_own',
       'cash.operate',
       'cash.supervise',

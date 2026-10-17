@@ -110,6 +110,10 @@ export const permissionCatalog = {
     group: 'Vendas',
     label: 'Consultar vendas da unidade: resumo, totais por produto e serviço e lista',
   },
+  'sales.ranking': {
+    group: 'Vendas',
+    label: 'Ver o ranking de clientes (curva ABC) com o valor comprado por cliente',
+  },
   'sales.view_own': {
     group: 'Vendas',
     label: 'Ver as próprias vendas (Minhas vendas)',
