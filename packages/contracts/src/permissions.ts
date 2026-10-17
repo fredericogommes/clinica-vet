@@ -156,6 +156,10 @@ export const permissionCatalog = {
     label:
       'Lançar receitas, despesas e transferências; baixar, editar e cancelar lançamentos; conciliar cartões',
   },
+  'finance.reports': {
+    group: 'Financeiro',
+    label: 'Ver o demonstrativo de resultado e o fluxo de caixa',
+  },
   'finance.configure': {
     group: 'Financeiro',
     label: 'Cadastrar contas, categorias do plano de contas e fornecedores',

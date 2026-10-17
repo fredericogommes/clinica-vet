@@ -28,6 +28,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'messages.configure',
       'finance.view',
       'finance.manage',
+      'finance.reports',
       'finance.configure',
       'clients.view',
       'clients.manage',

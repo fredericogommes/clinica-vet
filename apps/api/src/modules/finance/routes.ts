@@ -2,6 +2,10 @@ import {
   cancelEntrySchema,
   cardDepositListSchema,
   cardDepositQuerySchema,
+  cashFlowQuerySchema,
+  cashFlowSchema,
+  statementQuerySchema,
+  statementSchema,
   reconcileInputSchema,
   entryInputSchema,
   entryListSchema,
@@ -22,18 +26,39 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
 import type { CardReconciliationService } from './reconciliation.js';
+import type { FinanceReportsService } from './reports.js';
 import type { FinanceService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
 const view = { access: { kind: 'permission', permission: 'finance.view' } } as const;
 const manage = { access: { kind: 'permission', permission: 'finance.manage' } } as const;
+const reports = { access: { kind: 'permission', permission: 'finance.reports' } } as const;
 const configure = { access: { kind: 'permission', permission: 'finance.configure' } } as const;
 
 /** Financeiro [p.18–19, RN-35]: lançamentos, contas, plano de contas e fornecedores. */
 export const financeRoutes: FastifyPluginAsyncZod<{
   finance: FinanceService;
   reconciliation: CardReconciliationService;
-}> = async (app, { finance, reconciliation }) => {
+  reports: FinanceReportsService;
+}> = async (app, { finance, reconciliation, reports: financeReports }) => {
+  app.get(
+    '/statement',
+    {
+      config: reports,
+      schema: { querystring: statementQuerySchema, response: { 200: statementSchema } },
+    },
+    async (request) => financeReports.statement(requireAuth(request), request.query),
+  );
+
+  app.get(
+    '/cash-flow',
+    {
+      config: reports,
+      schema: { querystring: cashFlowQuerySchema, response: { 200: cashFlowSchema } },
+    },
+    async (request) => financeReports.cashFlow(requireAuth(request), request.query),
+  );
+
   app.get(
     '/card-deposits',
     {

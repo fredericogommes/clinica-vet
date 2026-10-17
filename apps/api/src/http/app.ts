@@ -36,6 +36,7 @@ import { CloudApiSender } from '../modules/messaging/sender.js';
 import { MessagingService } from '../modules/messaging/service.js';
 import { financeRoutes } from '../modules/finance/routes.js';
 import { CardReconciliationService } from '../modules/finance/reconciliation.js';
+import { FinanceReportsService } from '../modules/finance/reports.js';
 import { FinanceService } from '../modules/finance/service.js';
 import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
@@ -142,6 +143,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     prefix: '/api/finance',
     finance,
     reconciliation: new CardReconciliationService(db, finance),
+    reports: new FinanceReportsService(db, finance),
   });
   await app.register(messagingRoutes, {
     prefix: '/api/messages',

@@ -365,3 +365,86 @@ export const reconcileInputSchema = z.object({
   receivedNet: positiveMoney,
 });
 export type ReconcileInput = z.input<typeof reconcileInputSchema>;
+
+// Demonstrativo e fluxo de caixa -------------------------------------------------------------------
+
+const isoMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mês inválido');
+
+/**
+ * Demonstrativo gerencial [p.18]: categorias em linhas, meses em colunas. Regime de caixa usa o
+ * valor pago na data do pagamento; competência usa a data de competência e inclui o que está em
+ * aberto.
+ */
+export const statementRegimes = ['competencia', 'caixa'] as const;
+export type StatementRegime = (typeof statementRegimes)[number];
+export const statementRegimeLabels: Record<StatementRegime, string> = {
+  competencia: 'Competência',
+  caixa: 'Caixa',
+};
+
+export const statementQuerySchema = z.object({
+  regime: z.enum(statementRegimes).default('competencia'),
+  /** Primeiro e último mês (AAAA-MM); sem eles, o ano corrente. */
+  de: isoMonth.optional(),
+  ate: isoMonth.optional(),
+  centro: z.uuid().optional(),
+});
+export type StatementQuery = z.infer<typeof statementQuerySchema>;
+
+const statementRowSchema = z.object({
+  categoryId: z.uuid().nullable(),
+  name: z.string(),
+  /** 0 para a categoria-mãe, 1 para a subcategoria. */
+  depth: z.number().int(),
+  values: z.array(z.number()),
+  total: z.number(),
+});
+export type StatementRow = z.infer<typeof statementRowSchema>;
+
+const statementLineSchema = z.object({ values: z.array(z.number()), total: z.number() });
+
+export const statementSchema = z.object({
+  regime: z.enum(statementRegimes),
+  months: z.array(z.string()),
+  income: statementLineSchema.extend({ rows: z.array(statementRowSchema) }),
+  expense: statementLineSchema.extend({ rows: z.array(statementRowSchema) }),
+  /** Receitas menos despesas. */
+  result: statementLineSchema,
+  /** Parte do resultado ainda em aberto (só na competência). */
+  open: statementLineSchema,
+  today: z.string(),
+});
+export type Statement = z.infer<typeof statementSchema>;
+
+/** Fluxo de caixa [p.18]: receitas × despesas por mês e saldo diário real × previsto. */
+export const cashFlowQuerySchema = z.object({
+  de: isoDate.optional(),
+  ate: isoDate.optional(),
+  conta: z.uuid().optional(),
+});
+export type CashFlowQuery = z.infer<typeof cashFlowQuerySchema>;
+
+const paidOpen = z.object({ paid: z.number(), open: z.number() });
+export const cashFlowSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  today: z.string(),
+  months: z.array(z.object({ month: z.string(), income: paidOpen, expense: paidOpen })),
+  days: z.array(
+    z.object({
+      date: z.string(),
+      /** Saldo com o que foi pago até o dia; nulo depois de hoje. */
+      real: z.number().nullable(),
+      /** Saldo somando também o que vence até o dia e segue em aberto. */
+      forecast: z.number(),
+    }),
+  ),
+  summary: z.object({
+    openingBalance: z.number(),
+    realBalance: z.number(),
+    forecastBalance: z.number(),
+    income: paidOpen,
+    expense: paidOpen,
+  }),
+});
+export type CashFlow = z.infer<typeof cashFlowSchema>;

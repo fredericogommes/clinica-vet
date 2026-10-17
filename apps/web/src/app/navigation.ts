@@ -13,6 +13,8 @@ import {
   CalendarDays,
   ClipboardList,
   CreditCard,
+  Scale,
+  TrendingUp,
   Dna,
   FileText,
   FlaskConical,
@@ -141,6 +143,18 @@ export const navigation: NavSection[] = [
         to: '/financeiro/conciliacao',
         icon: CreditCard,
         permission: 'finance.view',
+      },
+      {
+        label: 'Demonstrativo',
+        to: '/financeiro/demonstrativo',
+        icon: Scale,
+        permission: 'finance.reports',
+      },
+      {
+        label: 'Fluxo de caixa',
+        to: '/financeiro/fluxo-de-caixa',
+        icon: TrendingUp,
+        permission: 'finance.reports',
       },
       {
         label: 'Contas financeiras',
