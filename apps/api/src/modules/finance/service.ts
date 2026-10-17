@@ -54,6 +54,7 @@ import {
   financialAccounts,
   financialCategories,
   financialEntries,
+  purchases,
   sales,
   suppliers,
 } from '../../db/schema.js';
@@ -142,6 +143,7 @@ function selectEntries(db: Executor) {
       client: { id: clients.id, name: clients.name },
       costCenter: { id: costCenters.id, name: costCenters.name },
       sale: { id: sales.id, code: sales.code },
+      purchase: { id: purchases.id, code: purchases.code },
       counterpart: { id: counterpartAccount.id, name: counterpartAccount.name },
     })
     .from(financialEntries)
@@ -151,6 +153,7 @@ function selectEntries(db: Executor) {
     .leftJoin(clients, eq(clients.id, financialEntries.clientId))
     .leftJoin(costCenters, eq(costCenters.id, financialEntries.costCenterId))
     .leftJoin(sales, eq(sales.id, financialEntries.saleId))
+    .leftJoin(purchases, eq(purchases.id, financialEntries.purchaseId))
     .leftJoin(
       counterpartEntry,
       and(
@@ -802,6 +805,7 @@ export class FinanceService {
       client: r.client,
       costCenter: r.costCenter,
       sale: r.sale,
+      purchase: r.purchase,
       counterpart: r.counterpart,
       installment:
         e.installmentNumber !== null && e.installmentTotal !== null
@@ -900,7 +904,9 @@ export class FinanceService {
         throw conflict(
           current.origin === 'transfer'
             ? 'Transferência não se edita: cancele e lance de novo.'
-            : 'Lançamento de venda acompanha a venda e não se edita aqui.',
+            : current.origin === 'purchase'
+              ? 'Parcela de compra acompanha a compra e não se edita aqui.'
+              : 'Lançamento de venda acompanha a venda e não se edita aqui.',
         );
       }
       if (current.status === 'paid') {
@@ -1022,6 +1028,9 @@ export class FinanceService {
       }
       if (current.origin === 'sale' || current.origin === 'card_fee') {
         throw conflict('Lançamento de venda acompanha a venda: estorne a venda para cancelar.');
+      }
+      if (current.origin === 'purchase') {
+        throw conflict('Parcela de compra acompanha a compra: cancele a compra para cancelar.');
       }
       if (current.status === 'cancelled') throw conflict('Lançamento já está cancelado.');
       const ids = [id];
@@ -1265,6 +1274,88 @@ export class FinanceService {
         updatedAt: new Date(),
       })
       .where(and(eq(financialEntries.saleId, saleId), ne(financialEntries.status, 'cancelled')));
+  }
+
+  /**
+   * Parcelas a pagar da compra confirmada [p.17]: uma despesa por parcela, no fornecedor, na
+   * categoria e na conta escolhidas, com competência na emissão da nota.
+   */
+  async recordPurchase(
+    tx: Executor,
+    auth: AuthContext,
+    purchase: {
+      id: string;
+      unitId: string;
+      code: number;
+      supplierId: string;
+      supplierName: string;
+      invoiceNumber: string;
+      accountId: string;
+      categoryId: string;
+      competenceDate: string;
+    },
+    installments: { number: number; dueDate: string; amount: number }[],
+    today: string,
+  ): Promise<void> {
+    await this.ensure(tx, auth.organizationId, today);
+    const costCenterId = await this.defaultCostCenter(tx, purchase.unitId);
+    const many = installments.length > 1;
+    const groupId = many ? newId() : null;
+    const now = new Date();
+    const nf = purchase.invoiceNumber ? ` - NF ${purchase.invoiceNumber}` : '';
+    await tx.insert(financialEntries).values(
+      installments.map((i) => ({
+        id: newId(),
+        organizationId: auth.organizationId,
+        unitId: purchase.unitId,
+        kind: 'expense' as const,
+        direction: 'out' as const,
+        origin: 'purchase' as const,
+        status: 'open' as const,
+        description: `Compra ${String(purchase.code)} - ${purchase.supplierName}${nf}`,
+        document: purchase.invoiceNumber,
+        accountId: purchase.accountId,
+        categoryId: purchase.categoryId,
+        supplierId: purchase.supplierId,
+        costCenterId,
+        purchaseId: purchase.id,
+        groupId,
+        installmentNumber: many ? i.number : null,
+        installmentTotal: many ? installments.length : null,
+        amount: i.amount,
+        dueDate: i.dueDate,
+        competenceDate: purchase.competenceDate,
+        notes: '',
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+
+  /** Cancelar a compra cancela as parcelas; parcela já paga precisa ser reaberta antes. */
+  async cancelPurchaseEntries(tx: Executor, purchaseId: string, code: number, reason: string) {
+    const rows = await tx
+      .select({ id: financialEntries.id, status: financialEntries.status })
+      .from(financialEntries)
+      .where(eq(financialEntries.purchaseId, purchaseId))
+      .for('update');
+    if (rows.some((r) => r.status === 'paid')) {
+      throw conflict(
+        'Há parcela desta compra já paga: desfaça a baixa no financeiro antes de cancelar a compra.',
+      );
+    }
+    await tx
+      .update(financialEntries)
+      .set({
+        status: 'cancelled',
+        cancelReason: `Cancelamento da compra ${String(code)}: ${reason}`,
+        cancelledAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(financialEntries.purchaseId, purchaseId), ne(financialEntries.status, 'cancelled')),
+      );
   }
 
   // Apoio ------------------------------------------------------------------------------------------

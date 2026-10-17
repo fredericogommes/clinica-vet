@@ -133,7 +133,14 @@ export const entryStatusLabels: Record<EntryStatus, string> = {
   paid: 'Pago',
   cancelled: 'Cancelado',
 };
-export const entryOrigins = ['manual', 'sale', 'card_fee', 'card_adjustment', 'transfer'] as const;
+export const entryOrigins = [
+  'manual',
+  'sale',
+  'card_fee',
+  'card_adjustment',
+  'transfer',
+  'purchase',
+] as const;
 export type EntryOrigin = (typeof entryOrigins)[number];
 
 export const ENTRY_MAX_REPEAT = 60;
@@ -234,6 +241,7 @@ export const entrySchema = z.object({
   client: ref.nullable(),
   costCenter: ref.nullable(),
   sale: z.object({ id: z.string(), code: z.number().int() }).nullable(),
+  purchase: z.object({ id: z.string(), code: z.number().int() }).nullable(),
   /** Outra ponta da transferência. */
   counterpart: ref.nullable(),
   installment: z.object({ number: z.number().int(), total: z.number().int() }).nullable(),

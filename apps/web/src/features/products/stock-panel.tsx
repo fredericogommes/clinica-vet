@@ -207,6 +207,17 @@ export function ProductStockPanel({ productId, unit }: { productId: string; unit
                         Venda {m.sale.code}
                       </Link>
                     </>
+                  ) : m.purchase ? (
+                    <>
+                      {' · '}
+                      <Link
+                        to="/estoque/compras/$purchaseId"
+                        params={{ purchaseId: m.purchase.id }}
+                        className="text-sage-700 hover:underline"
+                      >
+                        Compra {m.purchase.code}
+                      </Link>
+                    </>
                   ) : m.notes ? (
                     ` · ${m.notes}`
                   ) : null}
@@ -511,6 +522,17 @@ function TraceDialog({
                         className="text-sage-700 hover:underline"
                       >
                         Venda {m.sale.code}
+                      </Link>
+                    </>
+                  ) : m.purchase ? (
+                    <>
+                      {' · '}
+                      <Link
+                        to="/estoque/compras/$purchaseId"
+                        params={{ purchaseId: m.purchase.id }}
+                        className="text-sage-700 hover:underline"
+                      >
+                        Compra {m.purchase.code}
                       </Link>
                     </>
                   ) : m.notes ? (
