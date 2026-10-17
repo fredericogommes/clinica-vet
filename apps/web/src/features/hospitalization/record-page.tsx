@@ -1,13 +1,8 @@
 import {
-  choiceParameters,
-  clinicalParameterOptions,
   formatAge,
   hospitalizationEntryKindLabels,
   hospitalizationPriorityLabels,
   hospitalizationStatusLabels,
-  numericParameterLimits,
-  numericParameters,
-  type ClinicalParameters,
   type HospitalizationDetail,
   type HospitalizationEntry,
 } from '@clinica/contracts';
@@ -22,10 +17,12 @@ import {
   HeartPulse,
   ListChecks,
   LogOut,
+  MessageCircle,
   Pencil,
   Phone,
   Pill,
   PillBottle,
+  Printer,
   Scale,
   Stethoscope,
   XCircle,
@@ -48,9 +45,10 @@ import {
   CloseDialog,
   EditDialog,
   EntryDialog,
+  MessageDialog,
   type EntryKind,
 } from './dialogs';
-import { formatDuration, priorityTone, statusTone } from './labels';
+import { formatDuration, parameterItems, priorityTone, statusTone } from './labels';
 import { PrescriptionTab } from './prescription-tab';
 import { hospitalizationQuery } from './queries';
 
@@ -59,24 +57,8 @@ type Open =
   | { kind: 'box' }
   | { kind: 'close'; outcome: 'discharged' | 'deceased' }
   | { kind: 'cancel' }
-  | { kind: 'entry'; entry: EntryKind };
-
-const decimal = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
-
-/** Parâmetros preenchidos como "Apetite: Diminuído", "FC: 120 bpm". */
-export function parameterItems(p: ClinicalParameters): string[] {
-  const items: string[] = [];
-  for (const key of choiceParameters) {
-    const value = p[key];
-    if (value) items.push(`${clinicalParameterOptions[key].label}: ${value}`);
-  }
-  for (const key of numericParameters) {
-    const value = p[key];
-    const limit = numericParameterLimits[key];
-    if (value !== null) items.push(`${limit.label}: ${decimal.format(value)} ${limit.unit}`);
-  }
-  return items;
-}
+  | { kind: 'entry'; entry: EntryKind }
+  | { kind: 'message' };
 
 const entryIcons = {
   admission: BedDouble,
@@ -92,6 +74,7 @@ const entryIcons = {
   prescription: Pill,
   prescription_stop: PillBottle,
   execution: ListChecks,
+  message: MessageCircle,
 } as const;
 
 function Entry({ e }: { e: HospitalizationEntry }) {
@@ -289,6 +272,15 @@ export function HospitalizationRecordPage({
             <Link to="/internacao" className={buttonClasses('ghost')}>
               Internados
             </Link>
+            <a
+              href={`/impressao/internacao/${h.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonClasses('secondary')}
+            >
+              <Printer className="size-4" aria-hidden />
+              Imprimir
+            </a>
             {can('clinical.view') ? (
               <Link
                 to="/atendimento/$patientId"
@@ -391,6 +383,16 @@ export function HospitalizationRecordPage({
                     {label}
                   </Button>
                 ))}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<MessageCircle className="size-4" aria-hidden />}
+                  onClick={() => {
+                    setOpen({ kind: 'message' });
+                  }}
+                >
+                  Enviar mensagem
+                </Button>
               </div>
             ) : null}
             <ol aria-label="Histórico da internação" className="-mb-3 divide-y divide-line">
@@ -405,6 +407,7 @@ export function HospitalizationRecordPage({
       {open?.kind === 'box' ? <BoxDialog h={h} onClose={close} /> : null}
       {open?.kind === 'close' ? <CloseDialog h={h} outcome={open.outcome} onClose={close} /> : null}
       {open?.kind === 'cancel' ? <CancelDialog h={h} onClose={close} /> : null}
+      {open?.kind === 'message' ? <MessageDialog h={h} onClose={close} /> : null}
       {open?.kind === 'entry' ? <EntryDialog h={h} kind={open.entry} onClose={close} /> : null}
     </>
   );

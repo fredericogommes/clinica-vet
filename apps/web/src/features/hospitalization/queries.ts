@@ -5,6 +5,7 @@ import {
   hospitalizationListSchema,
   hospitalizationOptionsSchema,
   prescriptionDaySchema,
+  prescriptionTemplateSchema,
   type HospitalizationStatus,
 } from '@clinica/contracts';
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
@@ -84,3 +85,9 @@ export const executionMapQuery = (s: ExecutionMapSearch) =>
     },
     placeholderData: keepPreviousData,
   });
+
+export const prescriptionTemplatesQuery = queryOptions({
+  queryKey: ['hospitalizations', 'templates'],
+  queryFn: () =>
+    api('GET', '/hospitalizations/prescription-templates', z.array(prescriptionTemplateSchema)),
+});

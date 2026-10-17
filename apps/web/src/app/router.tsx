@@ -130,6 +130,11 @@ const HospitalizationRecordPage = lazy(() =>
     default: m.HospitalizationRecordPage,
   })),
 );
+const PrintHospitalizationPage = lazy(() =>
+  import('../features/hospitalization/print-page').then((m) => ({
+    default: m.PrintHospitalizationPage,
+  })),
+);
 const ExecutionMapPage = lazy(() =>
   import('../features/hospitalization/map-page').then((m) => ({ default: m.ExecutionMapPage })),
 );
@@ -385,6 +390,19 @@ const printEventRoute = createRoute({
     return (
       <RequirePermission permission="clinical.view">
         <PrintEventPage eventId={eventId} />
+      </RequirePermission>
+    );
+  },
+});
+
+const printHospitalizationRoute = createRoute({
+  getParentRoute: () => printRoute,
+  path: '/impressao/internacao/$hospitalizationId',
+  component: function PrintHospitalization() {
+    const { hospitalizationId } = printHospitalizationRoute.useParams();
+    return (
+      <RequirePermission permission="hospitalization.view">
+        <PrintHospitalizationPage id={hospitalizationId} />
       </RequirePermission>
     );
   },
@@ -1667,7 +1685,7 @@ const routeTree = rootRoute.addChildren([
   portalLoginRoute,
   portalLinkRoute,
   portalRoute.addChildren([portalHomeRoute, portalPatientRoute, portalBookingRoute]),
-  printRoute.addChildren([printEventRoute]),
+  printRoute.addChildren([printEventRoute, printHospitalizationRoute]),
   appRoute.addChildren([
     homeRoute,
     clientsRoute,

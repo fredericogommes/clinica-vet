@@ -47,6 +47,7 @@
 - Pacotes de sessões (como 10 banhos): cadastro no serviço, abertura na venda baixada e Pacotes vendidos para registrar e desfazer as sessões.
 - Internação: boxes da unidade, painel de animais internados, ficha de internação com ocorrência, peso, parâmetros clínicos e relatório médico, alta, óbito e cancelamento, e histórico de internações.
 - Prescrição da internação: grade de 24 horas com horários aprazados, dose calculada pelo peso com volume final, execução com programado × executado e autor, suspensão com motivo e Mapa de execução da unidade.
+- Internação: modelos de prescrição (Salvar como modelo e Usar modelo), ficha de internação para imprimir e mensagem ao tutor registrada no histórico e pronta para o WhatsApp.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

@@ -6,6 +6,7 @@ import type {
   HospitalizationDetail,
   Patient,
   PrescriptionDay,
+  PrescriptionTemplate,
   Session,
 } from '@clinica/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -196,5 +197,91 @@ describe('prescrição da internação [p.15, RN-42]', () => {
     expect((await desk.get('/api/hospitalizations/execution-map?date=2026-10-17')).statusCode).toBe(
       200,
     );
+  });
+
+  it('modelo de prescrição: salvar, aplicar de uma vez, substituir e excluir', async () => {
+    const item = {
+      name: 'Ceftriaxona',
+      dose: 30,
+      doseUnit: 'mg/kg',
+      concentration: 100,
+      route: 'IV',
+      intervalHours: 12,
+      durationDays: 5,
+      notes: '',
+    };
+    let r = await admin.send('POST', '/api/hospitalizations/prescription-templates', {
+      name: 'Gastroenterite',
+      items: [],
+    });
+    expect(fieldError(r.body)?.path).toBe('items');
+    r = await admin.send('POST', '/api/hospitalizations/prescription-templates', {
+      name: 'Gastroenterite',
+      items: [item, { ...item, name: 'Omeprazol', dose: 1, concentration: 4, intervalHours: 24 }],
+    });
+    expect(r.statusCode, r.body).toBe(200);
+    const template = r.json<PrescriptionTemplate>();
+    expect(template).toMatchObject({ name: 'Gastroenterite', createdBy: ADMIN.name });
+    expect(template.items).toHaveLength(2);
+
+    // Mesmo nome (sem diferenciar maiúsculas) substitui as prescrições do modelo.
+    r = await admin.send('POST', '/api/hospitalizations/prescription-templates', {
+      name: 'gastroenterite',
+      items: [
+        item,
+        { ...item, name: 'Omeprazol', dose: 1, concentration: 4, intervalHours: 24 },
+        { ...item, name: 'Dipirona', dose: 25, concentration: 500, intervalHours: 8 },
+      ],
+    });
+    expect(r.json<PrescriptionTemplate>().id).toBe(template.id);
+    const list = (await admin.get('/api/hospitalizations/prescription-templates')).json<
+      PrescriptionTemplate[]
+    >();
+    expect(list).toHaveLength(1);
+    expect(list[0]?.items.map((i) => i.name)).toEqual(['Ceftriaxona', 'Omeprazol', 'Dipirona']);
+
+    const firstAt = new Date(Date.now() - 20 * 60_000);
+    r = await admin.send('POST', `${base()}/prescriptions/template`, {
+      templateId: template.id,
+      firstAt: firstAt.toISOString(),
+    });
+    expect(r.statusCode, r.body).toBe(201);
+    expect(r.json<{ ids: string[] }>().ids).toHaveLength(3);
+    const today = await day(firstAt);
+    expect(today.prescriptions.map((p) => p.name)).toEqual([
+      'Ceftriaxona',
+      'Omeprazol',
+      'Dipirona',
+    ]);
+    expect(today.prescriptions.every((p) => p.firstAt === firstAt.toISOString())).toBe(true);
+    const detail = (await admin.get(base())).json<HospitalizationDetail>();
+    expect(detail.entries.filter((e) => e.text.includes('Do modelo Gastroenterite'))).toHaveLength(
+      3,
+    );
+
+    // Recepção vê os modelos mas não aplica nem exclui.
+    const desk = await loginAs(h, admin, 'Recepcionista');
+    expect((await desk.get('/api/hospitalizations/prescription-templates')).statusCode).toBe(200);
+    r = await desk.send('DELETE', `/api/hospitalizations/prescription-templates/${template.id}`);
+    expect(r.statusCode).toBe(403);
+    r = await admin.send('DELETE', `/api/hospitalizations/prescription-templates/${template.id}`);
+    expect(r.statusCode).toBe(204);
+    r = await admin.send('POST', `${base()}/prescriptions/template`, {
+      templateId: template.id,
+      firstAt: firstAt.toISOString(),
+    });
+    expect(fieldError(r.body)?.path).toBe('templateId');
+  });
+
+  it('mensagem ao tutor fica no histórico da internação', async () => {
+    let r = await admin.send('POST', `${base()}/entries`, { kind: 'message', text: '' });
+    expect(fieldError(r.body)?.message).toBe('Escreva a mensagem');
+    r = await admin.send('POST', `${base()}/entries`, {
+      kind: 'message',
+      text: 'Thor comeu bem hoje e está mais ativo.',
+    });
+    expect(r.statusCode, r.body).toBe(200);
+    const last = r.json<HospitalizationDetail>().entries.at(-1);
+    expect(last).toMatchObject({ kind: 'message', text: 'Thor comeu bem hoje e está mais ativo.' });
   });
 });

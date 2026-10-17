@@ -1,5 +1,6 @@
 import {
   admitSchema,
+  applyTemplateSchema,
   boxInputSchema,
   boxSchema,
   cancelHospitalizationSchema,
@@ -16,6 +17,8 @@ import {
   prescriptionDayQuerySchema,
   prescriptionDaySchema,
   prescriptionInputSchema,
+  prescriptionTemplateInputSchema,
+  prescriptionTemplateSchema,
   stopPrescriptionSchema,
   updateHospitalizationSchema,
 } from '@clinica/contracts';
@@ -240,6 +243,50 @@ export const hospitalizationRoutes: FastifyPluginAsyncZod<{
         requireAuth(request),
         request.params.id,
         request.params.prescriptionId,
+        request.body,
+      );
+      return reply.status(201).send(result);
+    },
+  );
+
+  app.get(
+    '/prescription-templates',
+    { config: view, schema: { response: { 200: z.array(prescriptionTemplateSchema) } } },
+    async (request) => prescriptions.listTemplates(requireAuth(request)),
+  );
+  app.post(
+    '/prescription-templates',
+    {
+      config: prescribe,
+      schema: {
+        body: prescriptionTemplateInputSchema,
+        response: { 200: prescriptionTemplateSchema },
+      },
+    },
+    async (request) => prescriptions.saveTemplate(requireAuth(request), request.body),
+  );
+  app.delete(
+    '/prescription-templates/:id',
+    { config: prescribe, schema: { params: idParams } },
+    async (request, reply) => {
+      await prescriptions.deleteTemplate(requireAuth(request), request.params.id);
+      return reply.status(204).send();
+    },
+  );
+  app.post(
+    '/:id/prescriptions/template',
+    {
+      config: prescribe,
+      schema: {
+        params: idParams,
+        body: applyTemplateSchema,
+        response: { 201: z.object({ ids: z.array(z.uuid()) }) },
+      },
+    },
+    async (request, reply) => {
+      const result = await prescriptions.applyTemplate(
+        requireAuth(request),
+        request.params.id,
         request.body,
       );
       return reply.status(201).send(result);

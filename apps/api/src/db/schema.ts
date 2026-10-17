@@ -1,3 +1,4 @@
+import type { PrescriptionTemplateItem } from '@clinica/contracts';
 import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -2553,6 +2554,7 @@ export const hospitalizationEntries = pgTable(
         'prescription',
         'prescription_stop',
         'execution',
+        'message',
       ],
     }).notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
@@ -2664,5 +2666,28 @@ export const hospitalizationExecutions = pgTable(
       'hospitalization_executions_skip_ck',
       sql`${t.status} = 'done' or length(trim(${t.notes})) > 0`,
     ),
+  ],
+);
+
+/**
+ * Modelo de prescrição [p.15]: protocolo da clínica com as prescrições sem o primeiro horário,
+ * que é dado quando o modelo é aplicado a uma internação.
+ */
+export const prescriptionTemplates = pgTable(
+  'prescription_templates',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    items: jsonb('items').$type<PrescriptionTemplateItem[]>().notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('prescription_templates_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
   ],
 );
