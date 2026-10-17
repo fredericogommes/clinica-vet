@@ -4,31 +4,45 @@ import {
   boxSchema,
   cancelHospitalizationSchema,
   closeHospitalizationSchema,
+  executeDoseSchema,
+  executionMapQuerySchema,
+  executionMapSchema,
   hospitalizationDetailSchema,
   hospitalizationEntryInputSchema,
   hospitalizationListQuerySchema,
   hospitalizationListSchema,
   hospitalizationOptionsSchema,
   moveBoxSchema,
+  prescriptionDayQuerySchema,
+  prescriptionDaySchema,
+  prescriptionInputSchema,
+  stopPrescriptionSchema,
   updateHospitalizationSchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { PrescriptionService } from './prescriptions.js';
 import type { HospitalizationService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
 const view = { access: { kind: 'permission', permission: 'hospitalization.view' } } as const;
 const manage = { access: { kind: 'permission', permission: 'hospitalization.manage' } } as const;
 const record = { access: { kind: 'permission', permission: 'hospitalization.record' } } as const;
+const prescribe = {
+  access: { kind: 'permission', permission: 'hospitalization.prescribe' },
+} as const;
+const prescriptionParams = z.object({ id: z.uuid(), prescriptionId: z.uuid() });
+const created = z.object({ id: z.uuid() });
 const configure = {
   access: { kind: 'permission', permission: 'hospitalization.configure' },
 } as const;
 
-/** Internação [p.14–16]: boxes, painel, ficha, histórico e desfecho. */
+/** Internação [p.14–16]: boxes, painel, ficha, histórico, desfecho, prescrição e mapa. */
 export const hospitalizationRoutes: FastifyPluginAsyncZod<{
   hospitalizations: HospitalizationService;
-}> = async (app, { hospitalizations }) => {
+  prescriptions: PrescriptionService;
+}> = async (app, { hospitalizations, prescriptions }) => {
   app.get(
     '/boxes',
     { config: view, schema: { response: { 200: z.array(boxSchema) } } },
@@ -159,5 +173,76 @@ export const hospitalizationRoutes: FastifyPluginAsyncZod<{
     },
     async (request) =>
       hospitalizations.addEntry(requireAuth(request), request.params.id, request.body),
+  );
+
+  app.get(
+    '/execution-map',
+    {
+      config: view,
+      schema: { querystring: executionMapQuerySchema, response: { 200: executionMapSchema } },
+    },
+    async (request) => prescriptions.map(requireAuth(request), request.query),
+  );
+  app.get(
+    '/:id/prescriptions',
+    {
+      config: view,
+      schema: {
+        params: idParams,
+        querystring: prescriptionDayQuerySchema,
+        response: { 200: prescriptionDaySchema },
+      },
+    },
+    async (request) =>
+      prescriptions.day(requireAuth(request), request.params.id, request.query.date),
+  );
+  app.post(
+    '/:id/prescriptions',
+    {
+      config: prescribe,
+      schema: { params: idParams, body: prescriptionInputSchema, response: { 201: created } },
+    },
+    async (request, reply) => {
+      const result = await prescriptions.prescribe(
+        requireAuth(request),
+        request.params.id,
+        request.body,
+      );
+      return reply.status(201).send(result);
+    },
+  );
+  app.post(
+    '/:id/prescriptions/:prescriptionId/stop',
+    {
+      config: prescribe,
+      schema: {
+        params: prescriptionParams,
+        body: stopPrescriptionSchema,
+        response: { 200: created },
+      },
+    },
+    async (request) =>
+      prescriptions.stop(
+        requireAuth(request),
+        request.params.id,
+        request.params.prescriptionId,
+        request.body.reason,
+      ),
+  );
+  app.post(
+    '/:id/prescriptions/:prescriptionId/executions',
+    {
+      config: record,
+      schema: { params: prescriptionParams, body: executeDoseSchema, response: { 201: created } },
+    },
+    async (request, reply) => {
+      const result = await prescriptions.execute(
+        requireAuth(request),
+        request.params.id,
+        request.params.prescriptionId,
+        request.body,
+      );
+      return reply.status(201).send(result);
+    },
   );
 };

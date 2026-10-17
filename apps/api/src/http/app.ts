@@ -53,6 +53,7 @@ import { dashboardRoutes } from '../modules/dashboard/routes.js';
 import { ClientDebtService } from '../modules/sales/client-debts.js';
 import { PackageService } from '../modules/sales/packages.js';
 import { hospitalizationRoutes } from '../modules/hospitalization/routes.js';
+import { PrescriptionService } from '../modules/hospitalization/prescriptions.js';
 import { HospitalizationService } from '../modules/hospitalization/service.js';
 import { ClientRankingService } from '../modules/sales/client-ranking.js';
 import { SalesReportService } from '../modules/sales/reports.js';
@@ -152,6 +153,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(hospitalizationRoutes, {
     prefix: '/api/hospitalizations',
     hospitalizations: new HospitalizationService(db),
+    prescriptions: new PrescriptionService(db),
   });
   await app.register(examRoutes, { prefix: '/api/exams', exams });
   await app.register(vaccineRoutes, { prefix: '/api/vaccines', vaccines });

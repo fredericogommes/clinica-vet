@@ -33,6 +33,7 @@ const entityLabels: Record<string, string> = {
   client_package: 'Pacote do cliente',
   hospitalization: 'Internação',
   box: 'Box de internação',
+  prescription: 'Prescrição da internação',
   sales_settings: 'Configuração de vendas',
   payment_method: 'Forma de recebimento',
   cash_session: 'Caixa',
@@ -82,6 +83,8 @@ const actionLabels: Record<string, string> = {
   entry_weight: 'Registrou peso',
   entry_parameters: 'Registrou parâmetros clínicos',
   entry_report: 'Registrou relatório médico',
+  stop: 'Suspendeu',
+  execute: 'Registrou execução',
 };
 
 export interface AuditFilter {

@@ -27,16 +27,16 @@ import { patientsQuery } from '../patients/queries';
 import { localToday } from '../schedule/dates';
 import { hospitalizationOptionsQuery, hospitalizationQuery } from './queries';
 
-const fieldErrorsOf = (error: unknown): Record<string, string> =>
+export const fieldErrorsOf = (error: unknown): Record<string, string> =>
   error instanceof ApiRequestError
     ? Object.fromEntries(error.fieldErrors.map((f) => [f.path, f.message]))
     : {};
 
 /** Erro sem campo (conflito, permissão) aparece no topo do formulário. */
-const generalError = (error: unknown) =>
+export const generalError = (error: unknown) =>
   error && Object.keys(fieldErrorsOf(error)).length === 0 ? errorMessage(error) : undefined;
 
-function Alert({ message }: { message: string | undefined }) {
+export function Alert({ message }: { message: string | undefined }) {
   return message ? (
     <p role="alert" className="rounded-control bg-danger-50 px-3 py-2 text-sm text-danger-600">
       {message}
@@ -313,7 +313,7 @@ export function AdmitDialog({
   );
 }
 
-function FormDialog({
+export function FormDialog({
   title,
   description,
   formId,
@@ -621,7 +621,7 @@ const emptyParameters: Record<keyof ClinicalParameters, string> = {
   dehydration: '',
 };
 
-const decimal = (value: string) => Number(value.replace(',', '.'));
+export const decimal = (value: string) => Number(value.replace(',', '.'));
 
 /** Ocorrência, peso, parâmetros clínicos (opções fechadas) ou relatório médico. */
 export function EntryDialog({
