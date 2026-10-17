@@ -48,6 +48,7 @@
 - Internação: boxes da unidade, painel de animais internados, ficha de internação com ocorrência, peso, parâmetros clínicos e relatório médico, alta, óbito e cancelamento, e histórico de internações.
 - Prescrição da internação: grade de 24 horas com horários aprazados, dose calculada pelo peso com volume final, execução com programado × executado e autor, suspensão com motivo e Mapa de execução da unidade.
 - Internação: modelos de prescrição (Salvar como modelo e Usar modelo), ficha de internação para imprimir e mensagem ao tutor registrada no histórico e pronta para o WhatsApp.
+- Convênios: cadastro com prazo de repasse, coparticipação e autorização prévia, tabela de preços sobre os itens do catálogo e plano de saúde no cadastro do animal.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

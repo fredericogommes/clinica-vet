@@ -111,6 +111,12 @@ const fieldLabels: Record<string, string> = {
   shortfall: 'Pendência de venda sem saldo',
   lot: 'Lote',
   blocksSaleWithoutStock: 'Bloqueia venda sem saldo',
+  paymentDays: 'Prazo de repasse (dias)',
+  copayPercent: 'Coparticipação (%)',
+  requiresAuthorization: 'Exige autorização',
+  insurance: 'Plano de saúde',
+  insurer: 'Convênio',
+  document: 'CPF ou CNPJ',
 };
 
 /** Códigos gravados pela API traduzidos para o texto exibido. */

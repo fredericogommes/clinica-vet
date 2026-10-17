@@ -1,4 +1,9 @@
-import type { Patient, PatientData, PatientListItem } from '@clinica/contracts';
+import {
+  insuranceActiveOn,
+  type Patient,
+  type PatientData,
+  type PatientListItem,
+} from '@clinica/contracts';
 import { and, asc, count, desc, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
@@ -15,6 +20,7 @@ import {
   clients,
   clinicalEvents,
   coats,
+  insurers,
   patientOwnerHistory,
   patients,
   species,
@@ -101,9 +107,12 @@ export class PatientService {
         coatName: coats.name,
         ownerCode: clients.code,
         ownerName: clients.name,
+        insurerName: insurers.name,
+        insurerArchivedAt: insurers.archivedAt,
       })
       .from(patients)
       .innerJoin(clients, eq(clients.id, patients.clientId))
+      .leftJoin(insurers, eq(insurers.id, patients.insurerId))
       .leftJoin(species, eq(species.id, patients.speciesId))
       .leftJoin(breeds, eq(breeds.id, patients.breedId))
       .leftJoin(coats, eq(coats.id, patients.coatId))
@@ -148,6 +157,20 @@ export class PatientService {
       hasPedigree: p.hasPedigree,
       pedigreeNumber: p.pedigreeNumber,
       markings: p.markings,
+      insurance:
+        p.insurerId && p.insuranceCardNumber !== null && row.insurerName !== null
+          ? {
+              insurerId: p.insurerId,
+              insurerName: row.insurerName,
+              cardNumber: p.insuranceCardNumber,
+              validUntil: p.insuranceValidUntil,
+              active: insuranceActiveOn(
+                { validUntil: p.insuranceValidUntil },
+                row.insurerArchivedAt !== null,
+                new Date().toISOString().slice(0, 10),
+              ),
+            }
+          : null,
       archived: p.archivedAt !== null,
       owner: {
         id: p.clientId,
@@ -372,6 +395,20 @@ export class PatientService {
         );
       if (!row) throw invalid('patient.coatId', 'Pelagem inválida');
     }
+    // O plano de um convênio arquivado continua no animal, mas não se cadastra um novo nele.
+    if (input.insurance && input.insurance.insurerId !== before?.insurance?.insurerId) {
+      const [row] = await tx
+        .select({ id: insurers.id })
+        .from(insurers)
+        .where(
+          and(
+            eq(insurers.id, input.insurance.insurerId),
+            eq(insurers.organizationId, auth.organizationId),
+            isNull(insurers.archivedAt),
+          ),
+        );
+      if (!row) throw invalid('patient.insurance.insurerId', 'Convênio indisponível');
+    }
   }
 
   private async write<T>(work: (tx: Executor) => Promise<T>): Promise<T> {
@@ -405,6 +442,9 @@ function columnsOf(input: PatientData) {
     hasPedigree: input.hasPedigree,
     pedigreeNumber: input.hasPedigree ? input.pedigreeNumber : null,
     markings: [...new Set(input.markings)],
+    insurerId: input.insurance?.insurerId ?? null,
+    insuranceCardNumber: input.insurance?.cardNumber ?? null,
+    insuranceValidUntil: input.insurance?.validUntil ?? null,
   };
 }
 
@@ -424,6 +464,13 @@ function snapshot(p: Patient) {
     hasPedigree: p.hasPedigree,
     pedigreeNumber: p.pedigreeNumber,
     markings: p.markings,
+    insurance: p.insurance
+      ? {
+          insurer: p.insurance.insurerName,
+          cardNumber: p.insurance.cardNumber,
+          validUntil: p.insurance.validUntil,
+        }
+      : null,
     owner: { id: p.owner.id, name: p.owner.name },
     archived: p.archived,
   };

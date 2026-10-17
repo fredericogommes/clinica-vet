@@ -53,6 +53,11 @@ export function PatientEditPage({ patientId }: { patientId: string }) {
       <PatientForm
         formId={formId}
         defaultValues={patientToInput(patient.data)}
+        currentInsurer={
+          patient.data.insurance
+            ? { id: patient.data.insurance.insurerId, name: patient.data.insurance.insurerName }
+            : null
+        }
         onSubmit={(data, onFieldErrors) => {
           save.mutate({ data, onFieldErrors });
         }}

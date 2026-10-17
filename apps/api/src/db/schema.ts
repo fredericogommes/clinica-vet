@@ -354,11 +354,21 @@ export const patients = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    /** Plano de saúde [p.7, RN-43]: convênio, carteirinha e validade opcional. */
+    insurerId: uuid('insurer_id').references((): AnyPgColumn => insurers.id),
+    insuranceCardNumber: text('insurance_card_number'),
+    insuranceValidUntil: date('insurance_valid_until'),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     uniqueIndex('patients_org_code_uq').on(t.organizationId, t.code),
+    index('patients_insurer_idx').on(t.insurerId),
+    check(
+      'patients_insurance_ck',
+      sql`(${t.insurerId} is null) = (${t.insuranceCardNumber} is null)
+        and (${t.insurerId} is not null or ${t.insuranceValidUntil} is null)`,
+    ),
     uniqueIndex('patients_org_microchip_uq')
       .on(t.organizationId, t.microchip)
       .where(sql`${t.microchip} is not null`),
@@ -2689,5 +2699,59 @@ export const prescriptionTemplates = pgTable(
   },
   (t) => [
     uniqueIndex('prescription_templates_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+  ],
+);
+
+/**
+ * Convênio genérico [RN-43, D3]: tabela de preços própria, prazo de repasse, coparticipação do
+ * tutor e autorização prévia. Arquivado não vale para novas vendas.
+ */
+export const insurers = pgTable(
+  'insurers',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    name: text('name').notNull(),
+    document: text('document').notNull().default(''),
+    paymentDays: smallint('payment_days').notNull(),
+    copayPercent: numeric('copay_percent', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+    requiresAuthorization: boolean('requires_authorization').notNull().default(false),
+    notes: text('notes').notNull().default(''),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('insurers_org_name_uq').on(t.organizationId, sql`lower(${t.name})`),
+    check(
+      'insurers_values_ck',
+      sql`${t.paymentDays} between 0 and 365 and ${t.copayPercent} between 0 and 100`,
+    ),
+  ],
+);
+
+/** Preço do item no convênio: um item do catálogo, N tabelas [D3]. */
+export const insurerPrices = pgTable(
+  'insurer_prices',
+  {
+    insurerId: uuid('insurer_id')
+      .notNull()
+      .references(() => insurers.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    price: money('price').notNull(),
+    /** Nula segue a coparticipação do convênio. */
+    copayPercent: numeric('copay_percent', { precision: 5, scale: 2, mode: 'number' }),
+    requiresAuthorization: boolean('requires_authorization').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.insurerId, t.productId] }),
+    index('insurer_prices_product_idx').on(t.productId),
+    check(
+      'insurer_prices_values_ck',
+      sql`${t.price} >= 0 and (${t.copayPercent} is null or ${t.copayPercent} between 0 and 100)`,
+    ),
   ],
 );

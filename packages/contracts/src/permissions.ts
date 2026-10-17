@@ -164,6 +164,10 @@ export const permissionCatalog = {
     label:
       'Configurar vendas: limite de desconto da clínica, tipo de venda padrão e formas de recebimento',
   },
+  'insurers.configure': {
+    group: 'Convênios',
+    label: 'Cadastrar convênios e as tabelas de preço, coparticipação e autorização de cada um',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
     label:

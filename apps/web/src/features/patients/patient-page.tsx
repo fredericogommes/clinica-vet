@@ -198,6 +198,26 @@ export function PatientPage({ patientId }: { patientId: string }) {
                 label: 'Pedigree',
                 value: p.hasPedigree ? (p.pedigreeNumber ?? 'Sim, sem número informado') : 'Não',
               },
+              {
+                label: 'Plano de saúde',
+                value: p.insurance ? (
+                  <span>
+                    {p.insurance.insurerName} · carteirinha{' '}
+                    <span className="font-mono">{p.insurance.cardNumber}</span>
+                    {p.insurance.validUntil
+                      ? ` · validade ${formatDate(p.insurance.validUntil)}`
+                      : ''}
+                    {p.insurance.active ? null : (
+                      <>
+                        {' '}
+                        <Badge tone="danger">Fora da validade</Badge>
+                      </>
+                    )}
+                  </span>
+                ) : (
+                  'Não'
+                ),
+              },
               ...(p.status === 'deceased'
                 ? [
                     {
