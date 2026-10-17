@@ -141,6 +141,7 @@ describe('formas de recebimento [RN-27]', () => {
     expect(methods.map((m) => [m.name, m.kind, m.maxInstallments])).toEqual([
       ['Dinheiro', 'cash', 1],
       ['PIX', 'pix', 1],
+      ['Conta do cliente', 'account', 1],
       ['Rede Visa Crédito', 'credit', 6],
     ]);
     expect(visa).toMatchObject({
@@ -173,7 +174,11 @@ describe('formas de recebimento [RN-27]', () => {
     );
     expect(res.statusCode, res.body).toBe(200);
     const context = (await admin.get('/api/sales/context')).json<SaleContext>();
-    expect(context.paymentMethods.map((m) => m.name)).toEqual(['Dinheiro', 'PIX']);
+    expect(context.paymentMethods.map((m) => m.name)).toEqual([
+      'Dinheiro',
+      'PIX',
+      'Conta do cliente',
+    ]);
     const audit = (
       await admin.get(`/api/admin/audit?entity=payment_method&entityId=${visa.id}`)
     ).json<{ items: AuditEntry[] }>();
@@ -187,7 +192,7 @@ describe('formas de recebimento [RN-27]', () => {
       (await recep.send('POST', '/api/payment-methods', methodInput({ name: 'Elo' }))).statusCode,
     ).toBe(403);
     expect((await recep.get('/api/payment-methods')).statusCode).toBe(403);
-    // Mas vê as formas ativas no PDV.
+    // Mas vê as formas ativas no PDV, sem a conta do cliente (não vende fiado).
     const context = (await recep.get('/api/sales/context')).json<SaleContext>();
     expect(context.paymentMethods).toHaveLength(3);
   });

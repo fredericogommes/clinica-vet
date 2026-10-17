@@ -90,6 +90,8 @@ export async function provisionOrganization(
   await tx.insert(paymentMethods).values([
     { id: newId(), organizationId, name: 'Dinheiro', kind: 'cash' },
     { id: newId(), organizationId, name: 'PIX', kind: 'pix' },
+    // Fiado: o que fica pendurado vai para Recebimentos, com vencimento no prazo da forma.
+    { id: newId(), organizationId, name: 'Conta do cliente', kind: 'account', settlementDays: 30 },
   ]);
 
   const [adminRole] = await tx

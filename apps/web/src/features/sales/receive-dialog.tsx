@@ -15,6 +15,8 @@ import { Dialog } from '../../design-system/dialog';
 import { SelectField, TextField } from '../../design-system/field';
 import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
+import { formatCalendarDate } from '../../lib/format';
+import { addDays, localToday } from '../schedule/dates';
 import { formatMoney, moneyInput, parseDecimal } from '../products/format';
 import { saleQuery } from './queries';
 
@@ -40,46 +42,62 @@ const centsOf = (text: string) => {
 
 /**
  * Registrar recebimento [p.9, RN-27]: uma ou mais formas que somam o total da venda. O servidor
- * confere a soma e o parcelamento de cada forma e baixa a venda.
+ * confere a soma e o parcelamento de cada forma e baixa a venda. Em `settle`, recebe o que ficou
+ * na conta do cliente [p.10]: tudo ou uma parte, sem a própria conta como forma.
  */
 export function ReceiveDialog({
   sale,
-  methods,
+  methods: allMethods,
+  mode = 'receive',
   onClose,
   onReceived,
 }: {
   sale: Sale;
   methods: PaymentMethod[];
+  mode?: 'receive' | 'settle';
   onClose: () => void;
   onReceived?: (sale: Sale) => void;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const settling = mode === 'settle';
+  // A conta do cliente só serve para venda com cliente, e nunca para quitar a própria conta.
+  const methods = allMethods.filter((m) => m.kind !== 'account' || (!settling && sale.client));
+  const target = settling ? sale.clientDebt : sale.netTotal;
   const [lines, setLines] = useState<Line[]>(() =>
-    sale.netTotal > 0
+    target > 0
       ? [
           {
             key: 0,
-            methodId: methods[0]?.id ?? '',
-            amount: moneyInput(sale.netTotal),
+            methodId: methods.find((m) => m.kind !== 'account')?.id ?? '',
+            amount: moneyInput(target),
             installments: 1,
           },
         ]
       : [],
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const totalCents = toCents(sale.netTotal);
+  const totalCents = toCents(target);
   const paidCents = lines.reduce((a, l) => a + centsOf(l.amount), 0);
   const remaining = totalCents - paidCents;
 
   const receive = useMutation({
     mutationFn: (payments: SalePaymentInput[]) =>
-      api('POST', `/sales/${sale.id}/receive`, saleSchema, { payments }),
+      api('POST', `/sales/${sale.id}/${settling ? 'settle' : 'receive'}`, saleSchema, {
+        payments,
+      }),
     onSuccess: async (saved) => {
       queryClient.setQueryData(saleQuery(saved.id).queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
       await queryClient.invalidateQueries({ queryKey: ['cash'] });
-      toast.success(`Venda ${String(saved.code)} recebida e baixada.`);
+      toast.success(
+        settling
+          ? `Recebido ${formatMoney(fromCents(paidCents))} da venda ${String(saved.code)}.` +
+              (saved.clientDebt > 0
+                ? ` Continua pendurado ${formatMoney(saved.clientDebt)}.`
+                : ' Conta quitada.')
+          : `Venda ${String(saved.code)} recebida e baixada.`,
+      );
       onReceived?.(saved);
       onClose();
     },
@@ -105,7 +123,12 @@ export function ReceiveDialog({
       }
       return { methodId: l.methodId, amount: amount ?? 0, installments: l.installments };
     });
-    if (Object.keys(found).length === 0 && remaining !== 0) {
+    if (settling) {
+      if (Object.keys(found).length === 0 && remaining < 0) {
+        found.payments = `Passou ${formatMoney(fromCents(-remaining))} do que falta receber`;
+      }
+      if (lines.length === 0) found.payments = 'Informe ao menos uma forma';
+    } else if (Object.keys(found).length === 0 && remaining !== 0) {
       found.payments =
         remaining > 0
           ? `Faltam ${formatMoney(fromCents(remaining))} para fechar o total`
@@ -129,15 +152,23 @@ export function ReceiveDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={`Registrar recebimento da venda ${String(sale.code)}`}
-      description={`Total de ${formatMoney(sale.netTotal)}. Divida entre várias formas se o cliente pagar de mais de um jeito.`}
+      title={
+        settling
+          ? `Receber da conta do cliente, venda ${String(sale.code)}`
+          : `Registrar recebimento da venda ${String(sale.code)}`
+      }
+      description={
+        settling
+          ? `Falta receber ${formatMoney(sale.clientDebt)}. O cliente pode pagar tudo ou só uma parte.`
+          : `Total de ${formatMoney(sale.netTotal)}. Divida entre várias formas se o cliente pagar de mais de um jeito.`
+      }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Voltar
           </Button>
           <Button pending={receive.isPending} onClick={submit}>
-            Receber e baixar venda
+            {settling ? 'Receber' : 'Receber e baixar venda'}
           </Button>
         </>
       }
@@ -207,6 +238,11 @@ export function ReceiveDialog({
                       change(line.key, { installments: Number(e.target.value) });
                     }}
                   />
+                ) : method?.kind === 'account' ? (
+                  <p className="text-xs text-ink-muted sm:pt-8">
+                    Fica na conta, vence em{' '}
+                    {formatCalendarDate(addDays(localToday(), method.settlementDays))}
+                  </p>
                 ) : (
                   <p className="hidden text-xs text-ink-muted sm:block sm:pt-8">À vista</p>
                 )}
@@ -255,18 +291,20 @@ export function ReceiveDialog({
         ) : null}
         <dl className="space-y-1 border-t border-line pt-3 text-sm" aria-live="polite">
           <div className="flex justify-between gap-3">
-            <dt className="text-ink-muted">Total da venda</dt>
-            <dd className="font-mono tabular-nums">{formatMoney(sale.netTotal)}</dd>
+            <dt className="text-ink-muted">
+              {settling ? 'Na conta do cliente' : 'Total da venda'}
+            </dt>
+            <dd className="font-mono tabular-nums">{formatMoney(target)}</dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-ink-muted">Informado</dt>
             <dd className="font-mono tabular-nums">{formatMoney(fromCents(paidCents))}</dd>
           </div>
           <div className="flex justify-between gap-3 font-medium">
-            <dt>{remaining >= 0 ? 'Falta' : 'Passou'}</dt>
+            <dt>{remaining < 0 ? 'Passou' : settling ? 'Continua pendurado' : 'Falta'}</dt>
             <dd
               className={
-                remaining === 0
+                remaining === 0 || (settling && remaining > 0)
                   ? 'font-mono tabular-nums text-sage-700'
                   : 'font-mono tabular-nums text-danger-600'
               }

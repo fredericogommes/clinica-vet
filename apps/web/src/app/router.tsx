@@ -115,6 +115,12 @@ const MySalesPage = lazy(() =>
 const ClientRankingPage = lazy(() =>
   import('../features/sales/reports-page').then((m) => ({ default: m.ClientRankingPage })),
 );
+const ClientDebtsPage = lazy(() =>
+  import('../features/sales/debts-pages').then((m) => ({ default: m.ClientDebtsPage })),
+);
+const ClientBalancesPage = lazy(() =>
+  import('../features/sales/debts-pages').then((m) => ({ default: m.ClientBalancesPage })),
+);
 const CashListPage = lazy(() =>
   import('../features/cash/cash-pages').then((m) => ({ default: m.CashListPage })),
 );
@@ -1438,6 +1444,43 @@ const clientRankingRoute = createRoute({
   },
 });
 
+/** Busca, cliente e "só vencidos" na URL: o Saldo dos clientes abre os débitos de um cliente. */
+const clientDebtsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/recebimentos',
+  validateSearch: z.object({
+    q: z.string().max(100).optional().catch(undefined),
+    cliente: z.uuid().optional().catch(undefined),
+    vencidos: z.boolean().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function ClientDebts() {
+    const s = clientDebtsRoute.useSearch();
+    return (
+      <RequirePermission permission="sales.debts">
+        <ClientDebtsPage
+          search={{
+            q: s.q ?? '',
+            clientId: s.cliente,
+            overdue: s.vencidos ?? false,
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
+const clientBalancesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/vendas/saldo-clientes',
+  component: () => (
+    <RequirePermission permission="sales.debts">
+      <ClientBalancesPage />
+    </RequirePermission>
+  ),
+});
+
 const mySalesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/vendas/minhas',
@@ -1556,6 +1599,8 @@ const routeTree = rootRoute.addChildren([
     salesReportRoute,
     mySalesRoute,
     clientRankingRoute,
+    clientDebtsRoute,
+    clientBalancesRoute,
     cashListRoute,
     cashRoute,
     saleRoute,

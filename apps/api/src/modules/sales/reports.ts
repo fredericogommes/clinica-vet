@@ -53,7 +53,8 @@ export class SalesReportService {
     return sql`with s as (
       select sales.*, (sales.sold_at at time zone ${tz})::date as day,
         coalesce((select sum(p.amount) from sale_payments p
-          where p.sale_id = sales.id and p.reversed_at is null), 0) as received
+          where p.sale_id = sales.id and p.reversed_at is null and p.kind <> 'account'), 0)
+          as received
       from sales
       where sales.organization_id = ${auth.organizationId}
         and sales.unit_id = ${auth.unitId}
@@ -70,7 +71,7 @@ export class SalesReportService {
     const base = await this.base(auth, period);
     const totals = sql`count(*) as count, sum(s.gross_total) as gross,
       sum(s.discount_total) as discount, sum(s.net_total) as net, sum(s.received) as received,
-      coalesce(sum(s.net_total) filter (where s.status = 'open'), 0) as open`;
+      coalesce(sum(s.net_total - s.received), 0) as open`;
     const [all, days, methods, people, kinds] = await Promise.all([
       this.rows(sql`${base} select ${totals} from s`),
       this.rows(
@@ -82,6 +83,7 @@ export class SalesReportService {
           coalesce(sum(p.amount) filter (where p.installments > 1), 0) as installments,
           sum(p.amount) as total
         from s join sale_payments p on p.sale_id = s.id and p.reversed_at is null
+          and p.kind <> 'account'
         join payment_methods m on m.id = p.payment_method_id
         group by m.id, m.name, m.kind order by total desc, m.name`),
       this.rows(sql`${base}

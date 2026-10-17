@@ -5,7 +5,15 @@ import { moneySchema } from './products.js';
  * Formas de recebimento por adquirente e bandeira, não genéricas [RN-27, p.9]: "Rede Visa
  * Crédito" e "Rede Visa Débito" são formas diferentes, cada uma com prazo e parcelamento.
  */
-export const paymentKinds = ['cash', 'pix', 'debit', 'credit', 'voucher', 'other'] as const;
+export const paymentKinds = [
+  'cash',
+  'pix',
+  'debit',
+  'credit',
+  'voucher',
+  'other',
+  'account',
+] as const;
 export type PaymentKind = (typeof paymentKinds)[number];
 export const paymentKindLabels: Record<PaymentKind, string> = {
   cash: 'Dinheiro',
@@ -14,7 +22,14 @@ export const paymentKindLabels: Record<PaymentKind, string> = {
   credit: 'Cartão de crédito',
   voucher: 'Convênio ou voucher',
   other: 'Outra',
+  account: 'Conta do cliente (fiado)',
 };
+
+/**
+ * Conta do cliente: o valor fica pendurado e é recebido depois em Recebimentos [p.10]. Não entra
+ * dinheiro no caixa; o prazo da forma é o vencimento.
+ */
+export const ON_ACCOUNT: PaymentKind = 'account';
 
 /** Cartão e convênio: caem pela adquirente e passam pela conciliação de cartões. */
 export const acquirerKinds: readonly PaymentKind[] = ['debit', 'credit', 'voucher'];
@@ -59,6 +74,13 @@ export const paymentMethodInputSchema = z
         code: 'custom',
         path: ['maxInstallments'],
         message: 'Só cartão de crédito e convênio parcelam',
+      });
+    }
+    if (m.kind === 'account' && m.feePercent > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['feePercent'],
+        message: 'Conta do cliente não tem taxa',
       });
     }
   });
@@ -115,6 +137,11 @@ export const salePaymentSchema = z.object({
   receivables: z.array(receivableSchema),
   /** Devolvida no estorno da venda; as parcelas deixam de valer. */
   reversed: z.boolean(),
+  receivedAt: z.iso.datetime({ offset: true }),
+  /** Recebimento posterior que abate a conta do cliente (o id do pagamento abatido). */
+  settlesPaymentId: z.uuid().nullable(),
+  /** Na conta do cliente: o que ainda falta receber. Zero nas demais formas. */
+  open: z.number(),
 });
 export type SalePayment = z.infer<typeof salePaymentSchema>;
 

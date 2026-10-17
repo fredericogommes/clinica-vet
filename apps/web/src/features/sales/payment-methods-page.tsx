@@ -250,6 +250,8 @@ function MethodDialog({
             const next = e.target.value as PaymentKind;
             setKind(next);
             if (!installableKinds.includes(next)) setMaxInstallments(1);
+            // Conta do cliente não passa por adquirente: sem taxa.
+            if (next === 'account') setFee('0');
             clear('maxInstallments');
           }}
         />
@@ -275,12 +277,16 @@ function MethodDialog({
             }}
           />
           <TextField
-            label="Prazo de liquidação (dias)"
+            label={kind === 'account' ? 'Prazo para pagar (dias)' : 'Prazo de liquidação (dias)'}
             inputMode="numeric"
             autoComplete="off"
             value={settlementDays}
             error={errors.settlementDays}
-            hint="Em quantos dias o dinheiro cai na conta. As demais parcelas seguem de 30 em 30 dias."
+            hint={
+              kind === 'account'
+                ? 'Em quantos dias vence o que fica na conta do cliente.'
+                : 'Em quantos dias o dinheiro cai na conta. As demais parcelas seguem de 30 em 30 dias.'
+            }
             onChange={(e) => {
               setSettlementDays(e.target.value);
               clear('settlementDays');
@@ -291,7 +297,9 @@ function MethodDialog({
             inputMode="decimal"
             autoComplete="off"
             value={fee}
+            disabled={kind === 'account'}
             error={errors.feePercent}
+            {...(kind === 'account' ? { hint: 'Conta do cliente não tem taxa.' } : {})}
             onChange={(e) => {
               setFee(e.target.value);
               clear('feePercent');

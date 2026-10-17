@@ -1,5 +1,8 @@
 import {
+  clientBalancesSchema,
+  clientDebtListSchema,
   pageSchema,
+  paymentMethodSchema,
   patientSalesSchema,
   saleContextSchema,
   saleListItemSchema,
@@ -60,3 +63,34 @@ export const patientSalesQuery = (patientId: string) =>
     queryKey: ['sales', 'patient', patientId],
     queryFn: () => api('GET', `/sales/patient/${patientId}`, patientSalesSchema),
   });
+
+/** Recebimentos [p.10]: o que ficou na conta do cliente, com busca e filtro de vencidos. */
+export const clientDebtsQuery = (params: {
+  q: string;
+  clientId?: string | undefined;
+  overdue: boolean;
+  page: number;
+}) =>
+  queryOptions({
+    queryKey: ['sales', 'debts', 'list', params],
+    queryFn: () => {
+      const qs = new URLSearchParams({ page: String(params.page), pageSize: '25' });
+      if (params.q) qs.set('q', params.q);
+      if (params.clientId) qs.set('clientId', params.clientId);
+      if (params.overdue) qs.set('overdue', 'true');
+      return api('GET', `/sales/debts?${qs.toString()}`, clientDebtListSchema);
+    },
+    placeholderData: keepPreviousData,
+  });
+
+export const clientBalancesQuery = queryOptions({
+  queryKey: ['sales', 'debts', 'clients'],
+  queryFn: () => api('GET', '/sales/debts/clients', clientBalancesSchema),
+});
+
+/** Formas para receber a conta do cliente: as ativas, sem a própria conta. */
+export const settleMethodsQuery = queryOptions({
+  queryKey: ['sales', 'debts', 'methods'],
+  queryFn: () => api('GET', '/sales/debts/methods', z.array(paymentMethodSchema)),
+  staleTime: 60_000,
+});

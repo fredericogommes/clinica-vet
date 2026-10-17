@@ -376,3 +376,92 @@ test('recebimento e caixa: pagamento dividido, parcelas, sangria, fechamento e e
   await expect(page.getByText('Fechado', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/R\$\s5,00 \(falta\)/)).toBeVisible();
 });
+
+test('conta do cliente: venda fiado, recebimento parcial em Recebimentos e quitação na venda', async ({
+  page,
+}) => {
+  const { tutor, pet, service, product } = await seed(page, 'c');
+
+  // Venda de R$ 190,00: R$ 40,00 em dinheiro e o resto na conta do cliente [p.10].
+  await sidebar(page).getByRole('link', { name: 'Ponto de venda' }).click();
+  await page.getByLabel('Localizar cliente').fill(pet);
+  await page
+    .getByRole('list', { name: 'Clientes encontrados' })
+    .getByRole('button', { name: pet })
+    .click();
+  const add = page.getByLabel('Adicionar item');
+  await add.fill(service);
+  await expect(page.getByRole('list', { name: 'Itens encontrados' })).toContainText(service);
+  await add.press('Enter');
+  await add.fill(product);
+  await expect(page.getByRole('list', { name: 'Itens encontrados' })).toContainText(product);
+  await add.press('Enter');
+  await page.getByRole('button', { name: 'Registrar recebimento' }).click();
+  const opening = page.getByRole('dialog', { name: 'Abrir caixa' });
+  if (await opening.isVisible().catch(() => false)) {
+    await opening.getByLabel('Troco inicial (R$)').fill('0');
+    await opening.getByRole('button', { name: 'Abrir caixa' }).click();
+  }
+  const dialog = page.getByRole('dialog', { name: /Registrar recebimento da venda \d+/ });
+  await dialog.getByLabel('Forma 1: forma de recebimento').selectOption({ label: 'Dinheiro' });
+  await dialog.getByLabel('Forma 1: valor').fill('40');
+  await dialog.getByRole('button', { name: 'Dividir com outra forma' }).click();
+  await dialog
+    .getByLabel('Forma 2: forma de recebimento')
+    .selectOption({ label: 'Conta do cliente' });
+  await expect(dialog.getByText(/Fica na conta, vence em/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Receber e baixar venda' }).click();
+  await expect(toasts(page).getByText(/Venda \d+ recebida e baixada\./)).toBeVisible();
+  const debtNote = page.getByRole('note').filter({ hasText: 'Na conta do cliente' });
+  await expect(debtNote).toContainText(/R\$\s150,00 a receber/);
+  await expect(page.getByRole('list', { name: 'Formas de recebimento' })).toContainText(
+    /Falta receber R\$\s150,00/,
+  );
+  const saleUrl = page.url();
+
+  // Recebimentos: o cliente paga R$ 100,00 agora, no PIX.
+  await sidebar(page).getByRole('link', { name: 'Recebimentos' }).click();
+  await page.getByLabel('Buscar recebimentos').fill(tutor);
+  const row = page.getByRole('row').filter({ hasText: tutor });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(/R\$\s150,00/);
+  await row.getByRole('button', { name: /^Receber venda \d+/ }).click();
+  const settle = page.getByRole('dialog', { name: /Receber da conta do cliente, venda \d+/ });
+  await expect(settle.getByLabel('Forma 1: valor')).toHaveValue('150,00');
+  await expect(
+    settle.getByLabel('Forma 1: forma de recebimento').getByRole('option', {
+      name: 'Conta do cliente',
+    }),
+  ).toHaveCount(0);
+  await settle.getByLabel('Forma 1: forma de recebimento').selectOption({ label: 'PIX' });
+  await settle.getByLabel('Forma 1: valor').fill('200');
+  await settle.getByRole('button', { name: 'Receber', exact: true }).click();
+  await expect(settle.getByText(/Passou R\$\s50,00 do que falta receber/)).toBeVisible();
+  await settle.getByLabel('Forma 1: valor').fill('100');
+  await settle.getByRole('button', { name: 'Receber', exact: true }).click();
+  await expect(
+    toasts(page).getByText(/Recebido R\$\s100,00 da venda \d+\. Continua pendurado R\$\s50,00\./),
+  ).toBeVisible();
+  await expect(row).toContainText(/R\$\s50,00/);
+
+  // Saldo dos clientes mostra o débito e leva aos recebimentos do cliente.
+  await sidebar(page).getByRole('link', { name: 'Saldo dos clientes' }).click();
+  const balance = page.getByRole('row').filter({ hasText: tutor });
+  await expect(balance).toContainText(/R\$\s50,00/);
+  await balance.getByRole('link', { name: `Ver recebimentos de ${tutor}` }).click();
+  await expect(page).toHaveURL(/\/vendas\/recebimentos\?cliente=/);
+  await expect(page.getByRole('button', { name: `Cliente: ${tutor} · ver todos` })).toBeVisible();
+  await expect(page.getByRole('table').getByRole('row')).toHaveCount(2);
+
+  // O resto é recebido na própria venda e a conta fica quitada.
+  await page.goto(saleUrl);
+  await debtNote.getByRole('button', { name: 'Receber da conta' }).click();
+  await expect(settle.getByLabel('Forma 1: valor')).toHaveValue('50,00');
+  await settle.getByLabel('Forma 1: forma de recebimento').selectOption({ label: 'Dinheiro' });
+  await settle.getByRole('button', { name: 'Receber', exact: true }).click();
+  await expect(toasts(page).getByText(/Conta quitada\./)).toBeVisible();
+  await expect(debtNote).toHaveCount(0);
+  const payments = page.getByRole('list', { name: 'Formas de recebimento' });
+  await expect(payments).toContainText('Quitada');
+  await expect(payments.getByText(/Recebido da conta do cliente em/)).toHaveCount(2);
+});
