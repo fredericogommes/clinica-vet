@@ -1,5 +1,6 @@
 import type { Permission } from '@clinica/contracts';
 import {
+  Trophy,
   Activity,
   ArrowLeftRight,
   BadgePercent,
@@ -104,6 +105,12 @@ export const navigation: NavSection[] = [
         to: '/vendas/consulta',
         icon: BarChart3,
         permission: 'sales.reports',
+      },
+      {
+        label: 'Ranking de clientes',
+        to: '/vendas/ranking-clientes',
+        icon: Trophy,
+        permission: 'sales.ranking',
       },
       {
         label: 'Minhas vendas',

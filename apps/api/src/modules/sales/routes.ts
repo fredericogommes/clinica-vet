@@ -13,6 +13,7 @@ import {
   saleSchema,
   salesByItemQuerySchema,
   salesByItemSchema,
+  clientRankingSchema,
   salesPeriodSchema,
   salesSettingsSchema,
   salesSummarySchema,
@@ -22,6 +23,7 @@ import {
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { ClientRankingService } from './client-ranking.js';
 import type { SalesReportService } from './reports.js';
 import type { SaleService } from './service.js';
 
@@ -31,7 +33,8 @@ const patientParams = z.object({ patientId: z.uuid() });
 export const saleRoutes: FastifyPluginAsyncZod<{
   sales: SaleService;
   reports: SalesReportService;
-}> = async (app, { sales, reports }) => {
+  ranking: ClientRankingService;
+}> = async (app, { sales, reports, ranking }) => {
   app.get(
     '/',
     {
@@ -65,6 +68,16 @@ export const saleRoutes: FastifyPluginAsyncZod<{
       schema: { querystring: salesByItemQuerySchema, response: { 200: salesByItemSchema } },
     },
     async (request) => reports.byItem(requireAuth(request), request.query),
+  );
+
+  // Ranking de clientes [p.10, RN-10]: curva ABC do período.
+  app.get(
+    '/reports/clients',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.ranking' } },
+      schema: { querystring: salesPeriodSchema, response: { 200: clientRankingSchema } },
+    },
+    async (request) => ranking.ranking(requireAuth(request), request.query),
   );
 
   // Minhas vendas [p.10]: só os itens do próprio profissional.

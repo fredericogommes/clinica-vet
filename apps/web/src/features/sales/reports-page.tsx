@@ -1,4 +1,6 @@
 import {
+  abcClassHints,
+  clientRankingSchema,
   mySalesSchema,
   pageSchema,
   paymentKindLabels,
@@ -12,11 +14,11 @@ import {
 } from '@clinica/contracts';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { BarChart3, Receipt, Search } from 'lucide-react';
+import { BarChart3, Receipt, Search, Trophy } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '../../design-system/button';
 import { SearchField, TextField } from '../../design-system/field';
-import { PageHeader, Panel, Section, Stats } from '../../design-system/layout';
+import { Badge, PageHeader, Panel, Section, Stats } from '../../design-system/layout';
 import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states';
 import { DataTable, Pagination } from '../../design-system/table';
 import { Tabs, tabPanelProps } from '../../design-system/tabs';
@@ -26,7 +28,7 @@ import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { formatMoney, quantityInput } from '../products/format';
 import { addDays, addMonths, endOfMonth, localToday, startOfMonth } from '../schedule/dates';
-import type { ReportSearch, ReportTab } from './report-search';
+import { lastTwelveMonths, type ReportSearch, type ReportTab } from './report-search';
 import { StatusBadge } from './status-badge';
 
 const LIST_PAGE_SIZE = 25;
@@ -76,6 +78,13 @@ const mineQuery = (from: string, to: string) =>
     placeholderData: keepPreviousData,
   });
 
+const rankingQuery = (from: string, to: string) =>
+  queryOptions({
+    queryKey: ['sales', 'reports', 'clients', from, to],
+    queryFn: () => api('GET', `/sales/reports/clients?${qs({ from, to })}`, clientRankingSchema),
+    placeholderData: keepPreviousData,
+  });
+
 const money = (value: number) => (
   <span className="font-mono whitespace-nowrap">{formatMoney(value)}</span>
 );
@@ -98,6 +107,7 @@ function PeriodPicker({
     { label: 'Últimos 7 dias', from: addDays(today, -6), to: today },
     { label: 'Este mês', from: startOfMonth(today), to: today },
     { label: 'Mês passado', from: lastMonth, to: endOfMonth(lastMonth) },
+    { label: 'Últimos 12 meses', ...lastTwelveMonths() },
   ];
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -771,6 +781,132 @@ export function MySalesPage({ from, to }: { from: string; to: string }) {
                       inteiro.
                     </p>
                   ) : null}
+                </>
+              )}
+            </Panel>
+          </div>
+        )}
+      </Loading>
+    </>
+  );
+}
+
+const percent = (value: number) => (
+  <span className="font-mono whitespace-nowrap tabular-nums">
+    {value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+  </span>
+);
+
+const classTone = { A: 'sage', B: 'amber', C: 'neutral' } as const;
+
+/** Ranking de clientes [p.10, RN-10]: curva ABC do valor comprado no período. */
+export function ClientRankingPage({ from, to }: { from: string; to: string }) {
+  const can = useCan();
+  const navigate = useNavigate({ from: '/vendas/ranking-clientes' });
+  const ranking = useQuery(rankingQuery(from, to));
+  return (
+    <>
+      <PageHeader
+        area="Vendas"
+        title="Ranking de clientes"
+        description="Curva ABC pelo valor líquido comprado no período, somando as vendas em aberto e baixadas de todas as unidades. Orçamentos e vendas canceladas ficam de fora."
+      />
+      <div className="mb-5">
+        <PeriodPicker
+          from={from}
+          to={to}
+          onChange={(p) => {
+            void navigate({ search: { de: p.from, ate: p.to }, replace: true });
+          }}
+        />
+      </div>
+      <Loading query={ranking}>
+        {(r) => (
+          <div className="space-y-5">
+            <Stats
+              label={`Curva ABC de ${periodLabel(from, to)}`}
+              items={[
+                {
+                  label: 'Comprado por clientes',
+                  value: formatMoney(r.total),
+                  detail: `${String(r.items.length)} ${r.items.length === 1 ? 'cliente' : 'clientes'}`,
+                },
+                ...r.classes.map((c) => ({
+                  label: `Classe ${c.class}`,
+                  value: formatMoney(c.net),
+                  detail: `${String(c.clients)} ${c.clients === 1 ? 'cliente' : 'clientes'} · ${c.share.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do valor`,
+                })),
+              ]}
+            />
+            <Panel>
+              {r.items.length === 0 ? (
+                <EmptyState
+                  icon={Trophy}
+                  title="Nenhuma compra de cliente no período"
+                  description="Vendas sem cliente (consumidor) não entram no ranking."
+                />
+              ) : (
+                <>
+                  <DataTable
+                    caption="Clientes por valor comprado"
+                    rows={r.items}
+                    rowKey={(i) => i.client.id}
+                    columns={[
+                      {
+                        header: 'Posição',
+                        className: 'w-16 text-right',
+                        hideOnMobile: true,
+                        cell: (i) => num(i.position),
+                      },
+                      {
+                        header: 'Cliente',
+                        cell: (i) => (
+                          <span className="block min-w-0">
+                            {can('clients.view') ? (
+                              <Link
+                                to="/clientes/$clientId"
+                                params={{ clientId: i.client.id }}
+                                className="block font-medium hover:underline"
+                              >
+                                {i.client.name}
+                              </Link>
+                            ) : (
+                              <span className="block font-medium">{i.client.name}</span>
+                            )}
+                            <span className="block font-mono text-xs text-ink-muted">
+                              #{i.client.code} ·{' '}
+                              {i.salesCount === 1 ? '1 venda' : `${String(i.salesCount)} vendas`}
+                            </span>
+                          </span>
+                        ),
+                      },
+                      {
+                        header: 'Comprado',
+                        className: 'text-right',
+                        cell: (i) => money(i.net),
+                      },
+                      {
+                        header: 'Participação',
+                        className: 'text-right',
+                        hideOnMobile: true,
+                        cell: (i) => percent(i.share),
+                      },
+                      {
+                        header: 'Acumulado',
+                        className: 'text-right',
+                        hideOnMobile: true,
+                        cell: (i) => percent(i.cumulativeShare),
+                      },
+                      {
+                        header: 'Classe',
+                        cell: (i) => <Badge tone={classTone[i.class]}>{i.class}</Badge>,
+                      },
+                    ]}
+                  />
+                  <p className="border-t border-line px-4 py-3 text-xs text-ink-muted">
+                    A: {abcClassHints.A.toLowerCase()}. B: {abcClassHints.B.toLowerCase()}. C:{' '}
+                    {abcClassHints.C.toLowerCase()}.
+                  </p>
                 </>
               )}
             </Panel>
