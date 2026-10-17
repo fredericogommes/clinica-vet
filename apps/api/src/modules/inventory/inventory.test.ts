@@ -187,6 +187,8 @@ describe('estoque [RN-31]', () => {
       onHand: 9,
       shortfall: 0,
       belowMin: true,
+      oldestExpiry: null,
+      expiry: null,
     });
     expect(list.items.find((p) => p.id === servico.id)?.stock).toBeNull();
 

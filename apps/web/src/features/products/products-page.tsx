@@ -20,6 +20,7 @@ import { useCan } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
 import { catalogQuery } from '../catalogs/queries';
 import { formatMoney, quantityInput } from './format';
+import { formatCalendarDate } from '../../lib/format';
 import { PRODUCTS_PAGE_SIZE, productsQuery, type ProductListParams } from './queries';
 
 export function ProductsPage({ search }: { search: ProductListParams }) {
@@ -237,11 +238,15 @@ function KindBadge({ item }: { item: ProductListItem }) {
 /** Saldo na unidade atual, com alerta de mínimo e de pendência de venda sem saldo. */
 function StockCell({ item }: { item: ProductListItem }) {
   if (!item.stock) return <span className="text-ink-faint">—</span>;
-  const { onHand, shortfall, belowMin } = item.stock;
+  const { onHand, shortfall, belowMin, expiry, oldestExpiry } = item.stock;
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-      {shortfall > 0 ? (
+      {expiry === 'expired' ? (
+        <Badge tone="danger">Lote vencido</Badge>
+      ) : shortfall > 0 ? (
         <Badge tone="danger">Falta {quantityInput(shortfall)}</Badge>
+      ) : expiry === 'expiring' && oldestExpiry ? (
+        <Badge tone="amber">Vence {formatCalendarDate(oldestExpiry)}</Badge>
       ) : belowMin ? (
         <Badge tone="amber">Abaixo do mínimo</Badge>
       ) : null}

@@ -71,6 +71,13 @@
       "when": 1792195265681,
       "tag": "0009_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792196886754,
+      "tag": "0010_stock_lots",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import {
   productListItemSchema,
   productListQuerySchema,
   productSchema,
+  lotTraceSchema,
   productStockSchema,
   stockAdjustmentSchema,
 } from '@clinica/contracts';
@@ -86,6 +87,20 @@ export const productRoutes: FastifyPluginAsyncZod<{
       },
     },
     async (request) => inventory.adjust(requireAuth(request), request.params.id, request.body),
+  );
+
+  // Rastreio do lote até a venda e o animal [RN-32].
+  app.get(
+    '/:id/lots/:lotId',
+    {
+      config: { access: { kind: 'permission', permission: 'products.view' } },
+      schema: {
+        params: z.object({ id: z.uuid(), lotId: z.uuid() }),
+        response: { 200: lotTraceSchema },
+      },
+    },
+    async (request) =>
+      inventory.trace(requireAuth(request), request.params.id, request.params.lotId),
   );
 
   app.put(

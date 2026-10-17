@@ -753,6 +753,7 @@ export const products = pgTable(
       .notNull()
       .default(0),
     tracksStock: boolean('tracks_stock').notNull().default(false),
+    tracksLots: boolean('tracks_lots').notNull().default(false),
     minStock: numeric('min_stock', { precision: 14, scale: 3, mode: 'number' }),
     idealStock: numeric('ideal_stock', { precision: 14, scale: 3, mode: 'number' }),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -777,7 +778,8 @@ export const products = pgTable(
         and (${t.discountLimitPercent} is null or ${t.discountLimitPercent} between 0 and 100)
         and ${t.defaultCommissionPercent} between 0 and 100
         and (${t.minStock} is null or ${t.minStock} >= 0)
-        and (${t.idealStock} is null or ${t.idealStock} >= 0)`,
+        and (${t.idealStock} is null or ${t.idealStock} >= 0)
+        and (not ${t.tracksLots} or ${t.tracksStock})`,
     ),
   ],
 );
@@ -943,8 +945,38 @@ export const stockBalances = pgTable(
     primaryKey({ columns: [t.unitId, t.productId] }),
     check(
       'stock_balances_ck',
-      sql`${t.onHand} >= 0 and ${t.shortfall} >= 0 and (${t.onHand} = 0 or ${t.shortfall} = 0)`,
+      // Saldo e pendência convivem só com lote vencido, que fica fora do disponível.
+      sql`${t.onHand} >= 0 and ${t.shortfall} >= 0`,
     ),
+  ],
+);
+
+/**
+ * Lote e validade por entrada [RN-32]. A soma dos lotes é o saldo do produto que controla lote;
+ * a baixa tira primeiro do lote que vence antes.
+ */
+export const stockLots = pgTable(
+  'stock_lots',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    code: text('code').notNull(),
+    expiresOn: date('expires_on', { mode: 'string' }),
+    onHand: quantity('on_hand').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('stock_lots_code_uq').on(t.unitId, t.productId, t.code),
+    index('stock_lots_expiry_idx').on(t.unitId, t.productId, t.expiresOn),
+    check('stock_lots_ck', sql`${t.onHand} >= 0`),
   ],
 );
 
@@ -984,6 +1016,25 @@ export const stockMovements = pgTable(
         and (${t.kind} <> 'sale' or ${t.quantity} < 0)
         and (${t.kind} not in ('entry', 'sale_return') or ${t.quantity} > 0)`,
     ),
+  ],
+);
+
+/** Quanto cada movimento tirou ou pôs em cada lote: é o rastreio do lote até a venda. */
+export const stockMovementLots = pgTable(
+  'stock_movement_lots',
+  {
+    movementId: uuid('movement_id')
+      .notNull()
+      .references(() => stockMovements.id),
+    lotId: uuid('lot_id')
+      .notNull()
+      .references(() => stockLots.id),
+    quantity: quantity('quantity').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.movementId, t.lotId] }),
+    index('stock_movement_lots_lot_idx').on(t.lotId),
+    check('stock_movement_lots_ck', sql`${t.quantity} <> 0`),
   ],
 );
 

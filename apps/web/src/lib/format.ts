@@ -10,3 +10,6 @@ export const formatDateTime = (iso: string): string => dateTime.format(new Date(
 
 const day = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 export const formatDay = (iso: string): string => day.format(new Date(iso));
+
+/** Data de calendário (AAAA-MM-DD), sem fuso: validade, nascimento. */
+export const formatCalendarDate = (date: string): string => date.split('-').reverse().join('/');

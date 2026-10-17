@@ -26,6 +26,24 @@ const quantitySchema = z
   .max(99_999, 'Quantidade alta demais')
   .refine(threeDecimals, 'Use no máximo três casas');
 
+/** Lote a vencer: aviso a partir de 30 dias da validade. */
+export const lotExpiringDays = 30;
+export const lotExpiryStates = ['ok', 'expiring', 'expired'] as const;
+export type LotExpiryState = (typeof lotExpiryStates)[number];
+/** Saldo que existia antes de o produto passar a controlar lote. */
+export const legacyLotCode = 'SEM LOTE';
+
+const lotInputSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Informe o lote')
+    .max(40, 'Máximo de 40 caracteres')
+    .transform((v) => v.toUpperCase())
+    .refine((v) => v !== legacyLotCode, 'Use o número do lote impresso na embalagem'),
+  expiresOn: z.iso.date({ message: 'Informe a validade' }),
+});
+
 const notes = (message: string) =>
   z.string().trim().min(3, message).max(300, 'Máximo de 300 caracteres');
 
@@ -33,6 +51,8 @@ export const stockAdjustmentSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('entry'),
     quantity: quantitySchema,
+    /** Obrigatório quando o produto controla lote [RN-32]; ignorado nos demais. */
+    lot: lotInputSchema.optional(),
     notes: notes('Diga de onde veio, ex. nota, fornecedor ou doação'),
   }),
   z.object({
@@ -43,6 +63,8 @@ export const stockAdjustmentSchema = z.discriminatedUnion('kind', [
       .min(0, 'Não pode ser negativa')
       .max(99_999, 'Quantidade alta demais')
       .refine(threeDecimals, 'Use no máximo três casas'),
+    /** Produto com lote conta lote a lote; o contado vira o saldo daquele lote. */
+    lotId: z.uuid().optional(),
     notes: notes('Explique a contagem em poucas palavras'),
   }),
 ]);
@@ -59,9 +81,21 @@ export const stockMovementSchema = z.object({
   onHandAfter: z.number(),
   notes: z.string(),
   sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+  /** Quanto entrou ou saiu de cada lote neste movimento. */
+  lots: z.array(z.object({ code: z.string(), quantity: z.number() })),
   by: z.string(),
 });
 export type StockMovement = z.infer<typeof stockMovementSchema>;
+
+export const stockLotSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  /** Nula só no lote "SEM LOTE", do saldo anterior ao controle de lote. */
+  expiresOn: z.iso.date().nullable(),
+  onHand: z.number(),
+  expiry: z.enum(lotExpiryStates),
+});
+export type StockLot = z.infer<typeof stockLotSchema>;
 
 export const productStockSchema = z.object({
   unitName: z.string(),
@@ -75,6 +109,11 @@ export const productStockSchema = z.object({
   minStock: z.number().nullable(),
   idealStock: z.number().nullable(),
   blocksSaleWithoutStock: z.boolean(),
+  tracksLots: z.boolean(),
+  /** Saldo em lotes vencidos: fica fora do disponível até ser baixado pela contagem. */
+  expired: z.number(),
+  /** Lotes com saldo, da validade mais próxima para a mais distante. */
+  lots: z.array(stockLotSchema),
   /** Entradas e saídas dos últimos 3 meses [p.17]. */
   movements: z.array(stockMovementSchema),
   canAdjust: z.boolean(),
@@ -88,3 +127,23 @@ export const stockSummarySchema = z.object({
   blocksSaleWithoutStock: z.boolean(),
 });
 export type StockSummary = z.infer<typeof stockSummarySchema>;
+
+/** Rastreio do lote [RN-32]: de onde veio e para quais vendas e animais saiu. */
+export const lotTraceSchema = z.object({
+  lot: stockLotSchema,
+  movements: z.array(
+    z.object({
+      id: z.uuid(),
+      kind: z.enum(stockMovementKinds),
+      at: z.iso.datetime({ offset: true }),
+      quantity: z.number(),
+      notes: z.string(),
+      /** Venda, animal e tutor aparecem só para quem pode vê-los. */
+      sale: z.object({ id: z.uuid(), code: z.number().int() }).nullable(),
+      patient: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+      client: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+      by: z.string(),
+    }),
+  ),
+});
+export type LotTrace = z.infer<typeof lotTraceSchema>;

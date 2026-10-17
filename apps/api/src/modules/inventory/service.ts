@@ -1,30 +1,60 @@
 import {
   fromMilli,
   toMilli,
+  type LotTrace,
   type ProductStock,
   type StockAdjustmentInput,
   type StockSummary,
 } from '@clinica/contracts';
-import { and, asc, desc, eq, gte, inArray, ne, sql, sum } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, ne, sql, sum } from 'drizzle-orm';
 import { actorOf } from '../../core/actor.js';
 import { recordAudit } from '../../core/audit.js';
 import { AppError, conflict, notFound } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { Database, Executor } from '../../db/client.js';
 import {
+  clients,
+  patients,
   productGroups,
   products,
   saleItems,
   sales,
   stockBalances,
+  stockLots,
+  stockMovementLots,
   stockMovements,
   units,
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
+import { expiryState, fefo, legacyLot, lotExpiry, unitToday } from './lots.js';
 
 const qty = (milli: number) =>
   fromMilli(milli).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
+const brDate = (iso: string) => iso.split('-').reverse().join('/');
+
+const invalid = (path: string, message: string) =>
+  new AppError('validation_failed', `${message}.`, [{ path, message }]);
+
+/** Mudança de saldo de um lote dentro de um movimento, em milésimos. */
+interface LotChange {
+  lotId: string;
+  milli: number;
+}
+
+/**
+ * Tira `milli` dos lotes na ordem recebida (validade mais próxima primeiro) e devolve o que
+ * sobrou em cada um; é a regra de saída e também a de quitar pendência no estorno.
+ */
+function takeInOrder<T extends { milli: number }>(lots: T[], milli: number): T[] {
+  let left = milli;
+  return lots.map((lot) => {
+    const taken = Math.min(lot.milli, left);
+    left -= taken;
+    return { ...lot, milli: taken };
+  });
+}
 
 /** Produto com estoque controlado e o saldo travado nesta transação, em milésimos. */
 interface Locked {
@@ -32,8 +62,11 @@ interface Locked {
   name: string;
   unit: string;
   blocks: boolean;
+  tracksLots: boolean;
   onHand: number;
   shortfall: number;
+  /** Saldo em lote vencido: conta no saldo, mas não sai em venda. */
+  expired: number;
 }
 
 /** Entrada quita a pendência antes de somar ao saldo; o saldo nunca fica negativo. */
@@ -59,7 +92,14 @@ function perProduct(items: { productId: string; quantity: number }[]) {
  * liberado deixa a baixa seguir e a falta vira pendência, nunca saldo negativo.
  */
 export class InventoryService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  private today(executor: Executor, unitId: string): Promise<string> {
+    return unitToday(executor, unitId, this.now());
+  }
 
   /**
    * Trava, em ordem de produto, o saldo dos itens com estoque controlado (criando a linha na
@@ -78,6 +118,7 @@ export class InventoryService {
         name: products.name,
         unit: products.unit,
         blocks: sql<boolean>`coalesce(${productGroups.blocksSaleWithoutStock}, true)`,
+        tracksLots: products.tracksLots,
       })
       .from(products)
       .leftJoin(productGroups, eq(productGroups.id, products.groupId))
@@ -89,6 +130,7 @@ export class InventoryService {
         ),
       );
     if (tracked.length === 0) return new Map();
+    const withLots = tracked.filter((p) => p.tracksLots).map((p) => p.id);
     tracked.sort((a, b) => (a.id < b.id ? -1 : 1));
     await tx
       .insert(stockBalances)
@@ -109,6 +151,10 @@ export class InventoryService {
       .orderBy(asc(stockBalances.productId))
       .for('update');
     const byId = new Map(tracked.map((p) => [p.id, p]));
+    const expiry =
+      withLots.length > 0
+        ? await lotExpiry(tx, unitId, withLots, await this.today(tx, unitId))
+        : new Map<string, { expired: number }>();
     const result = new Map<string, Locked>();
     for (const b of balances) {
       const p = byId.get(b.productId);
@@ -118,8 +164,10 @@ export class InventoryService {
         name: p.name,
         unit: p.unit,
         blocks: p.blocks,
+        tracksLots: p.tracksLots,
         onHand: toMilli(b.onHand),
         shortfall: toMilli(b.shortfall),
+        expired: p.tracksLots ? toMilli(expiry.get(b.productId)?.expired ?? 0) : 0,
       });
     }
     return result;
@@ -164,12 +212,13 @@ export class InventoryService {
     for (const [productId, want] of wanted) {
       const b = locked.get(productId);
       if (!b?.blocks) continue;
-      const available = Math.max(0, b.onHand - (reserved.get(productId) ?? 0));
+      const available = Math.max(0, b.onHand - b.expired - (reserved.get(productId) ?? 0));
       if (want.milli > available) {
         const message =
-          available === 0
+          (available === 0
             ? `${b.name} está sem estoque disponível`
-            : `Só há ${qty(available)} ${b.unit} de ${b.name} disponível`;
+            : `Só há ${qty(available)} ${b.unit} de ${b.name} disponível`) +
+          (b.expired > 0 ? ` (${qty(b.expired)} ${b.unit} vencidas ficam de fora)` : '');
         // A mensagem geral repete o detalhe: a ficha clínica mostra só ela num aviso.
         throw new AppError('validation_failed', `${message}.`, [
           { path: `items.${String(want.index)}.quantity`, message },
@@ -193,21 +242,32 @@ export class InventoryService {
     for (const [productId, want] of wanted) {
       const b = locked.get(productId);
       if (!b) continue;
-      if (b.blocks && want.milli > b.onHand) {
+      const valid = b.onHand - b.expired;
+      if (b.blocks && want.milli > valid) {
+        const expired =
+          b.expired > 0 ? ` ${qty(b.expired)} ${b.unit} vencidas não podem sair.` : '';
         throw conflict(
-          b.onHand === 0
-            ? `${b.name} está sem estoque; lance a entrada antes de baixar a venda.`
-            : `Só há ${qty(b.onHand)} ${b.unit} de ${b.name} em estoque para baixar a venda.`,
+          valid === 0
+            ? `${b.name} está sem estoque válido; lance a entrada antes de baixar a venda.${expired}`
+            : `Só há ${qty(valid)} ${b.unit} de ${b.name} em estoque para baixar a venda.${expired}`,
         );
       }
-      const taken = Math.min(want.milli, b.onHand);
+      const taken = Math.min(want.milli, valid);
       const after = { onHand: b.onHand - taken, shortfall: b.shortfall + want.milli - taken };
-      await this.write(tx, auth, sale, productId, after, {
-        kind: 'sale',
-        quantity: -want.milli,
-        shortfall: want.milli - taken,
-        notes: '',
-      });
+      const lots = b.tracksLots
+        ? takeInOrder(await this.validLots(tx, sale.unitId, productId), taken)
+            .filter((l) => l.milli > 0)
+            .map((l) => ({ lotId: l.lotId, milli: -l.milli }))
+        : [];
+      await this.write(
+        tx,
+        auth,
+        sale,
+        productId,
+        after,
+        { kind: 'sale', quantity: -want.milli, shortfall: want.milli - taken, notes: '' },
+        lots,
+      );
     }
   }
 
@@ -233,13 +293,71 @@ export class InventoryService {
       if (!b) continue;
       const milli = -toMilli(Number(o.total ?? 0));
       if (milli <= 0) continue;
-      await this.write(tx, auth, sale, o.productId, applyEntry(b, milli), {
-        kind: 'sale_return',
-        quantity: milli,
-        shortfall: 0,
-        notes: '',
-      });
+      const after = applyEntry(b, milli);
+      const lots = b.tracksLots
+        ? await this.returnedLots(tx, sale, o.productId, after.onHand - b.onHand)
+        : [];
+      await this.write(
+        tx,
+        auth,
+        sale,
+        o.productId,
+        after,
+        { kind: 'sale_return', quantity: milli, shortfall: 0, notes: '' },
+        lots,
+      );
     }
+  }
+
+  /** Lotes não vencidos com saldo, na ordem de saída. */
+  private async validLots(tx: Executor, unitId: string, productId: string) {
+    const today = await this.today(tx, unitId);
+    const rows = await tx
+      .select({ lotId: stockLots.id, onHand: stockLots.onHand })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.unitId, unitId),
+          eq(stockLots.productId, productId),
+          gt(stockLots.onHand, 0),
+          sql`(${stockLots.expiresOn} is null or ${stockLots.expiresOn} >= ${today})`,
+        ),
+      )
+      .orderBy(...fefo);
+    return rows.map((r) => ({ lotId: r.lotId, milli: toMilli(r.onHand) }));
+  }
+
+  /**
+   * No estorno, cada unidade volta ao lote de onde saiu. Se parte do que volta quita pendência,
+   * sai primeiro do lote que vence antes; se volta mais do que saiu de lote (a venda baixou
+   * antes do controle de lote), o excedente vai para o "SEM LOTE".
+   */
+  private async returnedLots(
+    tx: Executor,
+    sale: { id: string; organizationId: string; unitId: string },
+    productId: string,
+    increase: number,
+  ): Promise<LotChange[]> {
+    const rows = await tx
+      .select({ lotId: stockMovementLots.lotId, total: sum(stockMovementLots.quantity) })
+      .from(stockMovementLots)
+      .innerJoin(stockMovements, eq(stockMovements.id, stockMovementLots.movementId))
+      .innerJoin(stockLots, eq(stockLots.id, stockMovementLots.lotId))
+      .where(
+        and(
+          eq(stockMovements.saleId, sale.id),
+          eq(stockMovements.kind, 'sale'),
+          eq(stockMovements.productId, productId),
+        ),
+      )
+      .groupBy(stockMovementLots.lotId, stockLots.expiresOn, stockLots.createdAt)
+      .orderBy(sql`${stockLots.expiresOn} desc nulls first`, desc(stockLots.createdAt));
+    // Ordem inversa: o que quita pendência sai do lote que vence antes, então ele volta por último.
+    const out = rows.map((r) => ({ lotId: r.lotId, milli: -toMilli(Number(r.total ?? 0)) }));
+    const back = takeInOrder(out, increase).filter((l) => l.milli > 0);
+    const extra = increase - back.reduce((total, l) => total + l.milli, 0);
+    if (extra > 0) back.push({ lotId: await legacyLot(tx, sale, productId), milli: extra });
+    return back;
   }
 
   private async write(
@@ -254,6 +372,7 @@ export class InventoryService {
       shortfall: number;
       notes: string;
     },
+    lots: LotChange[] = [],
   ) {
     await tx
       .update(stockBalances)
@@ -263,8 +382,9 @@ export class InventoryService {
         updatedAt: new Date(),
       })
       .where(and(eq(stockBalances.unitId, scope.unitId), eq(stockBalances.productId, productId)));
+    const id = newId();
     await tx.insert(stockMovements).values({
-      id: newId(),
+      id,
       organizationId: scope.organizationId,
       unitId: scope.unitId,
       productId,
@@ -278,6 +398,16 @@ export class InventoryService {
         movement.kind === 'sale' || movement.kind === 'sale_return' ? (scope.id ?? null) : null,
       createdBy: auth.userId,
     });
+    for (const lot of lots) {
+      if (lot.milli === 0) continue;
+      await tx
+        .update(stockLots)
+        .set({ onHand: sql`${stockLots.onHand} + ${fromMilli(lot.milli)}` })
+        .where(eq(stockLots.id, lot.lotId));
+      await tx
+        .insert(stockMovementLots)
+        .values({ movementId: id, lotId: lot.lotId, quantity: fromMilli(lot.milli) });
+    }
   }
 
   /**
@@ -290,12 +420,13 @@ export class InventoryService {
     unitId: string,
     productIds: string[],
     exceptSaleId: string | null = null,
-  ): Promise<Map<string, StockSummary & { onHand: number }>> {
+  ): Promise<Map<string, StockSummary & { onHand: number; expired: number }>> {
     if (productIds.length === 0) return new Map();
     const rows = await executor
       .select({
         id: products.id,
         blocks: sql<boolean>`coalesce(${productGroups.blocksSaleWithoutStock}, true)`,
+        tracksLots: products.tracksLots,
         onHand: stockBalances.onHand,
         shortfall: stockBalances.shortfall,
       })
@@ -318,14 +449,21 @@ export class InventoryService {
       rows.map((r) => r.id),
       exceptSaleId,
     );
+    const withLots = rows.filter((r) => r.tracksLots).map((r) => r.id);
+    const expiry =
+      withLots.length > 0
+        ? await lotExpiry(executor, unitId, withLots, await this.today(executor, unitId))
+        : new Map<string, { expired: number }>();
     return new Map(
       rows.map((r) => {
         const onHand = toMilli(r.onHand ?? 0);
+        const expired = r.tracksLots ? toMilli(expiry.get(r.id)?.expired ?? 0) : 0;
         return [
           r.id,
           {
             onHand: fromMilli(onHand),
-            available: fromMilli(Math.max(0, onHand - (reserved.get(r.id) ?? 0))),
+            expired: fromMilli(expired),
+            available: fromMilli(Math.max(0, onHand - expired - (reserved.get(r.id) ?? 0))),
             shortfall: r.shortfall ?? 0,
             blocksSaleWithoutStock: r.blocks,
           },
@@ -341,6 +479,7 @@ export class InventoryService {
         name: products.name,
         kind: products.kind,
         tracksStock: products.tracksStock,
+        tracksLots: products.tracksLots,
         minStock: products.minStock,
         idealStock: products.idealStock,
         blocks: sql<boolean>`coalesce(${productGroups.blocksSaleWithoutStock}, true)`,
@@ -390,15 +529,57 @@ export class InventoryService {
       )
       .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id))
       .limit(200);
+    const today = await this.today(executor, auth.unitId);
+    const lots = product.tracksLots
+      ? await executor
+          .select({
+            id: stockLots.id,
+            code: stockLots.code,
+            expiresOn: stockLots.expiresOn,
+            onHand: stockLots.onHand,
+          })
+          .from(stockLots)
+          .where(
+            and(
+              eq(stockLots.unitId, auth.unitId),
+              eq(stockLots.productId, productId),
+              gt(stockLots.onHand, 0),
+            ),
+          )
+          .orderBy(...fefo)
+      : [];
+    const movementLots =
+      movements.length > 0
+        ? await executor
+            .select({
+              movementId: stockMovementLots.movementId,
+              code: stockLots.code,
+              quantity: stockMovementLots.quantity,
+            })
+            .from(stockMovementLots)
+            .innerJoin(stockLots, eq(stockLots.id, stockMovementLots.lotId))
+            .where(
+              inArray(
+                stockMovementLots.movementId,
+                movements.map((m) => m.id),
+              ),
+            )
+            .orderBy(...fefo)
+        : [];
     const result: ProductStock = {
       unitName: unit?.name ?? '',
       onHand,
-      reserved: fromMilli(Math.max(0, toMilli(onHand) - toMilli(summary?.available ?? 0))),
+      reserved: fromMilli(
+        (await this.reserved(executor, auth.unitId, [productId], null)).get(productId) ?? 0,
+      ),
       available: summary?.available ?? 0,
       shortfall: summary?.shortfall ?? 0,
       minStock: product.minStock,
       idealStock: product.idealStock,
       blocksSaleWithoutStock: product.blocks,
+      tracksLots: product.tracksLots,
+      expired: summary?.expired ?? 0,
+      lots: lots.map((l) => ({ ...l, expiry: expiryState(l.expiresOn, today) })),
       movements: movements.map((m) => ({
         id: m.id,
         kind: m.kind,
@@ -408,6 +589,9 @@ export class InventoryService {
         onHandAfter: m.onHandAfter,
         notes: m.notes,
         sale: m.saleId && m.saleCode !== null ? { id: m.saleId, code: m.saleCode } : null,
+        lots: movementLots
+          .filter((l) => l.movementId === m.id)
+          .map((l) => ({ code: l.code, quantity: l.quantity })),
         by: m.by,
       })),
       canAdjust: auth.permissions.has('inventory.adjust'),
@@ -434,24 +618,43 @@ export class InventoryService {
       if (!b) throw notFound('Produto');
       const scope = { organizationId: auth.organizationId, unitId: auth.unitId };
       let after: { onHand: number; shortfall: number };
+      let lot: { id: string; code: string; onHand: number } | null = null;
       if (input.kind === 'entry') {
         const milli = toMilli(input.quantity);
         after = applyEntry(b, milli);
-        await this.write(tx, auth, scope, productId, after, {
-          kind: 'entry',
-          quantity: milli,
-          shortfall: 0,
-          notes: input.notes,
-        });
+        if (b.tracksLots) lot = await this.entryLot(tx, auth, productId, input.lot);
+        await this.write(
+          tx,
+          auth,
+          scope,
+          productId,
+          after,
+          { kind: 'entry', quantity: milli, shortfall: 0, notes: input.notes },
+          // O que quita pendência já saiu da prateleira; só o restante entra no lote.
+          lot ? [{ lotId: lot.id, milli: after.onHand - b.onHand }] : [],
+        );
       } else {
-        after = { onHand: toMilli(input.countedQuantity), shortfall: 0 };
-        await this.write(tx, auth, scope, productId, after, {
-          kind: 'count',
-          // Diferença entre o contado e o saldo líquido (saldo − pendência).
-          quantity: after.onHand - (b.onHand - b.shortfall),
-          shortfall: 0,
-          notes: input.notes,
-        });
+        let counted = toMilli(input.countedQuantity);
+        if (b.tracksLots) {
+          lot = await this.countedLot(tx, auth, productId, input.lotId);
+          counted = b.onHand - lot.onHand + counted;
+        }
+        after = { onHand: counted, shortfall: 0 };
+        await this.write(
+          tx,
+          auth,
+          scope,
+          productId,
+          after,
+          {
+            kind: 'count',
+            // Diferença entre o contado e o saldo líquido (saldo − pendência).
+            quantity: after.onHand - (b.onHand - b.shortfall),
+            shortfall: 0,
+            notes: input.notes,
+          },
+          lot ? [{ lotId: lot.id, milli: toMilli(input.countedQuantity) - lot.onHand }] : [],
+        );
       }
       await recordAudit(tx, actorOf(auth), {
         entity: 'product',
@@ -461,6 +664,7 @@ export class InventoryService {
         after: {
           onHand: fromMilli(after.onHand),
           shortfall: fromMilli(after.shortfall),
+          ...(lot ? { lot: lot.code } : {}),
           notes: input.notes,
         },
       });
@@ -468,5 +672,145 @@ export class InventoryService {
       if (!stock) throw notFound('Produto');
       return stock;
     });
+  }
+
+  /**
+   * Lote da entrada [RN-32]: obrigatório no produto que controla lote; o mesmo número volta a
+   * receber entrada só com a mesma validade, e lote vencido não entra.
+   */
+  private async entryLot(
+    tx: Executor,
+    auth: AuthContext,
+    productId: string,
+    input: { code: string; expiresOn: string } | undefined,
+  ) {
+    if (!input) throw invalid('lot.code', 'Informe o lote e a validade da embalagem');
+    if (input.expiresOn < (await this.today(tx, auth.unitId))) {
+      throw invalid('lot.expiresOn', 'Lote vencido não entra no estoque');
+    }
+    const [found] = await tx
+      .select({ id: stockLots.id, expiresOn: stockLots.expiresOn, onHand: stockLots.onHand })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.unitId, auth.unitId),
+          eq(stockLots.productId, productId),
+          eq(stockLots.code, input.code),
+        ),
+      );
+    if (found) {
+      if (found.expiresOn !== input.expiresOn) {
+        throw invalid(
+          'lot.expiresOn',
+          `O lote ${input.code} já está cadastrado com validade ${brDate(found.expiresOn ?? '')}`,
+        );
+      }
+      return { id: found.id, code: input.code, onHand: toMilli(found.onHand) };
+    }
+    const id = newId();
+    await tx.insert(stockLots).values({
+      id,
+      organizationId: auth.organizationId,
+      unitId: auth.unitId,
+      productId,
+      code: input.code,
+      expiresOn: input.expiresOn,
+    });
+    return { id, code: input.code, onHand: 0 };
+  }
+
+  /** Lote contado: produto com lote conta lote a lote. */
+  private async countedLot(
+    tx: Executor,
+    auth: AuthContext,
+    productId: string,
+    lotId: string | undefined,
+  ) {
+    if (!lotId) throw invalid('lotId', 'Escolha o lote contado');
+    const [found] = await tx
+      .select({ id: stockLots.id, code: stockLots.code, onHand: stockLots.onHand })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.id, lotId),
+          eq(stockLots.unitId, auth.unitId),
+          eq(stockLots.productId, productId),
+        ),
+      );
+    if (!found) throw invalid('lotId', 'Lote inválido');
+    return { id: found.id, code: found.code, onHand: toMilli(found.onHand) };
+  }
+
+  /**
+   * Rastreio do lote até o paciente [RN-32]: entradas, contagens e cada venda que levou dele,
+   * com o animal e o tutor da venda para quem tem acesso a eles.
+   */
+  async trace(auth: AuthContext, productId: string, lotId: string): Promise<LotTrace> {
+    const [lot] = await this.db
+      .select({
+        id: stockLots.id,
+        code: stockLots.code,
+        expiresOn: stockLots.expiresOn,
+        onHand: stockLots.onHand,
+      })
+      .from(stockLots)
+      .where(
+        and(
+          eq(stockLots.id, lotId),
+          eq(stockLots.productId, productId),
+          eq(stockLots.organizationId, auth.organizationId),
+          eq(stockLots.unitId, auth.unitId),
+        ),
+      );
+    if (!lot) throw notFound('Lote');
+    const rows = await this.db
+      .select({
+        id: stockMovements.id,
+        kind: stockMovements.kind,
+        at: stockMovements.createdAt,
+        quantity: stockMovementLots.quantity,
+        notes: stockMovements.notes,
+        saleId: sales.id,
+        saleCode: sales.code,
+        patientId: patients.id,
+        patientName: patients.name,
+        clientId: clients.id,
+        clientName: clients.name,
+        by: users.name,
+      })
+      .from(stockMovementLots)
+      .innerJoin(stockMovements, eq(stockMovements.id, stockMovementLots.movementId))
+      .innerJoin(users, eq(users.id, stockMovements.createdBy))
+      .leftJoin(sales, eq(sales.id, stockMovements.saleId))
+      .leftJoin(patients, eq(patients.id, sales.patientId))
+      .leftJoin(clients, eq(clients.id, sales.clientId))
+      .where(eq(stockMovementLots.lotId, lotId))
+      .orderBy(desc(stockMovements.createdAt), desc(stockMovements.id))
+      .limit(500);
+    const can = (key: 'sales.view' | 'patients.view' | 'clients.view') => auth.permissions.has(key);
+    const today = await this.today(this.db, auth.unitId);
+    return {
+      lot: { ...lot, expiry: expiryState(lot.expiresOn, today) },
+      movements: rows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        at: r.at.toISOString(),
+        quantity: r.quantity,
+        notes: r.notes,
+        sale:
+          r.saleId && r.saleCode !== null && can('sales.view')
+            ? { id: r.saleId, code: r.saleCode }
+            : null,
+        patient:
+          r.patientId && r.patientName !== null && can('patients.view')
+            ? { id: r.patientId, name: r.patientName }
+            : null,
+        client:
+          r.clientId && r.clientName !== null && can('clients.view')
+            ? { id: r.clientId, name: r.clientName }
+            : null,
+        by: r.by,
+      })),
+    };
   }
 }

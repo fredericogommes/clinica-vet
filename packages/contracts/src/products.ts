@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { lotExpiryStates } from './inventory.js';
 
 /** Produto e serviço são a mesma entidade, com um campo tipo [RN-22]. */
 export const productKinds = ['product', 'service'] as const;
@@ -186,6 +187,8 @@ export const productInputSchema = z
     defaultCommissionPercent: percentSchema(100),
     commissions: z.array(productCommissionSchema).max(100, 'Máximo de 100 profissionais'),
     tracksStock: z.boolean(),
+    /** Exige lote e validade em cada entrada e baixa pela validade mais próxima [RN-32]. */
+    tracksLots: z.boolean().default(false),
     minStock: quantitySchema.nullable(),
     idealStock: quantitySchema.nullable(),
   })
@@ -252,6 +255,7 @@ export const productSchema = z.object({
   defaultCommissionPercent: z.number(),
   commissions: z.array(z.object({ userId: z.uuid(), userName: z.string(), percent: z.number() })),
   tracksStock: z.boolean(),
+  tracksLots: z.boolean(),
   minStock: z.number().nullable(),
   idealStock: z.number().nullable(),
   archived: z.boolean(),
@@ -289,7 +293,16 @@ export const productListItemSchema = z.object({
   brandName: z.string().nullable(),
   salePrice: z.number(),
   /** Saldo na unidade atual; nulo quando o item não controla estoque. */
-  stock: z.object({ onHand: z.number(), shortfall: z.number(), belowMin: z.boolean() }).nullable(),
+  stock: z
+    .object({
+      onHand: z.number(),
+      shortfall: z.number(),
+      belowMin: z.boolean(),
+      /** Validade mais antiga entre os lotes com saldo [p.16]; nula sem controle de lote. */
+      oldestExpiry: z.iso.date().nullable(),
+      expiry: z.enum(lotExpiryStates).nullable(),
+    })
+    .nullable(),
   archived: z.boolean(),
 });
 export type ProductListItem = z.infer<typeof productListItemSchema>;
