@@ -1,4 +1,4 @@
-import { productKinds, saleStatuses, type Permission } from '@clinica/contracts';
+import { productKinds, saleStatuses, vaccineKinds, type Permission } from '@clinica/contracts';
 import { defaultPeriod, reportTabs } from '../features/sales/report-search';
 import type { QueryClient } from '@tanstack/react-query';
 import {
@@ -114,6 +114,14 @@ const PathologiesPage = lazy(() =>
 const ClinicalTemplatesPage = lazy(() =>
   import('../features/catalogs/clinical-catalog-pages').then((m) => ({
     default: m.ClinicalTemplatesPage,
+  })),
+);
+const VaccinesPage = lazy(() =>
+  import('../features/catalogs/vaccines-page').then((m) => ({ default: m.VaccinesPage })),
+);
+const VaccinationPage = lazy(() =>
+  import('../features/clinical/vaccination-page').then((m) => ({
+    default: m.VaccinationPage,
   })),
 );
 const ExamsPage = lazy(() =>
@@ -474,6 +482,45 @@ const pathologiesRoute = createRoute({
   ),
 });
 
+const vaccinesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/cadastros/vacinas',
+  component: () => (
+    <RequirePermission permission="catalogs.manage">
+      <VaccinesPage />
+    </RequirePermission>
+  ),
+});
+
+/** Situação, data e filtros na URL: a recepção compartilha a lista da busca ativa. */
+const vaccinationRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/consultas/vacinacao',
+  validateSearch: z.object({
+    situacao: z.enum(['vencidas', 'a-vencer']).optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+    tipo: z.enum(vaccineKinds).optional().catch(undefined),
+    especie: z.uuid().optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function Vaccination() {
+    const s = vaccinationRoute.useSearch();
+    return (
+      <RequirePermission permission="reports.vaccination">
+        <VaccinationPage
+          search={{
+            situacao: s.situacao ?? 'todas',
+            ate: s.ate,
+            tipo: s.tipo,
+            especie: s.especie,
+            page: s.page ?? 1,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const examsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/cadastros/exames',
@@ -812,6 +859,8 @@ const routeTree = rootRoute.addChildren([
     appointmentTypesRoute,
     pathologiesRoute,
     examsRoute,
+    vaccinesRoute,
+    vaccinationRoute,
     examNewRoute,
     examEditRoute,
     clinicalTemplatesRoute,

@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, SkeletonRows } from '../../design-system/states
 import { useToast } from '../../design-system/toast';
 import { api, apiVoid, errorMessage } from '../../lib/api';
 import { useCan } from '../../lib/session';
+import { formatBrDate } from '../schedule/dates';
 import { ExamSeriesDialog, ExamValuesTable } from './exam-result';
 import { eventHeadline, kindIcons, kindLabel, kindOrder, vitalsSummary, zoned } from './labels';
 import { timelineQuery, type TimelineFilters } from './queries';
@@ -342,6 +343,23 @@ function EventItem({
               <p className="mt-2 text-sm whitespace-pre-line text-ink-muted">{d.notes}</p>
             ) : null}
           </>
+        ) : null}
+        {d.kind === 'vaccine' ? (
+          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-muted">
+            <div className="flex gap-1">
+              <dt>Próxima dose:</dt>
+              <dd className="text-ink">
+                {d.nextDueOn ? formatBrDate(d.nextDueOn) : 'sem próxima dose'}
+              </dd>
+            </div>
+            {d.lotNumber ? (
+              <div className="flex gap-1">
+                <dt>Lote:</dt>
+                <dd className="font-mono text-ink">{d.lotNumber}</dd>
+              </div>
+            ) : null}
+            {d.notes ? <p className="w-full text-sm whitespace-pre-line">{d.notes}</p> : null}
+          </dl>
         ) : null}
         {d.kind === 'photo' ? (
           <a

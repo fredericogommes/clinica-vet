@@ -135,6 +135,10 @@ export const permissionCatalog = {
   'admin.roles.view': { group: 'Configuração', label: 'Ver perfis de acesso' },
   'admin.roles.manage': { group: 'Configuração', label: 'Criar, clonar e editar perfis de acesso' },
   'admin.audit.view': { group: 'Consultas', label: 'Ver log de auditoria' },
+  'reports.vaccination': {
+    group: 'Consultas',
+    label: 'Vacinação: animais com dose vencida ou a vencer e contato do responsável',
+  },
 } as const satisfies Record<string, { group: string; label: string }>;
 
 export type Permission = keyof typeof permissionCatalog;

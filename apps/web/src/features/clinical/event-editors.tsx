@@ -1,8 +1,12 @@
 import {
   clinicalEventInputSchema,
   clinicalEventSchema,
+  doseLabel,
   examFlag,
+  nextDoseOn,
   parseExamValue,
+  vaccineKindLabels,
+  vaccinePeriodicity,
   PHOTO_MAX_BYTES,
   photoContentTypes,
   vitalKeys,
@@ -35,6 +39,8 @@ import {
   examsQuery,
   pathologiesQuery,
   renderTemplate,
+  vaccinationFormQuery,
+  vaccinesQuery,
 } from './queries';
 
 export interface EditorState {
@@ -43,6 +49,8 @@ export interface EditorState {
   event: ClinicalEvent | null;
   /** Agendamento de origem, quando o atendimento começa pela coluna da agenda. */
   appointment: Appointment | null;
+  /** Vacina já escolhida, quando a aplicação começa pelo protocolo. */
+  vaccineId?: string | undefined;
 }
 
 type Errors = Record<string, string>;
@@ -76,6 +84,15 @@ export function EventEditor({
       return <PhotoEditor record={record} onClose={onClose} />;
     case 'exam':
       return <ExamEditor event={state.event} record={record} onClose={onClose} />;
+    case 'vaccine':
+      return (
+        <VaccineEditor
+          event={state.event}
+          vaccineId={state.vaccineId ?? ''}
+          record={record}
+          onClose={onClose}
+        />
+      );
     case 'document':
     case 'prescription':
       return (
@@ -109,7 +126,9 @@ function useSaveEvent(record: ClinicalRecord, event: ClinicalEvent | null, onClo
           ? 'Rascunho salvo. Só você o vê até finalizar.'
           : event?.status === 'published'
             ? 'Correção salva e registrada no histórico.'
-            : `${kindLabel(saved.kind)} registrado na ficha.`,
+            : saved.kind === 'vaccine'
+              ? 'Aplicação registrada na ficha.'
+              : `${kindLabel(saved.kind)} registrado na ficha.`,
       );
       onClose();
     },
@@ -579,7 +598,10 @@ function SimpleEditor({
   record,
   onClose,
 }: {
-  kind: Exclude<ClinicalEventKind, 'encounter' | 'photo' | 'document' | 'prescription' | 'exam'>;
+  kind: Exclude<
+    ClinicalEventKind,
+    'encounter' | 'photo' | 'document' | 'prescription' | 'exam' | 'vaccine'
+  >;
   event: ClinicalEvent | null;
   record: ClinicalRecord;
   onClose: () => void;
@@ -1125,6 +1147,217 @@ function ExamEditor({
               label="Observações"
               placeholder="Opcional, ex. amostra hemolisada"
               maxLength={2000}
+              value={notes}
+              error={errors.notes}
+              onChange={(e) => {
+                setNotes(e.target.value);
+              }}
+            />
+            {occurred.field(errors.occurredAt)}
+          </>
+        ) : null}
+      </form>
+    </EditorDialog>
+  );
+}
+
+// Vacina --------------------------------------------------------------------------------------
+
+/**
+ * Aplicação de vacina [RN-20]: a dose e a próxima data vêm sugeridas pela série do cadastro e
+ * pelas aplicações anteriores; o veterinário pode ajustar as duas (animal vacinado em outro
+ * lugar, protocolo diferente).
+ */
+function VaccineEditor({
+  event,
+  vaccineId: presetId,
+  record,
+  onClose,
+}: {
+  event: ClinicalEvent | null;
+  vaccineId: string;
+  record: ClinicalRecord;
+  onClose: () => void;
+}) {
+  const d = event?.data.kind === 'vaccine' ? event.data : null;
+  const can = useCan();
+  const vaccines = useQuery(vaccinesQuery);
+  const save = useSaveEvent(record, event, onClose);
+  const occurred = useOccurredAt(record, event);
+  const [vaccineId, setVaccineId] = useState(d?.vaccine.id ?? presetId);
+  const [dose, setDose] = useState(d ? String(d.doseNumber) : '');
+  const [nextDueOn, setNextDueOn] = useState(d?.nextDueOn ?? '');
+  const [lotNumber, setLotNumber] = useState(d?.lotNumber ?? '');
+  const [notes, setNotes] = useState(d?.notes ?? '');
+  const [errors, setErrors] = useState<Errors>({});
+  // A próxima data acompanha a dose e a data até ser digitada à mão.
+  const [nextTouched, setNextTouched] = useState(event !== null);
+  const occurredIso = occurred.iso ?? event?.occurredAt ?? '';
+  const form = useQuery({
+    ...vaccinationFormQuery(record.patient.id, vaccineId, occurredIso),
+    enabled: vaccineId !== '' && event === null,
+  });
+  const vaccine = form.data?.vaccine ?? vaccines.data?.find((v) => v.id === vaccineId) ?? null;
+  const appliedOn =
+    form.data?.appliedOn ?? zoned(record.timeZone).isoDay(occurredIso || new Date().toISOString());
+
+  // Nova aplicação: assume a sugestão do servidor quando ela chega ou muda.
+  const [suggestion, setSuggestion] = useState(form.data);
+  if (form.data && form.data !== suggestion) {
+    setSuggestion(form.data);
+    setDose(String(form.data.doseNumber));
+    if (!nextTouched) setNextDueOn(form.data.nextDueOn ?? '');
+  }
+
+  const changeDose = (value: string) => {
+    setDose(value);
+    if (!nextTouched && vaccine && value) {
+      setNextDueOn(nextDoseOn(vaccine, Number(value), appliedOn) ?? '');
+    }
+  };
+  const input: ClinicalEventInput = {
+    kind: 'vaccine',
+    occurredAt: occurred.iso,
+    vaccineId,
+    doseNumber: Number(dose || 'NaN'),
+    lotNumber,
+    nextDueOn: nextDueOn || null,
+    notes,
+  };
+  const dirty = useDirty([vaccineId, dose, nextDueOn, lotNumber, notes, occurred.value]);
+  const submit = () => {
+    const local = validate(input) ?? {};
+    if (nextDueOn && nextDueOn <= appliedOn) {
+      local.nextDueOn = 'A próxima dose precisa ser depois da aplicação';
+    }
+    setErrors(local);
+    if (Object.keys(local).length === 0) {
+      save.mutate(input, {
+        onError: (error) => {
+          setErrors(errorsOf(error));
+        },
+      });
+    }
+  };
+  const options = (vaccines.data ?? [])
+    .filter((v) => !v.archived || v.id === vaccineId)
+    .map((v) => ({ value: v.id, label: v.name }));
+  const doseCount = Math.max(vaccine ? vaccine.primaryDoses + 1 : 1, Number(dose) || 1);
+  const doseOptions = Array.from({ length: doseCount }, (_, i) => ({
+    value: String(i + 1),
+    label:
+      vaccine && i + 1 > vaccine.primaryDoses
+        ? `${String(i + 1)}ª · reforço`
+        : `${String(i + 1)}ª dose`,
+  }));
+
+  return (
+    <EditorDialog
+      title={event ? 'Corrigir aplicação' : 'Aplicar vacina'}
+      description={record.patient.name}
+      dirty={dirty}
+      onClose={onClose}
+      actions={
+        vaccineId ? (
+          <Button pending={save.isPending} onClick={submit}>
+            {event ? 'Salvar correção' : 'Registrar aplicação'}
+          </Button>
+        ) : null
+      }
+    >
+      <form
+        noValidate
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <FormError error={save.error} />
+        {vaccines.data && options.length === 0 ? (
+          <div className="rounded-control border border-dashed border-line-strong p-4 text-sm">
+            <p className="font-medium">Nenhuma vacina cadastrada</p>
+            <p className="mt-1 text-ink-muted">
+              {can('catalogs.manage') ? (
+                <>
+                  Cadastre as vacinas e seus protocolos em{' '}
+                  <Link to="/cadastros/vacinas" className="text-sage-700 underline">
+                    Cadastros › Vacinas
+                  </Link>
+                  .
+                </>
+              ) : (
+                'Peça a quem administra a clínica para cadastrar as vacinas.'
+              )}
+            </p>
+          </div>
+        ) : (
+          <SelectField
+            label="Vacina"
+            value={vaccineId}
+            placeholder="Selecione"
+            options={options}
+            disabled={event !== null}
+            error={errors.vaccineId}
+            hint={
+              vaccine
+                ? `${vaccineKindLabels[vaccine.kind]} · ${vaccinePeriodicity(vaccine)}`
+                : undefined
+            }
+            onChange={(e) => {
+              setVaccineId(e.target.value);
+              setNextTouched(false);
+              setErrors({});
+            }}
+          />
+        )}
+        {vaccineId ? (
+          <>
+            {form.isError ? <FormError error={form.error} /> : null}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SelectField
+                label="Dose"
+                value={dose}
+                options={doseOptions}
+                disabled={!vaccine}
+                hint={
+                  form.data && !event
+                    ? `Sugerida pelas aplicações anteriores: ${doseLabel(form.data.doseNumber, form.data.vaccine.primaryDoses).toLowerCase()}.`
+                    : undefined
+                }
+                error={errors.doseNumber}
+                onChange={(e) => {
+                  changeDose(e.target.value);
+                }}
+              />
+              <TextField
+                label="Próxima dose"
+                type="date"
+                value={nextDueOn}
+                min={appliedOn}
+                hint="Em branco, o protocolo fica sem próxima dose."
+                error={errors.nextDueOn}
+                onChange={(e) => {
+                  setNextTouched(true);
+                  setNextDueOn(e.target.value);
+                }}
+              />
+            </div>
+            <TextField
+              label="Lote"
+              placeholder="Opcional, como no frasco"
+              autoComplete="off"
+              maxLength={40}
+              value={lotNumber}
+              error={errors.lotNumber}
+              onChange={(e) => {
+                setLotNumber(e.target.value);
+              }}
+            />
+            <TextareaField
+              label="Observações"
+              placeholder="Opcional, ex. reação no local"
+              maxLength={1000}
               value={notes}
               error={errors.notes}
               onChange={(e) => {

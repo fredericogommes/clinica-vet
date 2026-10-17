@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { examResultValueSchema } from './exams.js';
+import { vaccineKinds } from './vaccines.js';
 import { patientSchema } from './patients.js';
 import { appointmentSchema } from './scheduling.js';
 
 /**
  * Evento clínico polimórfico [RN-17]: uma tabela de eventos com tipo e conteúdo validado por tipo.
- * Vacina, vídeo e internação entram com os módulos das Fases 2 e 3.
+ * Vídeo e internação entram com os módulos da Fase 3.
  */
 export const clinicalEventKinds = [
   'encounter',
@@ -16,6 +17,7 @@ export const clinicalEventKinds = [
   'document',
   'prescription',
   'exam',
+  'vaccine',
 ] as const;
 export type ClinicalEventKind = (typeof clinicalEventKinds)[number];
 
@@ -28,6 +30,7 @@ export const clinicalEventKindLabels: Record<ClinicalEventKind, string> = {
   document: 'Documento',
   prescription: 'Receita',
   exam: 'Exame',
+  vaccine: 'Vacina',
 };
 
 /** Rascunho só é visto pelo autor; publicado entra na linha do tempo; invalidado fica visível riscado. */
@@ -130,6 +133,21 @@ const examInput = z.object({
   publish: z.boolean(),
 });
 
+/** Aplicação de vacina [RN-20]: publicada ao salvar; a próxima dose alimenta o protocolo. */
+const vaccineInput = z.object({
+  kind: z.literal('vaccine'),
+  occurredAt: occurredAtSchema,
+  vaccineId: z.uuid({ message: 'Escolha a vacina' }),
+  doseNumber: z
+    .number({ message: 'Informe a dose' })
+    .int('Use um número inteiro')
+    .min(1, 'A primeira dose é a 1')
+    .max(50, 'Dose fora do esperado'),
+  lotNumber: text(40),
+  nextDueOn: z.iso.date({ message: 'Data inválida' }).nullable(),
+  notes: text(1_000),
+});
+
 /** Corpo de criação e de edição. Foto tem rota própria, porque o corpo é a imagem. */
 export const clinicalEventInputSchema = z
   .discriminatedUnion('kind', [
@@ -140,6 +158,7 @@ export const clinicalEventInputSchema = z
     documentInput('document'),
     documentInput('prescription'),
     examInput,
+    vaccineInput,
   ])
   .superRefine((e, ctx) => {
     if (e.kind !== 'encounter' || !e.publish) return;
@@ -203,6 +222,16 @@ export const clinicalEventDataSchema = z.discriminatedUnion('kind', [
     /** Faixa etária usada ("Adulto"), ou nula quando o animal não tinha referência. */
     referenceLabel: z.string().nullable(),
     values: z.array(examResultValueSchema),
+    notes: z.string(),
+  }),
+  z.object({
+    kind: z.literal('vaccine'),
+    vaccine: ref.extend({ kind: z.enum(vaccineKinds) }),
+    doseNumber: z.number().int(),
+    /** "2ª dose" ou "Reforço", pela série do cadastro na aplicação. */
+    dose: z.string(),
+    lotNumber: z.string(),
+    nextDueOn: z.iso.date().nullable(),
     notes: z.string(),
   }),
 ]);

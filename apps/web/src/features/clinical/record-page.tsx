@@ -23,6 +23,7 @@ import { statusLabel, statusTone } from '../schedule/status';
 import { EventEditor, type EditorState } from './event-editors';
 import { formatKg, kindIcons, kindLabel, kindOrder, zoned } from './labels';
 import { clinicalRecordQuery } from './queries';
+import { ProtocolsPanel } from './protocols-panel';
 import { TimelinePanel } from './timeline';
 import { WeightChart } from './weight-chart';
 import { PatientSalePanel } from '../sales/patient-sale-panel';
@@ -35,7 +36,7 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
   const can = useCan();
   const record = useQuery(clinicalRecordQuery(patientId));
   const [editor, setEditor] = useState<EditorState | null>(null);
-  const [tab, setTab] = useState<'timeline' | 'weight'>('timeline');
+  const [tab, setTab] = useState<'timeline' | 'weight' | 'protocols'>('timeline');
 
   if (record.isPending) return <SkeletonRows rows={8} />;
   if (record.isError) {
@@ -47,6 +48,9 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
   const writable = can('clinical.record') && !r.patient.archived;
   const open = (kind: ClinicalEventKind, appointment?: Appointment) => {
     setEditor({ kind, event: null, appointment: appointment ?? null });
+  };
+  const applyVaccine = (vaccineId: string) => {
+    setEditor({ kind: 'vaccine', event: null, appointment: null, vaccineId });
   };
   const edit = (event: ClinicalEvent) => {
     setEditor({ kind: event.kind, event, appointment: null });
@@ -111,11 +115,12 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
             <h2 id="history-title" className="sr-only">
               Histórico
             </h2>
-            <div role="tablist" aria-label="Histórico" className="flex gap-4">
+            <div role="tablist" aria-label="Histórico" className="flex gap-4 overflow-x-auto">
               {(
                 [
                   ['timeline', 'Linha do tempo'],
                   ['weight', 'Evolução do peso'],
+                  ['protocols', 'Protocolos'],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -127,7 +132,7 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
                     setTab(value);
                   }}
                   className={clsx(
-                    '-mb-px border-b-2 pb-2.5 text-sm font-medium',
+                    '-mb-px shrink-0 border-b-2 pb-2.5 text-sm font-medium whitespace-nowrap',
                     tab === value
                       ? 'border-sage-600 text-ink'
                       : 'border-transparent text-ink-muted hover:text-ink',
@@ -140,7 +145,13 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
           </div>
           <div
             role="tabpanel"
-            aria-label={tab === 'timeline' ? 'Linha do tempo' : 'Evolução do peso'}
+            aria-label={
+              tab === 'timeline'
+                ? 'Linha do tempo'
+                : tab === 'weight'
+                  ? 'Evolução do peso'
+                  : 'Protocolos'
+            }
           >
             {tab === 'timeline' ? (
               <TimelinePanel
@@ -149,8 +160,16 @@ export function ClinicalRecordPage({ patientId }: { patientId: string }) {
                 patientName={r.patient.name}
                 onEdit={edit}
               />
-            ) : (
+            ) : tab === 'weight' ? (
               <WeightChart weights={r.weights} timeZone={r.timeZone} />
+            ) : (
+              <ProtocolsPanel
+                patientId={patientId}
+                patientName={r.patient.name}
+                timeZone={r.timeZone}
+                writable={writable}
+                onApply={applyVaccine}
+              />
             )}
           </div>
         </Panel>

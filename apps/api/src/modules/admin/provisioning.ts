@@ -16,6 +16,7 @@ import {
   units,
   userUnits,
   users,
+  vaccines,
 } from '../../db/schema.js';
 import { newId } from '../../core/ids.js';
 import { hashPassword } from '../../core/passwords.js';
@@ -24,6 +25,7 @@ import {
   starterClinicalTemplates,
 } from '../clinical/starter-templates.js';
 import { starterExams } from '../exams/starter-exams.js';
+import { starterVaccines } from '../vaccines/starter-vaccines.js';
 import { roleTemplates } from './role-templates.js';
 
 /** Cria ou atualiza os perfis-modelo de uma organização a partir do código. Idempotente. */
@@ -160,4 +162,7 @@ async function seedSchedule(tx: Executor, organizationId: string, unitId: string
       .insert(examAttributes)
       .values(exam.attributes.map((a, position) => ({ id: newId(), examId, position, ...a })));
   }
+  await tx
+    .insert(vaccines)
+    .values(starterVaccines.map((v) => ({ id: newId(), organizationId, ...v })));
 }

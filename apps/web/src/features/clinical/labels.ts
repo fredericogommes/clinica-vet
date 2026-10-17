@@ -15,6 +15,7 @@ import {
   Scale,
   Stethoscope,
   StickyNote,
+  Syringe,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export const kindIcons: Record<ClinicalEventKind, LucideIcon> = {
   document: FileText,
   prescription: Pill,
   exam: FlaskConical,
+  vaccine: Syringe,
 };
 
 /** Ordem dos botões de "Adicionar" e dos filtros por tipo. */
@@ -35,6 +37,7 @@ export const kindOrder: ClinicalEventKind[] = [
   'weight',
   'pathology',
   'exam',
+  'vaccine',
   'prescription',
   'document',
   'photo',
@@ -97,6 +100,8 @@ export function eventHeadline(e: ClinicalEvent): string {
       const out = d.values.filter((v) => v.flag === 'low' || v.flag === 'high').length;
       return out ? `${d.exam.name} · ${String(out)} fora da referência` : d.exam.name;
     }
+    case 'vaccine':
+      return `${d.vaccine.name} · ${d.dose}`;
   }
 }
 
