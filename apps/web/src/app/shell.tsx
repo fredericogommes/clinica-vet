@@ -104,6 +104,16 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     },
   });
 
+  // Só o item mais específico fica ativo: /financeiro/contas não acende /financeiro.
+  const current = navigation
+    .flatMap((section) => section.items)
+    .filter((item) =>
+      item.to === '/'
+        ? pathname === '/'
+        : pathname === item.to || pathname.startsWith(`${item.to}/`),
+    )
+    .sort((a, b) => b.to.length - a.to.length)[0]?.to;
+
   return (
     <div className="flex h-full flex-col bg-sage-900 text-sage-50">
       <div className="border-b border-white/10 p-3">
@@ -120,13 +130,14 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
               </p>
               <ul className="space-y-0.5">
                 {items.map((item) => {
-                  const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
+                  const active = item.to === current;
                   return (
                     <li key={item.to}>
                       <Link
                         to={item.to}
                         onClick={onNavigate}
                         aria-current={active ? 'page' : undefined}
+                        activeOptions={{ exact: true, includeSearch: false }}
                         className={clsx(
                           'relative flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13.5px] transition-colors',
                           active

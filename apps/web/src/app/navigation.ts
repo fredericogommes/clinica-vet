@@ -1,6 +1,12 @@
 import type { Permission } from '@clinica/contracts';
 import {
   Activity,
+  ArrowLeftRight,
+  HandCoins,
+  Landmark,
+  ListTree,
+  PiggyBank,
+  Truck,
   BellRing,
   BarChart3,
   CalendarClock,
@@ -111,6 +117,42 @@ export const navigation: NavSection[] = [
         to: '/vendas/configuracao',
         icon: SlidersHorizontal,
         permission: 'sales.configure',
+      },
+    ],
+  },
+  {
+    label: 'Financeiro',
+    items: [
+      { label: 'Lançamentos', to: '/financeiro', icon: ArrowLeftRight, permission: 'finance.view' },
+      {
+        label: 'Contas a pagar',
+        to: '/financeiro/contas-a-pagar',
+        icon: HandCoins,
+        permission: 'finance.view',
+      },
+      {
+        label: 'Contas a receber',
+        to: '/financeiro/contas-a-receber',
+        icon: PiggyBank,
+        permission: 'finance.view',
+      },
+      {
+        label: 'Contas financeiras',
+        to: '/financeiro/contas',
+        icon: Landmark,
+        permission: 'finance.view',
+      },
+      {
+        label: 'Plano de contas',
+        to: '/financeiro/plano-de-contas',
+        icon: ListTree,
+        permission: 'finance.view',
+      },
+      {
+        label: 'Fornecedores',
+        to: '/financeiro/fornecedores',
+        icon: Truck,
+        permission: 'finance.view',
       },
     ],
   },

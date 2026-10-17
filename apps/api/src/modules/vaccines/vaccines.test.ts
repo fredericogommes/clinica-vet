@@ -73,7 +73,9 @@ const shift = (date: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-const at = (date: string) => `${date}T12:00:00-03:00`;
+/** Meio-dia da data; hoje, um minuto atrás, para nunca cair no futuro antes do meio-dia. */
+const at = (date: string) =>
+  date === today ? new Date(Date.now() - 60_000).toISOString() : `${date}T12:00:00-03:00`;
 
 async function send<T>(method: 'POST' | 'PUT', path: string, body: unknown, status = 200) {
   const res = await admin.send(method, path, body);
