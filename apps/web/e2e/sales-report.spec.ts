@@ -120,12 +120,15 @@ test('consulta vendas: resumo, totais por item, lista e Minhas vendas', async ({
   // Lista: o orçamento aparece com a situação.
   await tabs.getByRole('tab', { name: 'Lista de vendas' }).click();
   await page.getByLabel('Buscar vendas').fill(tutor);
+  // A busca vai para o link depois da digitação; só então a lista é só deste teste.
+  await expect(page).toHaveURL(/[?&]q=/);
   const list = page.getByRole('table', { name: 'Lista de vendas' });
   await expect(list.getByRole('row')).toHaveCount(4);
   await page
     .getByRole('group', { name: 'Situação' })
     .getByRole('button', { name: 'Orçamento' })
     .click();
+  await expect(page).toHaveURL(/situacao=quote/);
   await expect(list.getByRole('row')).toHaveCount(2);
   await expect(list).toContainText(String(codes[2]));
 
