@@ -32,6 +32,7 @@ import {
   ScrollText,
   Settings2,
   ShieldCheck,
+  ShoppingBasket,
   ShoppingCart,
   SlidersHorizontal,
   Signpost,
@@ -193,6 +194,12 @@ export const navigation: NavSection[] = [
         label: 'Compras',
         to: '/estoque/compras',
         icon: PackagePlus,
+        permission: 'purchases.view',
+      },
+      {
+        label: 'Pedidos de compra',
+        to: '/estoque/pedidos',
+        icon: ShoppingBasket,
         permission: 'purchases.view',
       },
       {

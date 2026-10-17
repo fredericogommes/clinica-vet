@@ -1,6 +1,7 @@
 import {
   messageTriggers,
   productKinds,
+  purchaseOrderSituations,
   purchaseSituations,
   saleStatuses,
   stockExitReasons,
@@ -173,6 +174,15 @@ const StockCountsPage = lazy(() =>
 );
 const StockCountPage = lazy(() =>
   import('../features/stock/stock-pages').then((m) => ({ default: m.StockCountPage })),
+);
+const PurchaseOrdersPage = lazy(() =>
+  import('../features/purchases/order-pages').then((m) => ({ default: m.PurchaseOrdersPage })),
+);
+const PurchaseOrderNewPage = lazy(() =>
+  import('../features/purchases/order-pages').then((m) => ({ default: m.PurchaseOrderNewPage })),
+);
+const PurchaseOrderPage = lazy(() =>
+  import('../features/purchases/order-pages').then((m) => ({ default: m.PurchaseOrderPage })),
 );
 const AccountsPage = lazy(() =>
   import('../features/finance/setup-pages').then((m) => ({ default: m.AccountsPage })),
@@ -1027,6 +1037,46 @@ const purchaseRoute = createRoute({
   },
 });
 
+const purchaseOrdersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/pedidos',
+  validateSearch: z.object({
+    situacao: z.enum(purchaseOrderSituations).optional().catch(undefined),
+    page: z.number().int().min(1).optional().catch(undefined),
+  }),
+  component: function PurchaseOrders() {
+    const s = purchaseOrdersRoute.useSearch();
+    return (
+      <RequirePermission permission="purchases.view">
+        <PurchaseOrdersPage search={{ situacao: s.situacao ?? 'abertos', page: s.page ?? 1 }} />
+      </RequirePermission>
+    );
+  },
+});
+
+const purchaseOrderNewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/pedidos/novo',
+  component: () => (
+    <RequirePermission permission="purchases.manage">
+      <PurchaseOrderNewPage />
+    </RequirePermission>
+  ),
+});
+
+const purchaseOrderRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/estoque/pedidos/$orderId',
+  component: function PurchaseOrder() {
+    const { orderId } = purchaseOrderRoute.useParams();
+    return (
+      <RequirePermission permission="purchases.view">
+        <PurchaseOrderPage key={orderId} orderId={orderId} />
+      </RequirePermission>
+    );
+  },
+});
+
 const stockExitsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/estoque/saidas',
@@ -1285,6 +1335,9 @@ const routeTree = rootRoute.addChildren([
     purchasesRoute,
     purchaseNewRoute,
     purchaseRoute,
+    purchaseOrdersRoute,
+    purchaseOrderNewRoute,
+    purchaseOrderRoute,
     stockExitsRoute,
     stockAnalysisRoute,
     stockCountsRoute,

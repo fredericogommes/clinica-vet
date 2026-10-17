@@ -38,6 +38,8 @@ import { financeRoutes } from '../modules/finance/routes.js';
 import { CardReconciliationService } from '../modules/finance/reconciliation.js';
 import { FinanceReportsService } from '../modules/finance/reports.js';
 import { FinanceService } from '../modules/finance/service.js';
+import { purchaseOrderRoutes } from '../modules/purchases/order-routes.js';
+import { PurchaseOrdersService } from '../modules/purchases/orders.js';
 import { purchaseRoutes } from '../modules/purchases/routes.js';
 import { PurchasesService } from '../modules/purchases/service.js';
 import { stockRoutes } from '../modules/stock/routes.js';
@@ -149,9 +151,11 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     reconciliation: new CardReconciliationService(db, finance),
     reports: new FinanceReportsService(db, finance),
   });
-  await app.register(purchaseRoutes, {
-    prefix: '/api/purchases',
-    purchases: new PurchasesService(db, inventory, finance),
+  const purchases = new PurchasesService(db, inventory, finance);
+  await app.register(purchaseRoutes, { prefix: '/api/purchases', purchases });
+  await app.register(purchaseOrderRoutes, {
+    prefix: '/api/purchase-orders',
+    orders: new PurchaseOrdersService(db, purchases),
   });
   await app.register(stockRoutes, {
     prefix: '/api/stock',
