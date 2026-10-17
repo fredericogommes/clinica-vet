@@ -178,41 +178,80 @@ export const prescriptionDaySchema = z.object({
 });
 export type PrescriptionDay = z.infer<typeof prescriptionDaySchema>;
 
+const prescriptionFields = {
+  name: text(120).min(2, 'Informe o medicamento'),
+  dose: z
+    .number({ message: 'Informe a dose' })
+    .positive('A dose precisa ser maior que zero')
+    .max(100_000, 'Dose alta demais'),
+  doseUnit: z.enum(doseUnits),
+  concentration: z
+    .number({ message: 'Informe um número' })
+    .positive('A concentração precisa ser maior que zero')
+    .max(1_000_000, 'Concentração alta demais')
+    .nullable()
+    .default(null),
+  route: z.enum(prescriptionRoutes, { message: 'Escolha a via' }),
+  intervalHours: z
+    .number({ message: 'Informe o intervalo' })
+    .int('Use horas inteiras')
+    .min(1, 'Mínimo de 1 hora')
+    .max(72, 'Máximo de 72 horas'),
+  durationDays: z
+    .number({ message: 'Informe um número' })
+    .int('Use dias inteiros')
+    .min(1, 'Mínimo de 1 dia')
+    .max(90, 'Máximo de 90 dias')
+    .nullable()
+    .default(null),
+  notes: text(500).default(''),
+};
+
+const concentrationFits = (p: { concentration: number | null; doseUnit: DoseUnit }) =>
+  p.concentration === null || concentrationUnitOf(p.doseUnit) !== null;
+const concentrationIssue = {
+  path: ['concentration'],
+  message: 'Concentração só vale para dose em mg, mcg ou UI',
+};
+
 export const prescriptionInputSchema = z
   .object({
-    name: text(120).min(2, 'Informe o medicamento'),
-    dose: z
-      .number({ message: 'Informe a dose' })
-      .positive('A dose precisa ser maior que zero')
-      .max(100_000, 'Dose alta demais'),
-    doseUnit: z.enum(doseUnits),
-    concentration: z
-      .number({ message: 'Informe um número' })
-      .positive('A concentração precisa ser maior que zero')
-      .max(1_000_000, 'Concentração alta demais')
-      .nullable()
-      .default(null),
-    route: z.enum(prescriptionRoutes, { message: 'Escolha a via' }),
-    intervalHours: z
-      .number({ message: 'Informe o intervalo' })
-      .int('Use horas inteiras')
-      .min(1, 'Mínimo de 1 hora')
-      .max(72, 'Máximo de 72 horas'),
+    ...prescriptionFields,
     firstAt: z.iso.datetime({ offset: true, message: 'Informe o primeiro horário' }),
-    durationDays: z
-      .number({ message: 'Informe um número' })
-      .int('Use dias inteiros')
-      .min(1, 'Mínimo de 1 dia')
-      .max(90, 'Máximo de 90 dias')
-      .nullable()
-      .default(null),
-    notes: text(500).default(''),
   })
-  .refine((p) => p.concentration === null || concentrationUnitOf(p.doseUnit) !== null, {
-    path: ['concentration'],
-    message: 'Concentração só vale para dose em mg, mcg ou UI',
-  });
+  .refine(concentrationFits, concentrationIssue);
 export type PrescriptionInput = z.input<typeof prescriptionInputSchema>;
+
+/** Item de modelo de prescrição: a prescrição sem o primeiro horário, dado ao aplicar. */
+export const prescriptionTemplateItemSchema = z
+  .object(prescriptionFields)
+  .refine(concentrationFits, concentrationIssue);
+export type PrescriptionTemplateItem = z.output<typeof prescriptionTemplateItemSchema>;
+
+/** Modelo de prescrição [p.15]: protocolo pré-montado, da clínica, aplicado de uma vez. */
+export const prescriptionTemplateSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  items: z.array(prescriptionTemplateItemSchema),
+  createdBy: z.string(),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type PrescriptionTemplate = z.infer<typeof prescriptionTemplateSchema>;
+
+export const prescriptionTemplateInputSchema = z.object({
+  name: text(80).min(2, 'Dê um nome ao modelo'),
+  items: z
+    .array(prescriptionTemplateItemSchema)
+    .min(1, 'Escolha ao menos uma prescrição')
+    .max(30, 'Máximo de 30 prescrições'),
+});
+export type PrescriptionTemplateInput = z.input<typeof prescriptionTemplateInputSchema>;
+
+export const applyTemplateSchema = z.object({
+  templateId: z.uuid({ message: 'Escolha o modelo' }),
+  firstAt: z.iso.datetime({ offset: true, message: 'Informe o primeiro horário' }),
+});
+export type ApplyTemplateInput = z.input<typeof applyTemplateSchema>;
 
 export const stopPrescriptionSchema = z.object({
   reason: text(300).min(3, 'Explique o motivo em poucas palavras'),

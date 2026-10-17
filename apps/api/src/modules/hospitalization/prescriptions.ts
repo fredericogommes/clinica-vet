@@ -1,11 +1,16 @@
 import type {
+  ApplyTemplateInput,
   ExecuteDoseInput,
   ExecutionMap,
   Prescription,
   PrescriptionDay,
   PrescriptionInput,
+  PrescriptionTemplate,
+  PrescriptionTemplateInput,
+  PrescriptionTemplateItem,
 } from '@clinica/contracts';
 import {
+  applyTemplateSchema,
   calculateDose,
   doseUnits,
   executeDoseSchema,
@@ -14,6 +19,8 @@ import {
   hospitalizationPriorities,
   prescriptionInputSchema,
   prescriptionRoutes,
+  prescriptionTemplateInputSchema,
+  prescriptionTemplateItemSchema,
   scheduleTimes,
 } from '@clinica/contracts';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
@@ -31,6 +38,7 @@ import {
   hospitalizationExecutions,
   hospitalizationPrescriptions,
   hospitalizations,
+  prescriptionTemplates,
   users,
 } from '../../db/schema.js';
 import type { AuthContext } from '../auth/sessions.js';
@@ -190,51 +198,126 @@ export class PrescriptionService {
     const input = prescriptionInputSchema.parse(raw);
     return this.db.transaction(async (tx) => {
       const h = await this.lockOpen(tx, auth, hospitalizationId);
-      const firstAt = new Date(input.firstAt);
-      if (firstAt.getTime() < h.admittedAt.getTime() - HOUR) {
-        throw invalid('firstAt', 'O primeiro horário não pode ser antes da internação');
+      const firstAt = this.assertFirstAt(h, input.firstAt);
+      return { id: await this.insertPrescription(tx, auth, h, input, firstAt, null) };
+    });
+  }
+
+  // ---------------------------------------------------------------- modelos
+
+  async listTemplates(auth: AuthContext): Promise<PrescriptionTemplate[]> {
+    const rows = await this.db
+      .select({ t: prescriptionTemplates, by: users.name })
+      .from(prescriptionTemplates)
+      .innerJoin(users, eq(users.id, prescriptionTemplates.createdBy))
+      .where(eq(prescriptionTemplates.organizationId, auth.organizationId))
+      .orderBy(asc(sql`lower(${prescriptionTemplates.name})`));
+    return rows.map(({ t, by }) => ({
+      id: t.id,
+      name: t.name,
+      items: t.items,
+      createdBy: by,
+      updatedAt: t.updatedAt.toISOString(),
+    }));
+  }
+
+  /** Salva um modelo novo, ou substitui as prescrições do modelo de mesmo nome. */
+  async saveTemplate(
+    auth: AuthContext,
+    raw: PrescriptionTemplateInput,
+  ): Promise<PrescriptionTemplate> {
+    const input = prescriptionTemplateInputSchema.parse(raw);
+    const id = await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(prescriptionTemplates)
+        .where(
+          and(
+            eq(prescriptionTemplates.organizationId, auth.organizationId),
+            sql`lower(${prescriptionTemplates.name}) = lower(${input.name})`,
+          ),
+        )
+        .for('update');
+      const now = new Date();
+      const templateId = existing?.id ?? newId();
+      if (existing) {
+        await tx
+          .update(prescriptionTemplates)
+          .set({ items: input.items, updatedAt: now })
+          .where(eq(prescriptionTemplates.id, existing.id));
+      } else {
+        await tx.insert(prescriptionTemplates).values({
+          id: templateId,
+          organizationId: auth.organizationId,
+          name: input.name,
+          items: input.items,
+          createdBy: auth.userId,
+          createdAt: now,
+          updatedAt: now,
+        });
       }
-      if (firstAt.getTime() > Date.now() + 7 * DAY) {
-        throw invalid('firstAt', 'O primeiro horário precisa estar nos próximos 7 dias');
-      }
-      const id = newId();
-      await tx.insert(hospitalizationPrescriptions).values({
-        id,
-        hospitalizationId,
-        name: input.name,
-        dose: input.dose,
-        doseUnit: input.doseUnit,
-        concentration: input.concentration,
-        route: input.route,
-        intervalHours: input.intervalHours,
-        firstAt,
-        durationDays: input.durationDays,
-        notes: input.notes,
-        createdBy: auth.userId,
-      });
-      const timeZone = await unitTimeZone(tx, h.unitId);
-      const duration = input.durationDays
-        ? `por ${String(input.durationDays)} ${input.durationDays === 1 ? 'dia' : 'dias'}`
-        : 'até nova ordem';
-      await this.entry(
-        tx,
-        auth,
-        hospitalizationId,
-        'prescription',
-        [
-          `${input.name}: ${decimal(input.dose)} ${input.doseUnit} ${input.route} a cada ${String(input.intervalHours)} h, ${duration}, a partir de ${when(firstAt, timeZone)}`,
-          input.notes,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      );
       await recordAudit(tx, actorOf(auth), {
-        entity: 'prescription',
-        entityId: id,
-        action: 'create',
-        after: { hospitalizationId, ...input },
+        entity: 'prescription_template',
+        entityId: templateId,
+        action: existing ? 'update' : 'create',
+        before: existing ? { name: existing.name, items: existing.items } : undefined,
+        after: input,
       });
-      return { id };
+      return templateId;
+    });
+    const saved = (await this.listTemplates(auth)).find((t) => t.id === id);
+    if (!saved) throw notFound('Modelo de prescrição');
+    return saved;
+  }
+
+  async deleteTemplate(auth: AuthContext, id: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .delete(prescriptionTemplates)
+        .where(
+          and(
+            eq(prescriptionTemplates.id, id),
+            eq(prescriptionTemplates.organizationId, auth.organizationId),
+          ),
+        )
+        .returning();
+      if (!row) throw notFound('Modelo de prescrição');
+      await recordAudit(tx, actorOf(auth), {
+        entity: 'prescription_template',
+        entityId: id,
+        action: 'delete',
+        before: { name: row.name, items: row.items },
+      });
+    });
+  }
+
+  /** Aplica o modelo à internação: cada item vira uma prescrição a partir do mesmo horário. */
+  async applyTemplate(
+    auth: AuthContext,
+    hospitalizationId: string,
+    raw: ApplyTemplateInput,
+  ): Promise<{ ids: string[] }> {
+    const input = applyTemplateSchema.parse(raw);
+    return this.db.transaction(async (tx) => {
+      const h = await this.lockOpen(tx, auth, hospitalizationId);
+      const firstAt = this.assertFirstAt(h, input.firstAt);
+      const [template] = await tx
+        .select()
+        .from(prescriptionTemplates)
+        .where(
+          and(
+            eq(prescriptionTemplates.id, input.templateId),
+            eq(prescriptionTemplates.organizationId, auth.organizationId),
+          ),
+        );
+      if (!template) throw invalid('templateId', 'Escolha o modelo');
+      const ids: string[] = [];
+      for (const raw of template.items) {
+        // O modelo foi validado ao salvar; valida de novo porque o contrato pode ter mudado.
+        const item = prescriptionTemplateItemSchema.parse(raw);
+        ids.push(await this.insertPrescription(tx, auth, h, item, firstAt, template.name));
+      }
+      return { ids };
     });
   }
 
@@ -443,6 +526,67 @@ export class PrescriptionService {
   }
 
   // ---------------------------------------------------------------- apoio
+
+  private assertFirstAt(h: HospitalizationRow, value: string): Date {
+    const firstAt = new Date(value);
+    if (firstAt.getTime() < h.admittedAt.getTime() - HOUR) {
+      throw invalid('firstAt', 'O primeiro horário não pode ser antes da internação');
+    }
+    if (firstAt.getTime() > Date.now() + 7 * DAY) {
+      throw invalid('firstAt', 'O primeiro horário precisa estar nos próximos 7 dias');
+    }
+    return firstAt;
+  }
+
+  /** Grava a prescrição, o registro no histórico e a auditoria. */
+  private async insertPrescription(
+    tx: Executor,
+    auth: AuthContext,
+    h: HospitalizationRow,
+    input: PrescriptionTemplateItem,
+    firstAt: Date,
+    template: string | null,
+  ): Promise<string> {
+    const id = newId();
+    await tx.insert(hospitalizationPrescriptions).values({
+      id,
+      hospitalizationId: h.id,
+      name: input.name,
+      dose: input.dose,
+      doseUnit: input.doseUnit,
+      concentration: input.concentration,
+      route: input.route,
+      intervalHours: input.intervalHours,
+      firstAt,
+      durationDays: input.durationDays,
+      notes: input.notes,
+      createdBy: auth.userId,
+    });
+    const timeZone = await unitTimeZone(tx, h.unitId);
+    const duration = input.durationDays
+      ? `por ${String(input.durationDays)} ${input.durationDays === 1 ? 'dia' : 'dias'}`
+      : 'até nova ordem';
+    await this.entry(
+      tx,
+      auth,
+      h.id,
+      'prescription',
+      [
+        `${input.name}: ${decimal(input.dose)} ${input.doseUnit} ${input.route} a cada ${String(input.intervalHours)} h, ${duration}, a partir de ${when(firstAt, timeZone)}`,
+        template ? `Do modelo ${template}` : '',
+        input.notes,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+    await recordAudit(tx, actorOf(auth), {
+      entity: 'prescription',
+      entityId: id,
+      action: 'create',
+      after: { hospitalizationId: h.id, ...input, firstAt: firstAt.toISOString(), template },
+    });
+    return id;
+  }
 
   private async find(db: Executor, auth: AuthContext, id: string): Promise<HospitalizationRow> {
     const [row] = await db

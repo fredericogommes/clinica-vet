@@ -259,6 +259,106 @@ test('prescrição: dose pelo peso, execução, mapa de execução e suspensão'
   await expect(page.getByRole('table', { name: /Prescrições de/ })).toContainText('Dor controlada');
 });
 
+test('modelo de prescrição, mensagem ao tutor e impressão da ficha', async ({ page, context }) => {
+  const { pet, patientId } = await seed(page, 'Mel');
+  const id = await page.evaluate(async (patientId) => {
+    const session = (await (await fetch('/api/auth/session')).json()) as Session;
+    const send = async (path: string, body: unknown) => {
+      const r = await fetch(`/api${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`${path}: ${await r.text()}`);
+      return (await r.json()) as { id: string };
+    };
+    const h = await send('/hospitalizations', {
+      patientId,
+      veterinarianId: session.user.id,
+      priority: 'routine',
+      reason: 'Pós-operatório de mastectomia',
+      expectedDischargeOn: null,
+      boxId: null,
+    });
+    await send(`/hospitalizations/${h.id}/entries`, { kind: 'weight', weightKg: 10, text: '' });
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    for (const name of ['Meloxicam', 'Cefalexina']) {
+      await send(`/hospitalizations/${h.id}/prescriptions`, {
+        name,
+        dose: name === 'Meloxicam' ? 0.1 : 30,
+        doseUnit: 'mg/kg',
+        concentration: name === 'Meloxicam' ? 2 : null,
+        route: name === 'Meloxicam' ? 'SC' : 'VO',
+        intervalHours: name === 'Meloxicam' ? 24 : 12,
+        firstAt: at,
+        durationDays: 5,
+        notes: '',
+      });
+    }
+    return h.id;
+  }, patientId);
+  const model = `Pós-cirúrgico ${tag}`;
+
+  // Salvar como modelo só com o anti-inflamatório.
+  await page.goto(`/internacao/${id}?aba=prescricao`);
+  await page.getByRole('button', { name: 'Salvar como modelo' }).click();
+  const save = page.getByRole('dialog', { name: 'Salvar como modelo' });
+  await save.getByLabel('Nome do modelo').fill(model);
+  await save.getByRole('checkbox', { name: /Cefalexina/ }).click();
+  await save.getByRole('button', { name: 'Salvar modelo' }).click();
+  await expect(toasts(page).getByText(`Modelo ${model} salvo.`)).toBeVisible();
+
+  // Usar modelo: prescreve de uma vez, com a dose calculada para o peso.
+  await page.getByRole('button', { name: 'Usar modelo' }).click();
+  const apply = page.getByRole('dialog', { name: 'Usar modelo de prescrição' });
+  const select = apply.getByRole('combobox', { name: 'Modelo' });
+  const value = await select.locator('option', { hasText: model }).getAttribute('value');
+  await select.selectOption(value ?? '');
+  const items = apply.getByRole('list', { name: 'Prescrições do modelo' });
+  await expect(items.getByRole('listitem')).toHaveCount(1);
+  await expect(items).toContainText('1 mg · 0,5 mL');
+  await apply.getByRole('button', { name: 'Prescrever modelo' }).click();
+  await expect(toasts(page).getByText(`1 prescrição do modelo ${model}.`)).toBeVisible();
+  const grid = page.getByRole('table', { name: /Prescrições de/ });
+  await expect(grid.getByRole('row').filter({ hasText: 'Meloxicam' })).toHaveCount(2);
+
+  // Mensagem ao tutor: fica no histórico e sai pronta para o WhatsApp.
+  await page.getByRole('tab', { name: 'Histórico' }).click();
+  await page.getByRole('button', { name: 'Enviar mensagem' }).click();
+  const message = page.getByRole('dialog', { name: 'Enviar mensagem ao tutor' });
+  const box = message.getByRole('textbox', { name: 'Mensagem' });
+  await expect(box).toHaveValue(new RegExp(`Notícias do ${pet}`));
+  await box.fill('Mel comeu bem e está caminhando.');
+  await message.getByRole('button', { name: 'Registrar mensagem' }).click();
+  const sent = page.getByRole('dialog', { name: 'Mensagem registrada' });
+  await expect(sent).toContainText('Mel comeu bem e está caminhando.');
+  await sent.getByRole('button', { name: 'Concluir' }).click();
+  const entries = page
+    .getByRole('list', { name: 'Histórico da internação' })
+    .locator(':scope > li');
+  await expect(entries.first()).toContainText('Mensagem ao tutor');
+  await expect(entries.first()).toContainText('Mel comeu bem e está caminhando.');
+
+  // Imprimir abre a ficha em folha própria, com prescrição e histórico.
+  const [sheet] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('link', { name: 'Imprimir' }).click(),
+  ]);
+  await expect(sheet.getByRole('heading', { level: 1 })).toContainText('Ficha de internação nº');
+  await expect(sheet.getByText(pet).first()).toBeVisible();
+  await expect(sheet.getByRole('table')).toContainText('Meloxicam');
+  await expect(sheet.getByText('Mel comeu bem e está caminhando.')).toBeVisible();
+  await sheet.close();
+
+  // O modelo de teste sai da lista para não acumular.
+  await page.getByRole('tab', { name: 'Prescrição médica' }).click();
+  await page.getByRole('button', { name: 'Usar modelo' }).click();
+  await select.selectOption(value ?? '');
+  page.once('dialog', (d) => void d.accept());
+  await apply.getByRole('button', { name: 'Excluir modelo' }).click();
+  await expect(select.locator('option', { hasText: model })).toHaveCount(0);
+});
+
 test('internação no celular sem rolagem lateral @mobile', async ({ page }) => {
   for (const path of [
     '/internacao',

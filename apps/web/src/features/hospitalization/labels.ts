@@ -1,4 +1,12 @@
-import type { HospitalizationPriority, HospitalizationStatus } from '@clinica/contracts';
+import {
+  choiceParameters,
+  clinicalParameterOptions,
+  numericParameterLimits,
+  numericParameters,
+  type ClinicalParameters,
+  type HospitalizationPriority,
+  type HospitalizationStatus,
+} from '@clinica/contracts';
 
 export const priorityTone = {
   routine: 'sage',
@@ -35,4 +43,21 @@ export function formatDuration(fromIso: string, toIso: string | null, now = new 
   }
   if (hours > 0) return plural(hours, 'hora', 'horas');
   return `${String(minutes)} min`;
+}
+
+const decimal = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
+
+/** Parâmetros preenchidos como "Apetite: Diminuído", "FC: 120 bpm". */
+export function parameterItems(p: ClinicalParameters): string[] {
+  const items: string[] = [];
+  for (const key of choiceParameters) {
+    const value = p[key];
+    if (value) items.push(`${clinicalParameterOptions[key].label}: ${value}`);
+  }
+  for (const key of numericParameters) {
+    const value = p[key];
+    const limit = numericParameterLimits[key];
+    if (value !== null) items.push(`${limit.label}: ${decimal.format(value)} ${limit.unit}`);
+  }
+  return items;
 }

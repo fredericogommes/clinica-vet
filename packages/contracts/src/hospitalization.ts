@@ -178,6 +178,7 @@ export const hospitalizationEntryKinds = [
   'prescription',
   'prescription_stop',
   'execution',
+  'message',
 ] as const;
 export type HospitalizationEntryKind = (typeof hospitalizationEntryKinds)[number];
 export const hospitalizationEntryKindLabels: Record<HospitalizationEntryKind, string> = {
@@ -194,6 +195,7 @@ export const hospitalizationEntryKindLabels: Record<HospitalizationEntryKind, st
   prescription: 'Prescrição',
   prescription_stop: 'Prescrição suspensa',
   execution: 'Execução',
+  message: 'Mensagem ao tutor',
 };
 
 export const hospitalizationEntrySchema = z.object({
@@ -305,6 +307,10 @@ export const hospitalizationEntryInputSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('occurrence'),
     text: text(2000).min(1, 'Descreva a ocorrência'),
+  }),
+  z.object({
+    kind: z.literal('message'),
+    text: text(2000).min(1, 'Escreva a mensagem'),
   }),
   z.object({
     kind: z.literal('report'),

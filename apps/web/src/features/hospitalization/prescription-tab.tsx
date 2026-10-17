@@ -14,7 +14,7 @@ import {
 } from '@clinica/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { ChevronLeft, ChevronRight, Pill, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardList, Pill, Plus, Save } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { z } from 'zod';
 import { Button } from '../../design-system/button';
@@ -28,24 +28,19 @@ import { useCan } from '../../lib/session';
 import { formatKg, isoToLocalInput, localInputToIso, zoned } from '../clinical/labels';
 import { addDays, formatLongDay, localToday } from '../schedule/dates';
 import { Alert, decimal, fieldErrorsOf, FormDialog, generalError } from './dialogs';
+import {
+  doseState,
+  doseStateLabels,
+  doseText,
+  nextFullHour,
+  number,
+  posology,
+  type DoseState,
+} from './dose';
 import { prescriptionDayQuery } from './queries';
+import { ApplyTemplateDialog, SaveTemplateDialog } from './template-dialogs';
 
-const number = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 });
 const hours = Array.from({ length: 24 }, (_, h) => h);
-
-export type DoseState = 'done' | 'skipped' | 'overdue' | 'pending';
-
-export const doseStateLabels: Record<DoseState, string> = {
-  done: 'Executado',
-  skipped: 'Não executado',
-  overdue: 'Vencido',
-  pending: 'Programado',
-};
-
-export function doseState(d: ScheduledDose, now = Date.now()): DoseState {
-  if (d.execution) return d.execution.status;
-  return new Date(d.scheduledAt).getTime() < now ? 'overdue' : 'pending';
-}
 
 const doseClasses: Record<DoseState, string> = {
   done: 'border-success-600/30 bg-success-50 text-success-600',
@@ -53,21 +48,6 @@ const doseClasses: Record<DoseState, string> = {
   overdue: 'border-danger-600/40 bg-danger-50 text-danger-600',
   pending: 'border-line-strong bg-surface text-ink',
 };
-
-/** "25 mg/kg IV a cada 8 h". */
-const posology = (p: Prescription) =>
-  `${number.format(p.dose)} ${p.doseUnit} ${p.route} a cada ${String(p.intervalHours)} h`;
-
-/** Dose do horário pelo peso atual: "310 mg · 0,62 mL". */
-function doseText(p: Pick<Prescription, 'dose' | 'doseUnit' | 'concentration'>, w: number | null) {
-  const calc = calculateDose({ ...p, weightKg: w });
-  if (calc.missingWeight) return 'Registre o peso para calcular a dose';
-  if (calc.amount === null) return '';
-  const amount = `${number.format(calc.amount)} ${calc.amountUnit}`;
-  return calc.volumeMl === null || calc.amountUnit === 'mL'
-    ? amount
-    : `${amount} · ${number.format(calc.volumeMl)} mL`;
-}
 
 /** "22/10 18:23": data e hora curtas no fuso da unidade. */
 const shortDateTime = (z: ReturnType<typeof zoned>, iso: string) =>
@@ -148,6 +128,8 @@ export function DayNav({
 
 type Open =
   | { kind: 'new' }
+  | { kind: 'apply' }
+  | { kind: 'save'; prescriptions: Prescription[] }
   | { kind: 'stop'; p: Prescription }
   | { kind: 'dose'; p: Prescription; dose: ScheduledDose };
 
@@ -166,25 +148,52 @@ export function PrescriptionTab({ h }: { h: HospitalizationDetail }) {
     setOpen(null);
   };
   const today = day.data ? zoned(day.data.timeZone).isoDay(new Date().toISOString()) : date;
+  const active = day.data?.prescriptions.filter((p) => !p.stopped) ?? [];
 
   return (
     <Section
       title="Prescrição médica"
       description="Horários do dia no fuso da unidade. Toque em um horário para registrar a execução."
-      actions={
-        prescribe ? (
-          <Button
-            size="sm"
-            icon={<Plus className="size-4" aria-hidden />}
-            onClick={() => {
-              setOpen({ kind: 'new' });
-            }}
-          >
-            Prescrever
-          </Button>
-        ) : null
-      }
     >
+      {can('hospitalization.prescribe') ? (
+        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Ações da prescrição">
+          {prescribe ? (
+            <>
+              <Button
+                size="sm"
+                icon={<Plus className="size-4" aria-hidden />}
+                onClick={() => {
+                  setOpen({ kind: 'new' });
+                }}
+              >
+                Prescrever
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<ClipboardList className="size-4" aria-hidden />}
+                onClick={() => {
+                  setOpen({ kind: 'apply' });
+                }}
+              >
+                Usar modelo
+              </Button>
+            </>
+          ) : null}
+          {active.length ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Save className="size-4" aria-hidden />}
+              onClick={() => {
+                setOpen({ kind: 'save', prescriptions: active });
+              }}
+            >
+              Salvar como modelo
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <DayNav date={date} today={today} onChange={setDate} />
         <p className="text-xs text-ink-muted">
@@ -230,6 +239,17 @@ export function PrescriptionTab({ h }: { h: HospitalizationDetail }) {
           weightKg={day.data.weightKg}
           onClose={close}
         />
+      ) : null}
+      {open?.kind === 'apply' && day.data ? (
+        <ApplyTemplateDialog
+          h={h}
+          timeZone={day.data.timeZone}
+          weightKg={day.data.weightKg}
+          onClose={close}
+        />
+      ) : null}
+      {open?.kind === 'save' ? (
+        <SaveTemplateDialog prescriptions={open.prescriptions} onClose={close} />
       ) : null}
       {open?.kind === 'stop' ? <StopDialog h={h} p={open.p} onClose={close} /> : null}
       {open?.kind === 'dose' && day.data ? (
@@ -380,12 +400,6 @@ function PrescriptionGrid({
       </ul>
     </div>
   );
-}
-
-/** Próxima hora cheia, como valor de datetime-local no fuso da unidade. */
-function nextFullHour(timeZone: string) {
-  const local = isoToLocalInput(new Date(Date.now() + 3_600_000).toISOString(), timeZone);
-  return `${local.slice(0, 13)}:00`;
 }
 
 function PrescribeDialog({

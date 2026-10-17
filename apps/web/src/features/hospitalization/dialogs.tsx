@@ -15,7 +15,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState, type ReactNode } from 'react';
-import { Button } from '../../design-system/button';
+import { Button, buttonClasses } from '../../design-system/button';
 import { Dialog } from '../../design-system/dialog';
 import { Segmented, SelectField, TextareaField, TextField } from '../../design-system/field';
 import { ErrorState, SkeletonRows } from '../../design-system/states';
@@ -23,6 +23,7 @@ import { useToast } from '../../design-system/toast';
 import { api, ApiRequestError, errorMessage } from '../../lib/api';
 import { useSession } from '../../lib/session';
 import { useDebounced } from '../../lib/use-debounced';
+import { formatPhone, whatsappUrl } from '../clients/format';
 import { patientsQuery } from '../patients/queries';
 import { localToday } from '../schedule/dates';
 import { hospitalizationOptionsQuery, hospitalizationQuery } from './queries';
@@ -789,5 +790,114 @@ export function EntryDialog({
         />
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * Enviar mensagem ao tutor [p.15]: a mensagem fica registrada no histórico da internação e sai
+ * pronta para o WhatsApp do responsável (ou para copiar, quando não há telefone).
+ */
+export function MessageDialog({ h, onClose }: { h: HospitalizationDetail; onClose: () => void }) {
+  const toast = useToast();
+  const session = useSession();
+  const first = h.client.name.split(' ')[0] ?? h.client.name;
+  const [text, setText] = useState(`Olá, ${first}! Notícias do ${h.patient.name} na internação: `);
+  const [error, setError] = useState<string | undefined>();
+  const [sent, setSent] = useState<string | null>(null);
+  const add = useHospitalizationMutation<unknown>('POST', `/hospitalizations/${h.id}/entries`);
+  const signed = (body: string) => `${body.trim()}\n\n${session.organization.name}`;
+
+  if (sent !== null) {
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        title="Mensagem registrada"
+        description="Ela já está no histórico da internação. Envie ao responsável pelo WhatsApp ou copie o texto."
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void navigator.clipboard.writeText(sent).then(
+                  () => {
+                    toast.success('Mensagem copiada.');
+                  },
+                  () => {
+                    toast.error('Não foi possível copiar. Selecione o texto e copie.');
+                  },
+                );
+              }}
+            >
+              Copiar texto
+            </Button>
+            {h.client.phone ? (
+              <a
+                href={`${whatsappUrl(h.client.phone)}?text=${encodeURIComponent(sent)}`}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonClasses('primary')}
+                onClick={onClose}
+              >
+                Abrir no WhatsApp
+              </a>
+            ) : (
+              <Button onClick={onClose}>Concluir</Button>
+            )}
+          </>
+        }
+      >
+        <p className="rounded-control bg-sunken px-3 py-2 text-sm break-words whitespace-pre-line text-ink">
+          {sent}
+        </p>
+        <p className="mt-3 text-xs text-ink-muted">
+          {h.client.phone
+            ? `Para ${h.client.name}, ${formatPhone(h.client.phone)}.`
+            : `${h.client.name} não tem telefone no cadastro.`}
+        </p>
+      </Dialog>
+    );
+  }
+
+  return (
+    <FormDialog
+      title="Enviar mensagem ao tutor"
+      description={`Para ${h.client.name}${h.client.phone ? `, ${formatPhone(h.client.phone)}` : ''}.`}
+      formId="message-form"
+      submitLabel="Registrar mensagem"
+      pending={add.isPending}
+      onClose={onClose}
+      onSubmit={() => {
+        if (!text.trim()) {
+          setError('Escreva a mensagem');
+          return;
+        }
+        add.mutate(
+          { kind: 'message', text: text.trim() },
+          {
+            onSuccess: () => {
+              setSent(signed(text));
+            },
+            onError: (e) => {
+              setError(fieldErrorsOf(e).text ?? errorMessage(e));
+            },
+          },
+        );
+      }}
+    >
+      <TextareaField
+        label="Mensagem"
+        rows={5}
+        maxLength={2000}
+        value={text}
+        error={error}
+        onChange={(e) => {
+          setText(e.target.value);
+          setError(undefined);
+        }}
+      />
+    </FormDialog>
   );
 }
