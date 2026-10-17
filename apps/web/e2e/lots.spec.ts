@@ -65,7 +65,7 @@ test('lote e validade: controle ligado no cadastro, entradas por lote, contagem 
   page,
 }) => {
   // Sem o sufixo `run` no nome: outras specs buscam por ele e contam as linhas.
-  const name = `Vacina V10 ${[...run].reverse().join('')}`;
+  const name = `Vacina V10 ${run.split('').reverse().join('')}`;
   const product = await seedProduct(page, name);
   const soon = inDays(12);
   const later = inDays(400);
