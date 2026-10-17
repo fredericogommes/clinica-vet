@@ -24,3 +24,4 @@ export * from './stock-ops.js';
 export * from './stock-analysis.js';
 export * from './purchase-orders.js';
 export * from './commissions.js';
+export * from './portal.js';

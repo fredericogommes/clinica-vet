@@ -36,7 +36,29 @@ import { LoginPage } from '../features/auth/login-page';
 import { HomePage } from '../features/home/home-page';
 import { errorMessage } from '../lib/api';
 import { sessionQuery, useCan } from '../lib/session';
+import { portalSessionQuery } from '../features/portal/queries';
 import { AppShell } from './shell';
+
+const PortalSettingsPage = lazy(() =>
+  import('../features/portal/staff-pages').then((m) => ({ default: m.PortalSettingsPage })),
+);
+const PortalTutor = {
+  Shell: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalShell })),
+  ),
+  Login: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalLoginPage })),
+  ),
+  Link: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalLinkPage })),
+  ),
+  Home: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalHomePage })),
+  ),
+  Patient: lazy(() =>
+    import('../features/portal/tutor-pages').then((m) => ({ default: m.PortalPatientPage })),
+  ),
+};
 
 // Telas de módulos carregadas sob demanda; o login e o shell ficam no pacote inicial.
 const UsersPage = lazy(() =>
@@ -330,6 +352,76 @@ const printEventRoute = createRoute({
       </RequirePermission>
     );
   },
+});
+
+/**
+ * Portal do tutor: sessão própria, sem o menu da equipe. O pacote do portal é carregado à parte,
+ * e o tutor nunca baixa as telas da equipe.
+ */
+const portalLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/portal/entrar',
+  beforeLoad: async ({ context }) => {
+    if (await context.queryClient.query(portalSessionQuery)) throw redirect({ to: '/portal' });
+  },
+  component: () => (
+    <Suspense fallback={<SkeletonRows />}>
+      <PortalTutor.Login />
+    </Suspense>
+  ),
+});
+
+const portalLinkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/portal/acesso/$token',
+  component: function PortalLink() {
+    const { token } = portalLinkRoute.useParams();
+    return (
+      <Suspense fallback={<SkeletonRows />}>
+        <PortalTutor.Link token={token} />
+      </Suspense>
+    );
+  },
+});
+
+const portalRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'portal',
+  beforeLoad: async ({ context }) => {
+    if (!(await context.queryClient.query(portalSessionQuery))) {
+      throw redirect({ to: '/portal/entrar' });
+    }
+  },
+  component: () => (
+    <Suspense fallback={<SkeletonRows />}>
+      <PortalTutor.Shell />
+    </Suspense>
+  ),
+});
+
+const portalHomeRoute = createRoute({
+  getParentRoute: () => portalRoute,
+  path: '/portal',
+  component: () => <PortalTutor.Home />,
+});
+
+const portalPatientRoute = createRoute({
+  getParentRoute: () => portalRoute,
+  path: '/portal/animais/$patientId',
+  component: function PortalPatient() {
+    const { patientId } = portalPatientRoute.useParams();
+    return <PortalTutor.Patient key={patientId} patientId={patientId} />;
+  },
+});
+
+const portalSettingsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/configuracao/portal',
+  component: () => (
+    <RequirePermission permission="portal.configure">
+      <PortalSettingsPage />
+    </RequirePermission>
+  ),
 });
 
 const homeRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: HomePage });
@@ -1372,6 +1464,9 @@ const saleRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  portalLoginRoute,
+  portalLinkRoute,
+  portalRoute.addChildren([portalHomeRoute, portalPatientRoute]),
   printRoute.addChildren([printEventRoute]),
   appRoute.addChildren([
     homeRoute,
@@ -1441,6 +1536,7 @@ const routeTree = rootRoute.addChildren([
     usersRoute,
     rolesRoute,
     roleDetailRoute,
+    portalSettingsRoute,
     auditRoute,
   ]),
 ]);

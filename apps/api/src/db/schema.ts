@@ -2235,3 +2235,73 @@ export const commissionStatementLines = pgTable(
     check('commission_statement_lines_amount_ck', sql`${t.amount} <> 0`),
   ],
 );
+
+/** Portal do tutor [p.20–21, RN-44]: desligado até a clínica decidir o que o tutor vê. */
+export const portalSettings = pgTable('portal_settings', {
+  organizationId: uuid('organization_id')
+    .primaryKey()
+    .references(() => organizations.id),
+  enabled: boolean('enabled').notNull().default(false),
+  showAppointments: boolean('show_appointments').notNull().default(true),
+  showWeight: boolean('show_weight').notNull().default(true),
+  showVaccines: boolean('show_vaccines').notNull().default(true),
+  showExams: boolean('show_exams').notNull().default(false),
+  showPrescriptions: boolean('show_prescriptions').notNull().default(false),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Acesso de um cliente ao portal. O e-mail é o login e vale para uma conta só no sistema. Sem
+ * senha enquanto o convite não for aceito; o link (convite ou recuperação) guarda só o hash.
+ */
+export const portalAccounts = pgTable(
+  'portal_accounts',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash'),
+    active: boolean('active').notNull().default(true),
+    linkTokenHash: text('link_token_hash'),
+    linkExpiresAt: timestamp('link_expires_at', { withTimezone: true }),
+    invitedAt: timestamp('invited_at', { withTimezone: true }).notNull(),
+    invitedBy: uuid('invited_by')
+      .notNull()
+      .references(() => users.id),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('portal_accounts_client_uq').on(t.clientId),
+    uniqueIndex('portal_accounts_email_uq').on(sql`lower(${t.email})`),
+    uniqueIndex('portal_accounts_link_uq')
+      .on(t.linkTokenHash)
+      .where(sql`${t.linkTokenHash} is not null`),
+    check(
+      'portal_accounts_link_ck',
+      sql`(${t.linkTokenHash} is null) = (${t.linkExpiresAt} is null)`,
+    ),
+  ],
+);
+
+export const portalSessions = pgTable(
+  'portal_sessions',
+  {
+    /** SHA-256 do token do cookie, como na sessão da equipe. */
+    tokenHash: text('token_hash').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => portalAccounts.id, { onDelete: 'cascade' }),
+    csrfToken: text('csrf_token').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('portal_sessions_account_idx').on(t.accountId)],
+);

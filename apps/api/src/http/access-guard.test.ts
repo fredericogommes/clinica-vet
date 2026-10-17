@@ -16,7 +16,11 @@ describe('controle de acesso no servidor', () => {
     const { accessGuard } = await import('./access-guard.js');
     const { SessionService } = await import('../modules/auth/sessions.js');
     const app = Fastify();
-    await app.register(accessGuard, { sessions: new SessionService(h.db, 1000) });
+    const { PortalSessionService } = await import('../modules/portal/sessions.js');
+    await app.register(accessGuard, {
+      sessions: new SessionService(h.db, 1000),
+      portalSessions: new PortalSessionService(h.db, 1000),
+    });
     expect(() => app.get('/api/esquecida', async () => 'ok')).toThrow(/sem declaração de acesso/);
     await app.close();
   });

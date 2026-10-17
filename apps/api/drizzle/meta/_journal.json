@@ -155,6 +155,13 @@
       "when": 1792252591883,
       "tag": "0021_commissions",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792255065216,
+      "tag": "0022_portal",
+      "breakpoints": true
     }
   ]
 }
