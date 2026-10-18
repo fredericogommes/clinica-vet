@@ -5,6 +5,7 @@ import {
   productKinds,
   purchaseOrderSituations,
   purchaseSituations,
+  saleShifts,
   saleStatuses,
   stockExitReasons,
   stockSituations,
@@ -158,6 +159,11 @@ const CashPage = lazy(() =>
 );
 const InsurersPage = lazy(() =>
   import('../features/insurers/insurers-page').then((m) => ({ default: m.InsurersPage })),
+);
+const IntelligencePage = lazy(() =>
+  import('../features/intelligence/intelligence-page').then((m) => ({
+    default: m.IntelligencePage,
+  })),
 );
 const ClaimsPage = lazy(() =>
   import('../features/insurers/claims-page').then((m) => ({ default: m.ClaimsPage })),
@@ -1480,6 +1486,36 @@ const claimsRoute = createRoute({
   },
 });
 
+/** Aba, período e filtros na URL: o link copiado abre os mesmos indicadores. */
+const intelligenceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/inteligencia/vendas',
+  validateSearch: z.object({
+    aba: z.enum(['clientes', 'animais']).optional().catch(undefined),
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+    dia: z.coerce.number().int().min(0).max(6).optional().catch(undefined),
+    turno: z.enum(saleShifts).optional().catch(undefined),
+  }),
+  component: function Intelligence() {
+    const s = intelligenceRoute.useSearch();
+    const period = defaultPeriod();
+    return (
+      <RequirePermission permission="intelligence.view">
+        <IntelligencePage
+          search={{
+            tab: s.aba ?? 'vendas',
+            from: s.de ?? period.from,
+            to: s.ate ?? period.to,
+            weekday: s.dia,
+            shift: s.turno,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const insurerPricesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/convenios/$insurerId',
@@ -1810,6 +1846,7 @@ const routeTree = rootRoute.addChildren([
     insurersRoute,
     claimsRoute,
     insurerPricesRoute,
+    intelligenceRoute,
     salesReportRoute,
     mySalesRoute,
     clientRankingRoute,

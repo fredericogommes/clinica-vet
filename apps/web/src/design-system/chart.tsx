@@ -338,3 +338,44 @@ export function LineChart({
     </figure>
   );
 }
+
+/**
+ * Barras horizontais de ranking ou distribuição: rótulo, barra proporcional ao maior valor e o
+ * número ao lado. É uma lista de verdade, então o leitor de tela lê rótulo e valor juntos.
+ */
+export function RankBars({
+  caption,
+  entries,
+  format = String,
+  tone = 'sage',
+}: {
+  caption: string;
+  entries: { label: string; value: number; detail?: string }[];
+  format?: (value: number) => string;
+  tone?: ChartSeries['tone'];
+}) {
+  const max = Math.max(0, ...entries.map((e) => e.value));
+  return (
+    <ul aria-label={caption} className="space-y-2.5">
+      {entries.map((e) => (
+        <li key={e.label} className="min-w-0">
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate" title={e.label}>
+              {e.label}
+            </span>
+            <span className="shrink-0 font-mono text-xs text-ink tabular-nums">
+              {format(e.value)}
+              {e.detail ? <span className="ml-1.5 text-ink-muted">{e.detail}</span> : null}
+            </span>
+          </div>
+          <div className="mt-1 h-1.5 rounded-full bg-sunken" aria-hidden>
+            <div
+              className={clsx('h-full rounded-full', barTones[tone])}
+              style={{ width: `${String(max === 0 ? 0 : (e.value / max) * 100)}%` }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}

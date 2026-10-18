@@ -12,6 +12,7 @@ export * from './inventory.js';
 export * from './products.js';
 export * from './payments.js';
 export * from './insurers.js';
+export * from './intelligence.js';
 export * from './sales.js';
 export * from './sales-reports.js';
 export * from './client-debts.js';

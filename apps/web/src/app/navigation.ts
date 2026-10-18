@@ -21,6 +21,7 @@ import {
   BellRing,
   BarChart3,
   ChartColumn,
+  ChartPie,
   CalendarClock,
   CalendarDays,
   ClipboardList,
@@ -208,6 +209,17 @@ export const navigation: NavSection[] = [
         to: '/convenios/repasses',
         icon: FileCheck2,
         permission: 'insurers.reconcile',
+      },
+    ],
+  },
+  {
+    label: 'Inteligência',
+    items: [
+      {
+        label: 'Vendas',
+        to: '/inteligencia/vendas',
+        icon: ChartPie,
+        permission: 'intelligence.view',
       },
     ],
   },

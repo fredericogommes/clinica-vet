@@ -53,6 +53,8 @@ import { vaccineRoutes } from '../modules/vaccines/routes.js';
 import { VaccineService } from '../modules/vaccines/service.js';
 import { DashboardService } from '../modules/dashboard/service.js';
 import { dashboardRoutes } from '../modules/dashboard/routes.js';
+import { IntelligenceService } from '../modules/intelligence/service.js';
+import { intelligenceRoutes } from '../modules/intelligence/routes.js';
 import { ClientDebtService } from '../modules/sales/client-debts.js';
 import { PackageService } from '../modules/sales/packages.js';
 import { hospitalizationRoutes } from '../modules/hospitalization/routes.js';
@@ -186,6 +188,10 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     prefix: '/api/insurers',
     insurers: new InsurerService(db),
     claims: new ClaimService(db),
+  });
+  await app.register(intelligenceRoutes, {
+    prefix: '/api/intelligence',
+    intelligence: new IntelligenceService(db),
   });
   await app.register(cashRoutes, { prefix: '/api/cash', cash });
   await app.register(financeRoutes, {

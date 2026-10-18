@@ -1403,6 +1403,19 @@ export const cashMovements = pgTable(
   ],
 );
 
+/** Indicadores da Inteligência que cada usuário favoritou [p.11]: aparecem primeiro na aba. */
+export const intelligenceFavorites = pgTable(
+  'intelligence_favorites',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    indicator: text('indicator').notNull(),
+    position: smallint('position').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.indicator] })],
+);
+
 /** Montagem do painel de cada usuário [p.3]: ordem e widgets ligados, entre os liberados ao perfil. */
 export const dashboardLayouts = pgTable('dashboard_layouts', {
   userId: uuid('user_id')

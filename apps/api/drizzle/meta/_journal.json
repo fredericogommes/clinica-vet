@@ -218,6 +218,13 @@
       "when": 1792280757441,
       "tag": "0030_insurer_sales_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792290453129,
+      "tag": "0031_intelligence_favorites",
+      "breakpoints": true
     }
   ]
 }
