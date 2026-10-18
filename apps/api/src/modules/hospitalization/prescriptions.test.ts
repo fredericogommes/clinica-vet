@@ -22,6 +22,28 @@ const base = () => `/api/hospitalizations/${hospitalizationId}`;
 const localDate = (at: Date, timeZone: string) =>
   new Intl.DateTimeFormat('en-CA', { timeZone }).format(at);
 
+/**
+ * Alguns minutos atrás, mas nunca antes da meia-noite de hoje no fuso da unidade: logo depois da
+ * meia-noite, "30 minutos atrás" cai na véspera, antes da internação, e some do mapa do dia.
+ */
+async function minutesAgoToday(minutes: number) {
+  const { timeZone } = (
+    await admin.get(`${base()}/prescriptions?date=2026-01-01`)
+  ).json<PrescriptionDay>();
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const part = (type: string) => Number(parts.find((x) => x.type === type)?.value ?? 0);
+  const sinceMidnight =
+    ((part('hour') * 60 + part('minute')) * 60 + part('second')) * 1000 + now.getMilliseconds();
+  return new Date(Math.max(now.getTime() - minutes * 60_000, now.getTime() - sinceMidnight));
+}
+
 async function day(at: Date, as = admin) {
   const probe = (await as.get(`${base()}/prescriptions?date=2026-01-01`)).json<PrescriptionDay>();
   const res = await as.get(`${base()}/prescriptions?date=${localDate(at, probe.timeZone)}`);
@@ -79,7 +101,7 @@ describe('prescrição da internação [p.15, RN-42]', () => {
   it('aprazamento, execução com dose pelo peso, mapa e suspensão', async () => {
     let r = await admin.send('POST', `${base()}/entries`, { kind: 'weight', weightKg: 12.4 });
     expect(r.statusCode, r.body).toBe(200);
-    const firstAt = new Date(Date.now() - 30 * 60_000);
+    const firstAt = await minutesAgoToday(30);
     r = await prescribe({ firstAt: firstAt.toISOString() });
     expect(r.statusCode, r.body).toBe(201);
     const { id } = r.json<{ id: string }>();
