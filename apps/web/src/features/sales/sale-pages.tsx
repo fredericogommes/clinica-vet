@@ -34,6 +34,7 @@ import {
   emptySale,
   SaleForm,
   saleToForm,
+  missingAuthorizations,
   validateSale,
   type FieldErrors,
   type SaleFormState,
@@ -54,10 +55,16 @@ function useSaleEditor(initial: SaleFormState) {
       setState(next);
       setErrors({});
     },
-    validate: (): SaleData | null => {
+    /** Para receber, o item do convênio que exige autorização precisa dela [RN-43]. */
+    validate: (receive = false): SaleData | null => {
       const result = validateSale(state);
       if ('errors' in result) {
         setErrors(result.errors);
+        return null;
+      }
+      const missing = receive ? missingAuthorizations(state) : {};
+      if (Object.keys(missing).length > 0) {
+        setErrors(missing);
         return null;
       }
       return result.data;
@@ -130,7 +137,7 @@ function NewSale({ context }: { context: SaleContext }) {
     onError: editor.serverErrors,
   });
   const submit = (receive: boolean) => {
-    const data = editor.validate();
+    const data = editor.validate(receive);
     if (data) save.mutate({ data, receive });
   };
   const canReceive = can('sales.receive') && editor.state.kind === 'sale';
@@ -235,6 +242,9 @@ function SaleHeader({ sale, onCancel }: { sale: Sale; onCancel: (() => void) | n
       title={sale.client ? sale.client.name : 'Venda de balcão'}
       description={[
         sale.patient ? `Animal: ${sale.patient.name}` : null,
+        sale.insurer
+          ? `Convênio ${sale.insurer.name}, carteirinha ${sale.insurer.cardNumber}`
+          : null,
         `${formatDateTime(sale.createdAt)} por ${sale.createdBy}`,
         sale.unitName,
       ]
@@ -303,7 +313,7 @@ function EditSale({ sale, context }: { sale: Sale; context: SaleContext }) {
   });
   // Receber grava antes o que estiver na tela, para baixar exatamente o que se vê.
   const submit = (receive: boolean) => {
-    const data = editor.validate();
+    const data = editor.validate(receive);
     if (data) save.mutate({ data, receive });
   };
   const converting = sale.status === 'quote' && editor.state.kind === 'sale';
@@ -438,6 +448,16 @@ function SaleView({ sale }: { sale: Sale }) {
                       <div className="min-w-0">
                         <p className="font-medium">{i.name}</p>
                         <p className="text-xs text-ink-muted">{i.professional.name}</p>
+                        {i.coverage ? (
+                          <p className="text-xs text-ink-muted">
+                            Convênio repassa {formatMoney(i.coverage.insurerAmount)}
+                            {i.coverage.requiresAuthorization
+                              ? i.coverage.authorizationCode
+                                ? ` · autorização ${i.coverage.authorizationCode}`
+                                : ' · falta a autorização'
+                              : ''}
+                          </p>
+                        ) : null}
                         <p className="text-xs text-ink-muted md:hidden">
                           {quantityInput(i.quantity)} × {formatMoney(i.unitPrice)}
                         </p>
@@ -481,7 +501,16 @@ function SaleView({ sale }: { sale: Sale }) {
                   }
                   value={`− ${formatMoney(sale.discountTotal)}`}
                 />
-                <Line label="Total" value={formatMoney(sale.netTotal)} strong />
+                <Line label="Total" value={formatMoney(sale.netTotal)} strong={!sale.insurer} />
+                {sale.insurer ? (
+                  <>
+                    <Line
+                      label={`Convênio ${sale.insurer.name} paga`}
+                      value={formatMoney(sale.insurerTotal)}
+                    />
+                    <Line label="Tutor paga" value={formatMoney(sale.customerTotal)} strong />
+                  </>
+                ) : null}
               </dl>
             </Section>
             {sale.closed ? (

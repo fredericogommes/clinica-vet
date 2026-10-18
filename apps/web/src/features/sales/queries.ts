@@ -4,6 +4,7 @@ import {
   pageSchema,
   paymentMethodSchema,
   patientSalesSchema,
+  saleCoverageSchema,
   saleContextSchema,
   saleListItemSchema,
   saleSchema,
@@ -27,6 +28,14 @@ export const sellableQuery = (q: string) =>
     queryFn: () =>
       api('GET', `/sales/sellable?q=${encodeURIComponent(q)}`, z.array(sellableItemSchema)),
     placeholderData: keepPreviousData,
+  });
+
+/** Plano do animal e a tabela do convênio; nulo quando o animal não tem plano [RN-43]. */
+export const saleCoverageQuery = (patientId: string) =>
+  queryOptions({
+    queryKey: ['sales', 'coverage', patientId],
+    queryFn: () =>
+      api('GET', `/sales/coverage?patientId=${patientId}`, saleCoverageSchema.nullable()),
   });
 
 export const saleQuery = (id: string) =>

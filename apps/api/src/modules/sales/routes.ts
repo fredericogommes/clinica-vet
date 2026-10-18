@@ -27,6 +27,7 @@ import {
   salesSettingsSchema,
   salesSummarySchema,
   sellableItemSchema,
+  saleCoverageSchema,
   sellableQuerySchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
@@ -196,6 +197,19 @@ export const saleRoutes: FastifyPluginAsyncZod<{
       schema: { querystring: sellableQuerySchema, response: { 200: z.array(sellableItemSchema) } },
     },
     async (request) => sales.sellable(requireAuth(request), request.query.q),
+  );
+
+  // Plano do animal e tabela do convênio, para o PDV oferecer a venda pelo convênio.
+  app.get(
+    '/coverage',
+    {
+      config: { access: { kind: 'permission', permission: 'sales.manage' } },
+      schema: {
+        querystring: z.object({ patientId: z.uuid() }),
+        response: { 200: saleCoverageSchema.nullable() },
+      },
+    },
+    async (request) => sales.coverage(requireAuth(request), request.query.patientId),
   );
 
   app.get(

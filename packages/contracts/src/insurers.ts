@@ -154,3 +154,91 @@ export const insuranceActiveOn = (
   insurerArchived: boolean,
   date: string,
 ): boolean => !insurerArchived && (insurance.validUntil === null || insurance.validUntil >= date);
+
+// Repasses ---------------------------------------------------------------------------------------
+
+/**
+ * Repasse de um procedimento coberto [p.20]: nasce na baixa da venda pelo convênio, com o valor
+ * do convênio e a data prevista, e é conciliado quando o dinheiro cai ou glosado com motivo.
+ */
+export const claimStatuses = ['pending', 'reconciled', 'glossed', 'cancelled'] as const;
+export type ClaimStatus = (typeof claimStatuses)[number];
+export const claimStatusLabels: Record<ClaimStatus, string> = {
+  pending: 'Não conciliado',
+  reconciled: 'Conciliado',
+  glossed: 'Glosado',
+  cancelled: 'Cancelado',
+};
+
+/** Filtro das abas: glosados inclui a glosa parcial, que segue a conciliar pelo resto. */
+export const claimFilters = ['all', 'pending', 'reconciled', 'glossed'] as const;
+export type ClaimFilter = (typeof claimFilters)[number];
+
+export const claimListQuerySchema = z.object({
+  insurerId: z.uuid().optional(),
+  /** Período pela data do atendimento (baixa da venda), no fuso da unidade. */
+  from: z.iso.date(),
+  to: z.iso.date(),
+  status: z.enum(claimFilters).default('all'),
+});
+export type ClaimListQuery = z.output<typeof claimListQuerySchema>;
+
+export const claimSchema = z.object({
+  id: z.uuid(),
+  insurer: z.object({ id: z.uuid(), name: z.string() }),
+  saleId: z.uuid(),
+  saleCode: z.number().int(),
+  serviceDate: z.iso.date(),
+  dueDate: z.iso.date(),
+  client: z.string(),
+  patient: z.string(),
+  cardNumber: z.string(),
+  procedure: z.string(),
+  professional: z.string(),
+  authorizationCode: z.string(),
+  /** Valor de repasse original. */
+  amount: z.number(),
+  glossAmount: z.number(),
+  glossReason: z.string().nullable(),
+  /** O que falta receber ou o que foi recebido: valor menos glosa. */
+  expected: z.number(),
+  status: z.enum(claimStatuses),
+  reconciledOn: z.iso.date().nullable(),
+  reconciledBy: z.string().nullable(),
+});
+export type Claim = z.infer<typeof claimSchema>;
+
+const bucket = z.object({ count: z.number().int(), amount: z.number() });
+
+export const claimListSchema = z.object({
+  totals: z.object({
+    all: bucket,
+    pending: bucket,
+    reconciled: bucket,
+    /** Valor glosado (não o de repasse) e quantos procedimentos tiveram glosa. */
+    glossed: bucket,
+  }),
+  items: z.array(claimSchema),
+  /** Convênios da organização, arquivados inclusive, para o filtro. */
+  insurers: z.array(insurerOptionSchema),
+  /** Hoje no fuso da unidade: o repasse não cai no futuro. */
+  today: z.iso.date(),
+});
+export type ClaimList = z.infer<typeof claimListSchema>;
+
+export const reconcileClaimsSchema = z.object({
+  claimIds: z
+    .array(z.uuid())
+    .min(1, 'Escolha ao menos um procedimento')
+    .max(500, 'Máximo de 500 por vez'),
+  /** Dia em que o repasse caiu na conta. */
+  receivedOn: z.iso.date({ message: 'Informe a data do repasse' }),
+});
+export type ReconcileClaimsInput = z.infer<typeof reconcileClaimsSchema>;
+
+export const glossClaimSchema = z.object({
+  /** Valor recusado pelo convênio; o total glosa o procedimento inteiro. */
+  amount: moneySchema.refine((v) => v > 0, 'Informe o valor glosado'),
+  reason: z.string().trim().min(3, 'Diga o motivo da glosa').max(300, 'Máximo de 300 caracteres'),
+});
+export type GlossClaimInput = z.infer<typeof glossClaimSchema>;

@@ -142,6 +142,7 @@ export const entryOrigins = [
   'purchase',
   'commission',
   'client_account',
+  'insurer',
 ] as const;
 export type EntryOrigin = (typeof entryOrigins)[number];
 

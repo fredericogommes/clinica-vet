@@ -1,5 +1,7 @@
 import {
+  copayCents,
   feeCents,
+  insuranceActiveOn,
   ON_ACCOUNT,
   fromCents,
   receivableOffsetDays,
@@ -14,6 +16,7 @@ import {
   type PatientSaleItemInput,
   type PatientSales,
   type ReceiveSaleInput,
+  type SaleCoverage,
   type SaleData,
   type SaleListItem,
   type SaleListQuery,
@@ -49,6 +52,9 @@ import {
   cashMovements,
   clients,
   costCenters,
+  insurerClaims,
+  insurerPrices,
+  insurers,
   patients,
   paymentMethods,
   productCommissions,
@@ -201,6 +207,46 @@ export class SaleService {
     return methods.filter((m) => m.kind !== ON_ACCOUNT);
   }
 
+  /**
+   * Plano do animal e a tabela do convênio [RN-43], para o PDV mostrar o valor de cada item e a
+   * coparticipação. Nulo quando o animal não tem plano.
+   */
+  async coverage(auth: AuthContext, patientId: string): Promise<SaleCoverage | null> {
+    const [row] = await this.db
+      .select({ patient: patients, insurer: insurers })
+      .from(patients)
+      .innerJoin(insurers, eq(insurers.id, patients.insurerId))
+      .where(and(eq(patients.id, patientId), eq(patients.organizationId, auth.organizationId)));
+    if (!row) return null;
+    const today = instantToZoned(new Date(), await unitTimeZone(this.db, auth.unitId)).date;
+    const prices = await this.db
+      .select({
+        productId: insurerPrices.productId,
+        price: insurerPrices.price,
+        copayPercent: insurerPrices.copayPercent,
+        requiresAuthorization: insurerPrices.requiresAuthorization,
+        salePrice: products.salePrice,
+      })
+      .from(insurerPrices)
+      .innerJoin(products, eq(products.id, insurerPrices.productId))
+      .where(eq(insurerPrices.insurerId, row.insurer.id));
+    return {
+      insurer: {
+        id: row.insurer.id,
+        name: row.insurer.name,
+        cardNumber: row.patient.insuranceCardNumber ?? '',
+        copayPercent: row.insurer.copayPercent,
+      },
+      active: insuranceActiveOn(
+        { validUntil: row.patient.insuranceValidUntil },
+        row.insurer.archivedAt !== null,
+        today,
+      ),
+      validUntil: row.patient.insuranceValidUntil,
+      prices,
+    };
+  }
+
   /** Itens vendáveis: ativos e com finalidade de venda; busca por nome, código ou barras. */
   async sellable(auth: AuthContext, q: string): Promise<SellableItem[]> {
     const filters: SQL[] = [
@@ -322,6 +368,7 @@ export class SaleService {
         clientName: clients.name,
         clientCode: clients.code,
         patientName: patients.name,
+        insurerName: insurers.name,
         unitName: units.name,
         createdBy: creator.name,
         cancelledBy: canceller.name,
@@ -334,6 +381,7 @@ export class SaleService {
       .leftJoin(closer, eq(closer.id, sales.closedBy))
       .leftJoin(clients, eq(clients.id, sales.clientId))
       .leftJoin(patients, eq(patients.id, sales.patientId))
+      .leftJoin(insurers, eq(insurers.id, sales.insurerId))
       .where(and(eq(sales.id, id), eq(sales.organizationId, auth.organizationId)));
     if (!row) throw notFound('Venda');
     const items = await db
@@ -372,6 +420,10 @@ export class SaleService {
           ? { id: s.clientId, name: row.clientName, code: row.clientCode }
           : null,
       patient: s.patientId && row.patientName ? { id: s.patientId, name: row.patientName } : null,
+      insurer:
+        s.insurerId && row.insurerName !== null
+          ? { id: s.insurerId, name: row.insurerName, cardNumber: s.insuranceCardNumber ?? '' }
+          : null,
       items: items.map(
         ({ item: i, professionalName, code, allowPriceChange, discountLimitPercent }) => ({
           id: i.id,
@@ -392,12 +444,23 @@ export class SaleService {
           grossTotal: i.grossTotal,
           discountAmount: i.discountAmount,
           netTotal: i.netTotal,
+          coverage:
+            i.insurerCopayPercent === null
+              ? null
+              : {
+                  copayPercent: i.insurerCopayPercent,
+                  insurerAmount: i.insurerAmount,
+                  requiresAuthorization: i.requiresAuthorization,
+                  authorizationCode: i.authorizationCode,
+                },
         }),
       ),
       discount: { mode: s.discountMode, value: s.discountValue },
       grossTotal: s.grossTotal,
       discountTotal: s.discountTotal,
       netTotal: s.netTotal,
+      insurerTotal: s.insurerTotal,
+      customerTotal: fromCents(toCents(s.netTotal) - toCents(s.insurerTotal)),
       notes: s.notes,
       unitName: row.unitName,
       createdAt: s.createdAt.toISOString(),
@@ -512,7 +575,7 @@ export class SaleService {
     const work = async (tx: Executor) => {
       const patient = await this.patientOf(tx, auth, patientId, true);
       const current = await this.openSaleOf(tx, auth, patientId, true);
-      const newLine = { id: null, ...item, unitPrice: null };
+      const newLine = { id: null, ...item, unitPrice: null, authorizationCode: '' };
       if (!current) {
         const settings = await this.settings(auth, tx);
         const id = await this.insertSale(tx, auth, {
@@ -520,6 +583,7 @@ export class SaleService {
           saleType: settings.defaultSaleType,
           clientId: patient.clientId,
           patientId,
+          insurerId: null,
           items: [newLine],
           discount: { mode: 'amount', value: 0 },
           notes: '',
@@ -537,6 +601,7 @@ export class SaleService {
         saleType: current.saleType as SaleData['saleType'],
         clientId: current.clientId,
         patientId: current.patientId,
+        insurerId: current.insurerId,
         items: [
           ...previousItems.map((p) => ({
             id: p.id,
@@ -544,6 +609,7 @@ export class SaleService {
             professionalId: p.professionalId,
             quantity: p.quantity,
             unitPrice: p.unitPrice,
+            authorizationCode: p.authorizationCode,
           })),
           newLine,
         ],
@@ -711,7 +777,21 @@ export class SaleService {
           `Venda ${saleStatusLabels[current.status].toLowerCase()} não recebe pagamento.`,
         );
       }
-      const netCents = toCents(current.netTotal);
+      const items = await tx
+        .select()
+        .from(saleItems)
+        .where(eq(saleItems.saleId, id))
+        .orderBy(asc(saleItems.position));
+      // Procedimento que exige autorização só é baixado com o número dela [RN-43].
+      const unauthorized = items.filter((i) => i.requiresAuthorization && !i.authorizationCode);
+      if (unauthorized.length > 0) {
+        throw conflict(
+          `Informe a autorização do convênio para ${unauthorized.map((i) => i.name).join(', ')} antes de receber.`,
+        );
+      }
+      // O tutor paga no balcão o líquido menos a parte do convênio, que vem pelo repasse.
+      const netCents = toCents(current.netTotal) - toCents(current.insurerTotal);
+      const due = fromCents(netCents);
       if (input.payments.length === 0 && netCents > 0) {
         throw invalid('payments', 'Informe ao menos uma forma de recebimento');
       }
@@ -722,8 +802,8 @@ export class SaleService {
         throw invalid(
           'payments',
           paid < netCents
-            ? `Faltam ${brl(fromCents(diff))} para fechar ${brl(current.netTotal)}`
-            : `Passou ${brl(fromCents(diff))} do total de ${brl(current.netTotal)}`,
+            ? `Faltam ${brl(fromCents(diff))} para fechar ${brl(due)}`
+            : `Passou ${brl(fromCents(diff))} do total de ${brl(due)}`,
         );
       }
 
@@ -737,6 +817,7 @@ export class SaleService {
         settlesPaymentId: null,
       });
       // A baixa tira os itens do estoque da unidade da venda [RN-31] e abre os pacotes [p.10].
+      await this.recordClaims(tx, auth, { ...current, soldAt: current.soldAt ?? now }, items, now);
       await this.inventory.consume(tx, auth, current);
       await openSalePackages(tx, current, current.soldAt ?? now);
       await tx
@@ -751,6 +832,7 @@ export class SaleService {
         after: {
           code: current.code,
           status: saleStatusLabels.closed,
+          ...(current.insurerId ? { insurerTotal: brl(current.insurerTotal) } : {}),
           payments: lines
             .map(
               (l) =>
@@ -775,8 +857,24 @@ export class SaleService {
       if (current.status !== 'closed') {
         throw conflict('Só venda baixada é estornada; cancele a venda em aberto.');
       }
+      const claims = await tx
+        .select()
+        .from(insurerClaims)
+        .where(eq(insurerClaims.saleId, id))
+        .for('update');
+      if (claims.some((c) => c.status === 'reconciled' || toCents(c.glossAmount) > 0)) {
+        throw conflict(
+          'O repasse do convênio desta venda já foi conciliado ou glosado: desfaça em Convênios > Repasses antes de estornar.',
+        );
+      }
       const session = await this.cash.openSessionFor(tx, auth, 'estornar a venda');
       const now = new Date();
+      if (claims.length > 0) {
+        await tx
+          .update(insurerClaims)
+          .set({ status: 'cancelled' })
+          .where(eq(insurerClaims.saleId, id));
+      }
       await cancelSalePackages(tx, id, now);
       const payments = (
         await tx
@@ -986,6 +1084,58 @@ export class SaleService {
   }
 
   /**
+   * Repasses do convênio [RN-43]: um por procedimento coberto, com o valor do convênio e a data
+   * prevista pelo prazo de repasse, e a receita a receber correspondente no financeiro.
+   */
+  private async recordClaims(
+    tx: Executor,
+    auth: AuthContext,
+    sold: SaleRow,
+    items: ItemRow[],
+    now: Date,
+  ) {
+    if (!sold.insurerId) return;
+    const covered = items.filter((i) => toCents(i.insurerAmount) > 0);
+    if (covered.length === 0) return;
+    const [insurer] = await tx.select().from(insurers).where(eq(insurers.id, sold.insurerId));
+    if (!insurer) throw notFound('Convênio');
+    const [patient] = sold.patientId
+      ? await tx
+          .select({ name: patients.name })
+          .from(patients)
+          .where(eq(patients.id, sold.patientId))
+      : [];
+    const timeZone = await unitTimeZone(tx, sold.unitId);
+    const serviceDate = instantToZoned(sold.soldAt ?? now, timeZone).date;
+    const today = instantToZoned(now, timeZone).date;
+    const dueDate = addDays(today, insurer.paymentDays);
+    const claims = covered.map((i) => ({
+      id: newId(),
+      item: i,
+      amount: i.insurerAmount,
+      dueDate,
+      description: `Repasse ${insurer.name} - venda ${String(sold.code)} - ${patient?.name ?? ''} - ${i.name}`,
+    }));
+    const entries = await this.finance.recordInsurerClaims(tx, auth, sold, claims, today, timeZone);
+    await tx.insert(insurerClaims).values(
+      claims.map((c) => ({
+        id: c.id,
+        organizationId: sold.organizationId,
+        unitId: sold.unitId,
+        insurerId: insurer.id,
+        saleId: sold.id,
+        saleItemId: c.item.id,
+        financialEntryId: entries.get(c.id) ?? null,
+        serviceDate,
+        dueDate,
+        amount: c.amount,
+        status: 'pending' as const,
+        createdAt: now,
+      })),
+    );
+  }
+
+  /**
    * Recebimentos [p.10]: abate o que está na conta do cliente de uma venda baixada, total ou em
    * parte, com as formas do balcão e pelo caixa aberto do operador.
    */
@@ -1105,6 +1255,7 @@ export class SaleService {
     await this.assertCustomer(tx, auth, input, previous?.sale ?? null);
 
     const productIds = [...new Set(input.items.map((i) => i.productId))];
+    const plan = await this.insurancePlan(tx, auth, input, previous?.sale ?? null, productIds);
     const found = await tx
       .select()
       .from(products)
@@ -1142,11 +1293,17 @@ export class SaleService {
       if (!person || (!person.active && !previousProfessionals.has(item.professionalId))) {
         throw invalid(`items.${i}.professionalId`, 'Profissional inválido');
       }
-      const unitPrice = item.unitPrice ?? product.salePrice;
-      if (toCents(unitPrice) !== toCents(product.salePrice)) {
+      // Item da tabela do convênio sai pelo valor dela, sem preço livre [RN-43, D3].
+      const covered = plan?.prices.get(product.id) ?? null;
+      const tablePrice = covered ? covered.price : product.salePrice;
+      const unitPrice = item.unitPrice ?? tablePrice;
+      if (toCents(unitPrice) !== toCents(tablePrice)) {
         const keptFromBefore = previous?.items.some(
           (p) => p.productId === item.productId && toCents(p.unitPrice) === toCents(unitPrice),
         );
+        if (!keptFromBefore && covered) {
+          throw invalid(`items.${i}.unitPrice`, 'Item do convênio sai pelo valor da tabela');
+        }
         if (!keptFromBefore) {
           if (!product.allowPriceChange) {
             throw invalid(`items.${i}.unitPrice`, 'Este item não permite alterar o preço');
@@ -1161,7 +1318,7 @@ export class SaleService {
           ?.percent ?? product.defaultCommissionPercent;
       // Item que já estava na venda mantém id, nome, preço de tabela e origem da cópia original.
       const kept = item.id ? previous?.items.find((p) => p.id === item.id) : undefined;
-      return { item, product, unitPrice, commission, kept };
+      return { item, product, unitPrice, tablePrice, commission, kept, covered };
     });
 
     const totals = saleTotals(
@@ -1171,6 +1328,26 @@ export class SaleService {
     if (totals.exceedsGross) {
       throw invalid('discount.value', 'O desconto não pode passar do total da venda');
     }
+
+    // A parte do convênio é a tabela menos a coparticipação; o desconto só sai da parte do tutor.
+    const shares = lines.map((l, i) => {
+      if (!l.covered || !plan) return null;
+      const t = totals.items[i] ?? { grossCents: 0, discountCents: 0 };
+      const copayPercent = l.covered.copayPercent ?? plan.copayPercent;
+      const copay = copayCents(t.grossCents, copayPercent);
+      if (t.discountCents > copay) {
+        throw invalid(
+          'discount.value',
+          `O desconto passa da coparticipação de ${l.product.name}: a parte do convênio não tem desconto`,
+        );
+      }
+      return {
+        copayPercent,
+        insurerCents: t.grossCents - copay,
+        requiresAuthorization: l.covered.requiresAuthorization,
+      };
+    });
+    const insurerCents = shares.reduce((a, s) => a + (s?.insurerCents ?? 0), 0);
     await this.assertDiscount(tx, auth, lines, totals, previous?.sale ?? null);
 
     return {
@@ -1183,6 +1360,9 @@ export class SaleService {
         grossTotal: fromCents(totals.grossCents),
         discountTotal: fromCents(totals.discountCents),
         netTotal: fromCents(totals.netCents),
+        insurerId: plan?.insurerId ?? null,
+        insuranceCardNumber: plan?.cardNumber ?? null,
+        insurerTotal: fromCents(insurerCents),
         notes: input.notes,
       },
       items: lines.map((l, i) => {
@@ -1196,15 +1376,83 @@ export class SaleService {
           serviceKind: l.product.serviceKind,
           unit: l.product.unit,
           quantity: l.item.quantity,
-          listPrice: l.kept?.productId === l.product.id ? l.kept.listPrice : l.product.salePrice,
+          listPrice: l.kept?.productId === l.product.id ? l.kept.listPrice : l.tablePrice,
           unitPrice: l.unitPrice,
           grossTotal: fromCents(t.grossCents),
           discountAmount: fromCents(t.discountCents),
           netTotal: fromCents(t.grossCents - t.discountCents),
           commissionPercent: l.commission,
           clinicalEventId: l.kept?.productId === l.product.id ? l.kept.clinicalEventId : null,
+          insurerCopayPercent: shares[i]?.copayPercent ?? null,
+          insurerAmount: fromCents(shares[i]?.insurerCents ?? 0),
+          requiresAuthorization: shares[i]?.requiresAuthorization ?? false,
+          authorizationCode: shares[i]?.requiresAuthorization ? l.item.authorizationCode : '',
         };
       }),
+    };
+  }
+
+  /**
+   * Venda pelo convênio [RN-43]: o animal precisa ter plano nele, válido hoje e de convênio
+   * ativo. A venda que já era deste convênio continua aceita mesmo com o plano vencido depois.
+   */
+  private async insurancePlan(
+    tx: Executor,
+    auth: AuthContext,
+    input: SaleData,
+    previous: SaleRow | null,
+    productIds: string[],
+  ) {
+    if (!input.insurerId || !input.patientId) return null;
+    const [row] = await tx
+      .select({ patient: patients, insurer: insurers })
+      .from(patients)
+      .innerJoin(insurers, eq(insurers.id, patients.insurerId))
+      .where(
+        and(eq(patients.id, input.patientId), eq(patients.organizationId, auth.organizationId)),
+      );
+    const kept = previous?.insurerId === input.insurerId;
+    if (!row || row.insurer.id !== input.insurerId) {
+      if (!kept) throw invalid('insurerId', 'O animal não tem plano neste convênio');
+    }
+    const [insurer] = row
+      ? [row.insurer]
+      : await tx.select().from(insurers).where(eq(insurers.id, input.insurerId));
+    if (!insurer) throw invalid('insurerId', 'Convênio inválido');
+    const today = instantToZoned(new Date(), await unitTimeZone(tx, auth.unitId)).date;
+    const active =
+      row !== undefined &&
+      row.insurer.id === input.insurerId &&
+      insuranceActiveOn(
+        { validUntil: row.patient.insuranceValidUntil },
+        row.insurer.archivedAt !== null,
+        today,
+      );
+    if (!active && !kept) {
+      throw invalid(
+        'insurerId',
+        insurer.archivedAt ? 'Convênio arquivado' : 'O plano do animal está fora da validade',
+      );
+    }
+    const prices = productIds.length
+      ? await tx
+          .select()
+          .from(insurerPrices)
+          .where(
+            and(
+              eq(insurerPrices.insurerId, insurer.id),
+              inArray(insurerPrices.productId, productIds),
+            ),
+          )
+      : [];
+    return {
+      insurerId: insurer.id,
+      cardNumber:
+        row?.insurer.id === insurer.id
+          ? (row.patient.insuranceCardNumber ?? '')
+          : (previous?.insuranceCardNumber ?? ''),
+      copayPercent: insurer.copayPercent,
+      prices: new Map(prices.map((p) => [p.productId, p])),
     };
   }
 
@@ -1300,10 +1548,11 @@ export class SaleService {
 
   private async auditSnapshot(tx: Executor, id: string) {
     const [row] = await tx
-      .select({ s: sales, client: clients.name, patient: patients.name })
+      .select({ s: sales, client: clients.name, patient: patients.name, insurer: insurers.name })
       .from(sales)
       .leftJoin(clients, eq(clients.id, sales.clientId))
       .leftJoin(patients, eq(patients.id, sales.patientId))
+      .leftJoin(insurers, eq(insurers.id, sales.insurerId))
       .where(eq(sales.id, id));
     if (!row) throw notFound('Venda');
     const items = await tx
@@ -1319,6 +1568,7 @@ export class SaleService {
       saleType: saleTypeLabels[s.saleType as keyof typeof saleTypeLabels],
       client: row.client,
       patient: row.patient,
+      ...(s.insurerId ? { insurer: row.insurer, insurerTotal: s.insurerTotal } : {}),
       items: items
         .map(
           ({ i, professional }) =>

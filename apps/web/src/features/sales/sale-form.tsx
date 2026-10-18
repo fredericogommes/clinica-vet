@@ -1,4 +1,5 @@
 import {
+  copayCents,
   saleInputSchema,
   saleTotals,
   saleTypeLabels,
@@ -7,6 +8,7 @@ import {
   type DiscountMode,
   type Sale,
   type SaleContext,
+  type SaleCoverage,
   type SaleData,
   type SaleType,
   type SellableItem,
@@ -36,7 +38,7 @@ import {
   parseDecimal,
   quantityInput,
 } from '../products/format';
-import { sellableQuery } from './queries';
+import { saleCoverageQuery, sellableQuery } from './queries';
 
 interface Row {
   key: string;
@@ -57,6 +59,14 @@ interface Row {
   saved: boolean;
   /** Disponível fora desta venda; nulo quando o item não controla estoque [RN-31]. */
   stock: StockSummary | null;
+  /** Preço particular do catálogo, para quando o item sai do convênio. */
+  catalogPrice: number;
+  /** Cobertura do convênio aplicada à linha; nula no item particular [RN-43]. */
+  covered: { price: number; copayPercent: number; requiresAuthorization: boolean } | null;
+  /** Item gravado já pelo convênio: o preço gravado vale enquanto seguir coberto. */
+  savedCovered: boolean;
+  savedPrice: string;
+  authorizationCode: string;
 }
 
 export interface SaleFormState {
@@ -64,6 +74,8 @@ export interface SaleFormState {
   saleType: SaleType;
   client: { id: string; name: string; code: number } | null;
   patientId: string;
+  /** Convênio do plano do animal; vazio é particular. */
+  insurerId: string;
   rows: Row[];
   discountMode: DiscountMode;
   discountValue: string;
@@ -79,6 +91,7 @@ export function emptySale(context: SaleContext): SaleFormState {
     saleType: context.defaultSaleType,
     client: null,
     patientId: '',
+    insurerId: '',
     rows: [],
     discountMode: 'amount',
     discountValue: '',
@@ -92,6 +105,7 @@ export function saleToForm(sale: Sale): SaleFormState {
     saleType: sale.saleType,
     client: sale.client,
     patientId: sale.patient?.id ?? '',
+    insurerId: sale.insurer?.id ?? '',
     rows: sale.items.map((i) => ({
       key: nextKey(),
       itemId: i.id,
@@ -108,6 +122,17 @@ export function saleToForm(sale: Sale): SaleFormState {
       unitPrice: moneyInput(i.unitPrice),
       saved: true,
       stock: i.stock,
+      catalogPrice: i.listPrice,
+      covered: i.coverage
+        ? {
+            price: i.unitPrice,
+            copayPercent: i.coverage.copayPercent,
+            requiresAuthorization: i.coverage.requiresAuthorization,
+          }
+        : null,
+      savedCovered: i.coverage !== null,
+      savedPrice: moneyInput(i.unitPrice),
+      authorizationCode: i.coverage?.authorizationCode ?? '',
     })),
     discountMode: sale.discount.mode,
     discountValue: sale.discount.value === 0 ? '' : moneyInput(sale.discount.value),
@@ -117,6 +142,31 @@ export function saleToForm(sale: Sale): SaleFormState {
 
 const num = (text: string) => parseDecimal(text) ?? Number.NaN;
 
+/**
+ * Aplica (ou tira) a tabela do convênio nas linhas: item coberto sai pelo valor da tabela, sem
+ * preço livre; o que sai do convênio volta ao preço particular [RN-43].
+ */
+function withCoverage(rows: Row[], coverage: SaleCoverage | null, on: boolean): Row[] {
+  const prices = new Map(coverage?.prices.map((p) => [p.productId, p]) ?? []);
+  return rows.map((r) => {
+    const p = on && coverage ? prices.get(r.productId) : undefined;
+    if (p && coverage) {
+      return {
+        ...r,
+        covered: {
+          price: p.price,
+          copayPercent: p.copayPercent ?? coverage.insurer.copayPercent,
+          requiresAuthorization: p.requiresAuthorization,
+        },
+        unitPrice: r.savedCovered ? r.savedPrice : moneyInput(p.price),
+      };
+    }
+    if (!r.covered) return r;
+    const back = prices.get(r.productId)?.salePrice ?? r.catalogPrice;
+    return { ...r, covered: null, catalogPrice: back, unitPrice: moneyInput(back) };
+  });
+}
+
 /** Monta o corpo da requisição; a API recalcula tudo e é quem decide. */
 function toInput(state: SaleFormState): unknown {
   return {
@@ -124,6 +174,7 @@ function toInput(state: SaleFormState): unknown {
     saleType: state.saleType,
     clientId: state.client?.id ?? null,
     patientId: state.patientId || null,
+    insurerId: state.insurerId || null,
     items: state.rows.map((r) => {
       const price = num(r.unitPrice);
       return {
@@ -131,8 +182,17 @@ function toInput(state: SaleFormState): unknown {
         productId: r.productId,
         professionalId: r.professionalId,
         quantity: num(r.quantity),
-        unitPrice:
-          r.saved || Math.round(price * 100) !== Math.round(r.listPrice * 100) ? price : null,
+        // Coberto vai pela tabela do convênio; o que saiu do convênio volta ao preço particular.
+        unitPrice: r.covered
+          ? r.savedCovered
+            ? num(r.savedPrice)
+            : null
+          : r.savedCovered
+            ? null
+            : r.saved || Math.round(price * 100) !== Math.round(r.listPrice * 100)
+              ? price
+              : null,
+        authorizationCode: r.covered?.requiresAuthorization ? r.authorizationCode : '',
       };
     }),
     discount: { mode: state.discountMode, value: parseDecimal(state.discountValue) ?? 0 },
@@ -141,6 +201,17 @@ function toInput(state: SaleFormState): unknown {
 }
 
 export type FieldErrors = Record<string, string>;
+
+/** Itens do convênio sem a autorização exigida: a venda grava, mas não recebe sem ela. */
+export function missingAuthorizations(state: SaleFormState): FieldErrors {
+  const errors: FieldErrors = {};
+  state.rows.forEach((r, i) => {
+    if (r.covered?.requiresAuthorization && !r.authorizationCode.trim()) {
+      errors[`items.${String(i)}.authorizationCode`] = 'Informe a autorização para receber';
+    }
+  });
+  return errors;
+}
 
 /** Valida com o contrato compartilhado antes de enviar; o servidor revalida. */
 export function validateSale(state: SaleFormState): { data: SaleData } | { errors: FieldErrors } {
@@ -173,9 +244,25 @@ export function SaleForm({
 }) {
   const can = useCan();
   const session = useSession();
+  const coverage = useQuery({
+    ...saleCoverageQuery(state.patientId),
+    enabled: Boolean(state.patientId),
+  });
+  const plan = state.patientId ? (coverage.data ?? null) : null;
   const set = (patch: Partial<SaleFormState>) => {
+    // Trocar de animal tira o convênio: o plano é do animal.
+    if (patch.patientId !== undefined && patch.patientId !== state.patientId && state.insurerId) {
+      onChange({
+        ...state,
+        ...patch,
+        insurerId: '',
+        rows: withCoverage(patch.rows ?? state.rows, plan, false),
+      });
+      return;
+    }
     onChange({ ...state, ...patch });
   };
+  const onInsurer = Boolean(state.insurerId);
   const professionals = [
     ...context.professionals,
     ...extraProfessionals.filter((p) => !context.professionals.some((c) => c.id === p.id)),
@@ -199,23 +286,34 @@ export function SaleForm({
     set({
       rows: [
         ...state.rows,
-        {
-          key: nextKey(),
-          itemId: null,
-          fromRecord: false,
-          productId: item.id,
-          code: item.code,
-          name: item.name,
-          kind: item.kind,
-          unit: item.unit,
-          listPrice: item.salePrice,
-          allowPriceChange: item.allowPriceChange,
-          professionalId: defaultProfessional,
-          quantity: '1',
-          unitPrice: moneyInput(item.salePrice),
-          saved: false,
-          stock: item.stock,
-        },
+        ...withCoverage(
+          [
+            {
+              key: nextKey(),
+              itemId: null,
+              fromRecord: false,
+              productId: item.id,
+              code: item.code,
+              name: item.name,
+              kind: item.kind,
+              unit: item.unit,
+              listPrice: item.salePrice,
+              allowPriceChange: item.allowPriceChange,
+              professionalId: defaultProfessional,
+              quantity: '1',
+              unitPrice: moneyInput(item.salePrice),
+              saved: false,
+              stock: item.stock,
+              catalogPrice: item.salePrice,
+              covered: null,
+              savedCovered: false,
+              savedPrice: '',
+              authorizationCode: '',
+            },
+          ],
+          plan,
+          onInsurer,
+        ),
       ],
     });
   };
@@ -233,6 +331,13 @@ export function SaleForm({
       ),
     },
   );
+  // Parte do convênio: tabela menos coparticipação; o desconto sai só da parte do tutor.
+  const shares = state.rows.map((r, i) => {
+    if (!r.covered) return null;
+    const gross = preview.items[i]?.grossCents ?? 0;
+    return gross - copayCents(gross, r.covered.copayPercent);
+  });
+  const insurerCents = shares.reduce<number>((a, c) => a + (c ?? 0), 0);
   const canDiscount = can('sales.discount');
   const canChangePrice = can('sales.change_price');
 
@@ -266,6 +371,19 @@ export function SaleForm({
         <div className="mt-4">
           <CustomerField state={state} set={set} errors={errors} />
         </div>
+        {plan ? (
+          <InsuranceChoice
+            plan={plan}
+            on={onInsurer}
+            error={errors.insurerId}
+            onChange={(on) => {
+              set({
+                insurerId: on ? plan.insurer.id : '',
+                rows: withCoverage(state.rows, plan, on),
+              });
+            }}
+          />
+        ) : null}
       </Section>
 
       <Section
@@ -301,7 +419,9 @@ export function SaleForm({
                         )
                     : null
                 }
-                priceEditable={row.allowPriceChange && canChangePrice}
+                priceEditable={row.allowPriceChange && canChangePrice && !row.covered}
+                insurerShare={shares[i] ?? null}
+                discountShare={preview.items[i]?.discountCents ?? 0}
                 onChange={(next) => {
                   set({ rows: state.rows.map((r) => (r.key === row.key ? next : r)) });
                 }}
@@ -359,7 +479,12 @@ export function SaleForm({
             }}
           />
         </div>
-        <dl className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4 text-right">
+        <dl
+          className={clsx(
+            'mt-5 grid gap-3 border-t border-line pt-4 text-right',
+            onInsurer ? 'grid-cols-3 @2xl:grid-cols-5' : 'grid-cols-3',
+          )}
+        >
           <Total label="Bruto" value={formatMoney(preview.grossCents / 100)} />
           <Total
             label="Desconto"
@@ -369,7 +494,17 @@ export function SaleForm({
                 : formatMoney(0)
             }
           />
-          <Total label="Total" value={formatMoney(preview.netCents / 100)} strong />
+          <Total label="Total" value={formatMoney(preview.netCents / 100)} strong={!onInsurer} />
+          {onInsurer ? (
+            <>
+              <Total label="Convênio paga" value={formatMoney(insurerCents / 100)} />
+              <Total
+                label="Tutor paga"
+                value={formatMoney(Math.max(0, preview.netCents - insurerCents) / 100)}
+                strong
+              />
+            </>
+          ) : null}
         </dl>
       </Section>
     </div>
@@ -400,6 +535,8 @@ function ItemRow({
   gross,
   wanted,
   priceEditable,
+  insurerShare,
+  discountShare,
   onChange,
   onRemove,
 }: {
@@ -411,6 +548,9 @@ function ItemRow({
   /** Quantidade do item somada em todas as linhas; nulo em orçamento, que não reserva. */
   wanted: number | null;
   priceEditable: boolean;
+  /** Centavos que o convênio repassa por esta linha; nulo no item particular. */
+  insurerShare: number | null;
+  discountShare: number;
   onChange: (row: Row) => void;
   onRemove: () => void;
 }) {
@@ -425,6 +565,15 @@ function ItemRow({
             {row.kind === 'service' ? ' · Serviço' : ''}
             {row.fromRecord ? ' · Lançado pela ficha clínica' : ''}
           </p>
+          {row.covered && insurerShare !== null ? (
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted">
+              <Badge tone="sage">Convênio</Badge>
+              <span>
+                Tutor paga {formatMoney((gross - insurerShare - discountShare) / 100)} · convênio
+                repassa {formatMoney(insurerShare / 100)}
+              </span>
+            </p>
+          ) : null}
           {err('productId') ? (
             <p role="alert" className="mt-1 text-xs font-medium text-danger-600">
               {err('productId')}
@@ -477,7 +626,7 @@ function ItemRow({
             }}
           />
         ) : (
-          <ReadValue label="Preço" error={err('unitPrice')}>
+          <ReadValue label={row.covered ? 'Preço do convênio' : 'Preço'} error={err('unitPrice')}>
             {formatMoney(num(row.unitPrice) || 0)}
           </ReadValue>
         )}
@@ -486,6 +635,22 @@ function ItemRow({
             {formatMoney(gross / 100)}
           </ReadValue>
         </div>
+        {row.covered?.requiresAuthorization ? (
+          <div className="col-span-2 @3xl:col-span-4 @3xl:max-w-xs">
+            <TextField
+              label="Autorização do convênio"
+              aria-label={`Autorização de ${row.name}`}
+              autoComplete="off"
+              maxLength={40}
+              value={row.authorizationCode}
+              hint="Exigida antes de receber a venda."
+              error={err('authorizationCode')}
+              onChange={(e) => {
+                onChange({ ...row, authorizationCode: e.target.value });
+              }}
+            />
+          </div>
+        ) : null}
         {row.stock ? <StockHint stock={row.stock} unit={row.unit} wanted={wanted} /> : null}
       </div>
     </li>
@@ -514,6 +679,53 @@ function ReadValue({
         )}
       >
         {children}
+      </p>
+      {error ? (
+        <p role="alert" className="text-xs font-medium text-danger-600">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Particular ou pelo convênio do plano do animal [RN-43]. */
+function InsuranceChoice({
+  plan,
+  on,
+  error,
+  onChange,
+}: {
+  plan: SaleCoverage;
+  on: boolean;
+  error: string | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  const detail = `Carteirinha ${plan.insurer.cardNumber} · coparticipação ${formatPercent(plan.insurer.copayPercent)}`;
+  if (!plan.active && !on) {
+    return (
+      <p className="mt-4 rounded-control border border-line bg-sunken px-3 py-2 text-sm text-ink-muted">
+        Plano {plan.insurer.name} fora da validade ou convênio arquivado: a venda sai particular.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-1.5">
+      <Segmented
+        label="Atendimento"
+        value={on ? 'insurer' : 'private'}
+        options={[
+          { value: 'private', label: 'Particular' },
+          { value: 'insurer', label: plan.insurer.name },
+        ]}
+        onChange={(v) => {
+          onChange(v === 'insurer');
+        }}
+      />
+      <p className="text-xs text-ink-muted">
+        {on
+          ? `${detail}. Itens da tabela saem pelo valor do convênio; o resto é particular.`
+          : `O animal tem plano ${plan.insurer.name}. ${detail}.`}
       </p>
       {error ? (
         <p role="alert" className="text-xs font-medium text-danger-600">
