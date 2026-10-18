@@ -91,7 +91,7 @@ const money = (value: number) => (
 const num = (value: number) => <span className="font-mono tabular-nums">{value}</span>;
 
 /** De/Até e atalhos de período; o período inválido aparece no campo, sem consultar. */
-function PeriodPicker({
+export function PeriodPicker({
   from,
   to,
   onChange,

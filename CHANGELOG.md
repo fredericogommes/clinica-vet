@@ -50,6 +50,7 @@
 - Internação: modelos de prescrição (Salvar como modelo e Usar modelo), ficha de internação para imprimir e mensagem ao tutor registrada no histórico e pronta para o WhatsApp.
 - Convênios: cadastro com prazo de repasse, coparticipação e autorização prévia, tabela de preços sobre os itens do catálogo e plano de saúde no cadastro do animal.
 - Convênios: venda pelo convênio no PDV, com a tabela do plano, coparticipação do tutor e autorização obrigatória para receber; cada procedimento vira um repasse a receber, conciliado em lote, glosado em parte ou no todo com motivo, na nova tela Convênios › Repasses.
+- Inteligência › Vendas: indicadores de vendas, clientes e animais no período, com receita por espécie, faixas de idade e de peso, esterilização, filtros de dia da semana e turno e indicadores favoritos por usuário.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

@@ -78,6 +78,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.configure',
       'insurers.configure',
       'insurers.reconcile',
+      'intelligence.view',
       'sales.reports',
       'sales.ranking',
       'sales.on_account',

@@ -172,6 +172,10 @@ export const permissionCatalog = {
     group: 'Convênios',
     label: 'Ver os repasses dos convênios, conciliar o que caiu e registrar glosas',
   },
+  'intelligence.view': {
+    group: 'Inteligência',
+    label: 'Ver os indicadores de vendas, clientes e animais',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
     label:
