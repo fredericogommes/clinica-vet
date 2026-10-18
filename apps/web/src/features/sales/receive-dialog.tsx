@@ -63,7 +63,8 @@ export function ReceiveDialog({
   const settling = mode === 'settle';
   // A conta do cliente só serve para venda com cliente, e nunca para quitar a própria conta.
   const methods = allMethods.filter((m) => m.kind !== 'account' || (!settling && sale.client));
-  const target = settling ? sale.clientDebt : sale.netTotal;
+  // Pela venda do convênio, o tutor paga só a parte dele; o resto vem pelo repasse [RN-43].
+  const target = settling ? sale.clientDebt : sale.customerTotal;
   const [lines, setLines] = useState<Line[]>(() =>
     target > 0
       ? [
@@ -160,7 +161,9 @@ export function ReceiveDialog({
       description={
         settling
           ? `Falta receber ${formatMoney(sale.clientDebt)}. O cliente pode pagar tudo ou só uma parte.`
-          : `Total de ${formatMoney(sale.netTotal)}. Divida entre várias formas se o cliente pagar de mais de um jeito.`
+          : sale.insurer
+            ? `O tutor paga ${formatMoney(sale.customerTotal)}; ${formatMoney(sale.insurerTotal)} vêm pelo repasse de ${sale.insurer.name}.`
+            : `Total de ${formatMoney(sale.netTotal)}. Divida entre várias formas se o cliente pagar de mais de um jeito.`
       }
       footer={
         <>
@@ -292,7 +295,11 @@ export function ReceiveDialog({
         <dl className="space-y-1 border-t border-line pt-3 text-sm" aria-live="polite">
           <div className="flex justify-between gap-3">
             <dt className="text-ink-muted">
-              {settling ? 'Na conta do cliente' : 'Total da venda'}
+              {settling
+                ? 'Na conta do cliente'
+                : sale.insurer
+                  ? 'Parte do tutor'
+                  : 'Total da venda'}
             </dt>
             <dd className="font-mono tabular-nums">{formatMoney(target)}</dd>
           </div>

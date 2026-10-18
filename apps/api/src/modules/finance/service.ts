@@ -961,6 +961,9 @@ export class FinanceService {
       if (current.origin === 'client_account') {
         throw conflict('Conta do cliente é recebida em Vendas > Recebimentos, pelo caixa.');
       }
+      if (current.origin === 'insurer') {
+        throw conflict('Repasse de convênio é conciliado em Convênios > Repasses.');
+      }
       if (current.status !== 'open') {
         throw conflict(
           current.status === 'paid' ? 'Lançamento já está pago.' : 'Lançamento cancelado não muda.',
@@ -1012,6 +1015,9 @@ export class FinanceService {
         throw conflict('Transferência não se reabre: cancele e lance de novo.');
       }
       if (current.status !== 'paid') throw conflict('Só lançamento pago pode ser reaberto.');
+      if (current.origin === 'insurer') {
+        throw conflict('Repasse de convênio: desfaça a conciliação em Convênios > Repasses.');
+      }
       if (current.cardSettlementId) {
         throw conflict('Lançamento conciliado: desfaça a conciliação do depósito.');
       }
@@ -1056,7 +1062,8 @@ export class FinanceService {
       if (
         current.origin === 'sale' ||
         current.origin === 'card_fee' ||
-        current.origin === 'client_account'
+        current.origin === 'client_account' ||
+        current.origin === 'insurer'
       ) {
         throw conflict('Lançamento de venda acompanha a venda: estorne a venda para cancelar.');
       }
@@ -1291,6 +1298,79 @@ export class FinanceService {
       }
     }
     if (rows.length) await tx.insert(financialEntries).values(rows);
+  }
+
+  /**
+   * Repasses do convênio [RN-43]: uma receita em aberto por procedimento coberto, na conta bancária
+   * padrão, com vencimento no prazo de repasse. Fica paga na conciliação em Convênios > Repasses.
+   */
+  async recordInsurerClaims(
+    tx: Executor,
+    auth: AuthContext,
+    sale: SaleRow,
+    claims: { id: string; amount: number; dueDate: string; description: string }[],
+    today: string,
+    timeZone: string,
+  ): Promise<Map<string, string>> {
+    const ids = new Map<string, string>();
+    if (claims.length === 0) return ids;
+    await this.ensure(tx, auth.organizationId, today);
+    const [account] = await tx
+      .select({ id: financialAccounts.id })
+      .from(financialAccounts)
+      .where(
+        and(
+          eq(financialAccounts.organizationId, auth.organizationId),
+          isNull(financialAccounts.archivedAt),
+        ),
+      )
+      .orderBy(
+        sql`${financialAccounts.kind} <> 'bank'`,
+        asc(financialAccounts.createdAt),
+        asc(financialAccounts.id),
+      )
+      .limit(1);
+    if (!account) throw conflict('Cadastre uma conta financeira antes de receber vendas.');
+    const [category] = await tx
+      .select({ id: financialCategories.id })
+      .from(financialCategories)
+      .where(
+        and(
+          eq(financialCategories.organizationId, auth.organizationId),
+          eq(financialCategories.systemKey, 'sales'),
+        ),
+      );
+    if (!category) throw notFound('Categoria de vendas');
+    const costCenterId = sale.costCenterId ?? (await this.defaultCostCenter(tx, sale.unitId));
+    const competence = instantToZoned(sale.soldAt ?? new Date(), timeZone).date;
+    const now = new Date();
+    const rows = claims.map((c) => {
+      const id = newId();
+      ids.set(c.id, id);
+      return {
+        id,
+        organizationId: auth.organizationId,
+        unitId: sale.unitId,
+        kind: 'income' as const,
+        direction: 'in' as const,
+        origin: 'insurer' as const,
+        status: 'open' as const,
+        description: c.description,
+        accountId: account.id,
+        categoryId: category.id,
+        clientId: sale.clientId,
+        costCenterId,
+        saleId: sale.id,
+        amount: c.amount,
+        dueDate: c.dueDate,
+        competenceDate: competence,
+        createdBy: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    await tx.insert(financialEntries).values(rows);
+    return ids;
   }
 
   /**

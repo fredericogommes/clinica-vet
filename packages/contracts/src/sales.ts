@@ -55,6 +55,8 @@ export const saleItemInputSchema = z.object({
   quantity: quantitySchema,
   /** Nulo = preço de tabela. Outro valor só com a flag do produto e a permissão própria. */
   unitPrice: moneySchema.nullable(),
+  /** Número da autorização do convênio, quando o item a exige [RN-43]. */
+  authorizationCode: z.string().trim().max(40, 'Máximo de 40 caracteres').default(''),
 });
 export type SaleItemInput = z.infer<typeof saleItemInputSchema>;
 
@@ -65,6 +67,8 @@ export const saleInputSchema = z
     saleType: z.enum(saleTypes),
     clientId: z.uuid().nullable(),
     patientId: z.uuid().nullable(),
+    /** Atendimento pelo convênio do plano do animal; nulo é particular [RN-43]. */
+    insurerId: z.uuid().nullable().default(null),
     items: z
       .array(saleItemInputSchema)
       .min(1, 'Inclua ao menos um item')
@@ -78,6 +82,13 @@ export const saleInputSchema = z
   .superRefine((s, ctx) => {
     if (s.patientId && !s.clientId) {
       ctx.addIssue({ code: 'custom', path: ['clientId'], message: 'Escolha o responsável' });
+    }
+    if (s.insurerId && !s.patientId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['insurerId'],
+        message: 'Venda pelo convênio precisa do animal com o plano',
+      });
     }
     if (s.discount.mode === 'percent' && !percent.safeParse(s.discount.value).success) {
       ctx.addIssue({
@@ -120,6 +131,16 @@ export const saleItemSchema = z.object({
   grossTotal: z.number(),
   discountAmount: z.number(),
   netTotal: z.number(),
+  /** Cobertura do convênio; nula no item particular ou fora da tabela. */
+  coverage: z
+    .object({
+      copayPercent: z.number(),
+      /** O que o convênio repassa; o resto do líquido é do tutor. */
+      insurerAmount: z.number(),
+      requiresAuthorization: z.boolean(),
+      authorizationCode: z.string(),
+    })
+    .nullable(),
 });
 export type SaleItem = z.infer<typeof saleItemSchema>;
 
@@ -130,11 +151,16 @@ export const saleSchema = z.object({
   saleType: z.enum(saleTypes),
   client: ref.extend({ code: z.number().int() }).nullable(),
   patient: ref.nullable(),
+  insurer: ref.extend({ cardNumber: z.string() }).nullable(),
   items: z.array(saleItemSchema),
   discount: z.object({ mode: z.enum(discountModes), value: z.number() }),
   grossTotal: z.number(),
   discountTotal: z.number(),
   netTotal: z.number(),
+  /** Parte do convênio, recebida pelo repasse e não no balcão. */
+  insurerTotal: z.number(),
+  /** O que o tutor paga no balcão: o líquido menos a parte do convênio. */
+  customerTotal: z.number(),
   notes: z.string(),
   unitName: z.string(),
   createdAt: z.iso.datetime({ offset: true }),
@@ -272,6 +298,25 @@ export type SaleContext = z.infer<typeof saleContextSchema>;
 export const sellableQuerySchema = z.object({
   q: z.string().trim().max(100).default(''),
 });
+
+/** Plano do animal e a tabela do convênio, para o PDV mostrar preços e coparticipação. */
+export const saleCoverageSchema = z.object({
+  insurer: ref.extend({ cardNumber: z.string(), copayPercent: z.number() }),
+  /** Plano vale hoje (convênio ativo e dentro da validade). */
+  active: z.boolean(),
+  validUntil: z.iso.date().nullable(),
+  prices: z.array(
+    z.object({
+      productId: z.uuid(),
+      price: z.number(),
+      copayPercent: z.number().nullable(),
+      requiresAuthorization: z.boolean(),
+      /** Preço particular do item, para voltar a ele quando a venda deixa o convênio. */
+      salePrice: z.number(),
+    }),
+  ),
+});
+export type SaleCoverage = z.infer<typeof saleCoverageSchema>;
 
 /** Item lançado pela ficha clínica na venda aberta do animal [RN-19]. */
 export const patientSaleItemInputSchema = z.object({

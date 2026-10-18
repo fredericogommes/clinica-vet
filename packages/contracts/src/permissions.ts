@@ -168,6 +168,10 @@ export const permissionCatalog = {
     group: 'Convênios',
     label: 'Cadastrar convênios e as tabelas de preço, coparticipação e autorização de cada um',
   },
+  'insurers.reconcile': {
+    group: 'Convênios',
+    label: 'Ver os repasses dos convênios, conciliar o que caiu e registrar glosas',
+  },
   'catalogs.manage': {
     group: 'Cadastros',
     label:

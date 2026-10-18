@@ -204,6 +204,14 @@ test('prescrição: dose pelo peso, execução, mapa de execução e suspensão'
   // Dose por horário calculada pelo peso atual: 25 mg/kg × 12,4 kg = 310 mg ÷ 500 mg/mL.
   await expect(form.getByRole('status')).toContainText('310 mg · 0,62 mL');
   await form.getByLabel('Duração (dias)').fill('3');
+  // Primeira dose na hora cheia atual, não na próxima: depois das 23 h ela cairia amanhã e a
+  // grade de hoje ficaria vazia.
+  const thisHour = await page.evaluate(() => {
+    const d = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `${String(d.getFullYear())}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:00`;
+  });
+  await form.getByLabel('Primeiro horário').fill(thisHour);
   await form.getByRole('button', { name: 'Prescrever' }).click();
   await expect(toasts(page).getByText('Dipirona prescrito.')).toBeVisible();
 
@@ -211,7 +219,7 @@ test('prescrição: dose pelo peso, execução, mapa de execução e suspensão'
   const row = grid.getByRole('row').filter({ hasText: 'Dipirona' });
   await expect(row).toContainText('25 mg/kg IV a cada 8 h');
   await expect(row).toContainText('310 mg · 0,62 mL');
-  const dose = row.getByRole('button', { name: /^Dipirona às .*: Programado$/ }).first();
+  const dose = row.getByRole('button', { name: /^Dipirona às .*: (Programado|Vencido)$/ }).first();
   await dose.click();
   const execute = page.getByRole('dialog', { name: /^Dipirona às/ });
   await expect(execute).toContainText('310 mg · 0,62 mL');
@@ -281,7 +289,8 @@ test('modelo de prescrição, mensagem ao tutor e impressão da ficha', async ({
       boxId: null,
     });
     await send(`/hospitalizations/${h.id}/entries`, { kind: 'weight', weightKg: 10, text: '' });
-    const at = new Date(Date.now() + 3_600_000).toISOString();
+    // Agora, e não daqui a uma hora: depois das 23 h a dose cairia amanhã, fora da grade de hoje.
+    const at = new Date().toISOString();
     for (const name of ['Meloxicam', 'Cefalexina']) {
       await send(`/hospitalizations/${h.id}/prescriptions`, {
         name,
@@ -317,6 +326,13 @@ test('modelo de prescrição, mensagem ao tutor e impressão da ficha', async ({
   const items = apply.getByRole('list', { name: 'Prescrições do modelo' });
   await expect(items.getByRole('listitem')).toHaveCount(1);
   await expect(items).toContainText('1 mg · 0,5 mL');
+  // Hora cheia atual: depois das 23 h a próxima cairia amanhã, fora da grade de hoje.
+  const thisHour = await page.evaluate(() => {
+    const d = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    return `${String(d.getFullYear())}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:00`;
+  });
+  await apply.getByLabel('Primeiro horário').fill(thisHour);
   await apply.getByRole('button', { name: 'Prescrever modelo' }).click();
   await expect(toasts(page).getByText(`1 prescrição do modelo ${model}.`)).toBeVisible();
   const grid = page.getByRole('table', { name: /Prescrições de/ });

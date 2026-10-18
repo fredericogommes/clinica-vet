@@ -159,6 +159,9 @@ const CashPage = lazy(() =>
 const InsurersPage = lazy(() =>
   import('../features/insurers/insurers-page').then((m) => ({ default: m.InsurersPage })),
 );
+const ClaimsPage = lazy(() =>
+  import('../features/insurers/claims-page').then((m) => ({ default: m.ClaimsPage })),
+);
 const InsurerPricesPage = lazy(() =>
   import('../features/insurers/prices-page').then((m) => ({ default: m.InsurerPricesPage })),
 );
@@ -1451,6 +1454,32 @@ const insurersRoute = createRoute({
   ),
 });
 
+const claimsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/convenios/repasses',
+  validateSearch: z.object({
+    situacao: z.enum(['conciliados', 'glosados', 'todos']).optional().catch(undefined),
+    convenio: z.uuid().optional().catch(undefined),
+    de: z.iso.date().optional().catch(undefined),
+    ate: z.iso.date().optional().catch(undefined),
+  }),
+  component: function Claims() {
+    const s = claimsRoute.useSearch();
+    return (
+      <RequirePermission permission="insurers.reconcile">
+        <ClaimsPage
+          search={{
+            situacao: s.situacao ?? 'nao-conciliados',
+            convenio: s.convenio,
+            de: s.de,
+            ate: s.ate,
+          }}
+        />
+      </RequirePermission>
+    );
+  },
+});
+
 const insurerPricesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/convenios/$insurerId',
@@ -1779,6 +1808,7 @@ const routeTree = rootRoute.addChildren([
     salesSettingsRoute,
     paymentMethodsRoute,
     insurersRoute,
+    claimsRoute,
     insurerPricesRoute,
     salesReportRoute,
     mySalesRoute,

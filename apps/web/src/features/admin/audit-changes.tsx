@@ -116,6 +116,10 @@ const fieldLabels: Record<string, string> = {
   requiresAuthorization: 'Exige autorização',
   insurance: 'Plano de saúde',
   insurer: 'Convênio',
+  insurerTotal: 'Parte do convênio (R$)',
+  receivedOn: 'Repasse caiu em',
+  glossAmount: 'Glosado',
+  expected: 'A receber',
   document: 'CPF ou CNPJ',
 };
 

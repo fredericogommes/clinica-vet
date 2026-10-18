@@ -663,9 +663,12 @@ export function EntryDetailDialog({
     entry.origin === 'card_fee' ||
     entry.origin === 'purchase' ||
     entry.origin === 'commission' ||
-    entry.origin === 'client_account';
+    entry.origin === 'client_account' ||
+    entry.origin === 'insurer';
   // A conta do cliente é recebida pelo caixa, em Vendas › Recebimentos [p.10].
   const clientAccount = entry.origin === 'client_account';
+  // O repasse do convênio é conciliado ou glosado em Convênios › Repasses [p.20].
+  const insurerClaim = entry.origin === 'insurer';
   const adjustment = entry.origin === 'card_adjustment';
   const status = entryStatus(entry);
   const { mutation: reopen, generalError } = useFinanceMutation(
@@ -675,7 +678,7 @@ export function EntryDetailDialog({
   );
   const manage = can('finance.manage');
   const actions: ReactNode[] = [];
-  if (manage && entry.status === 'open' && !clientAccount) {
+  if (manage && entry.status === 'open' && !clientAccount && !insurerClaim) {
     actions.push(
       <Button
         key="pay"
@@ -700,7 +703,13 @@ export function EntryDetailDialog({
       );
     }
   }
-  if (manage && entry.status === 'paid' && entry.kind !== 'transfer' && !adjustment) {
+  if (
+    manage &&
+    entry.status === 'paid' &&
+    entry.kind !== 'transfer' &&
+    !adjustment &&
+    !insurerClaim
+  ) {
     actions.push(
       <Button
         key="reopen"
@@ -859,9 +868,11 @@ export function EntryDetailDialog({
               ? 'Lançado pela compra. Para cancelar, cancele a compra.'
               : entry.origin === 'commission'
                 ? 'Lançado pelo extrato de comissão. Para cancelar, ponha o extrato em revisão.'
-                : clientAccount
-                  ? 'Ficou na conta do cliente. Receba em Vendas › Recebimentos, pelo caixa; para cancelar, estorne a venda.'
-                  : 'Lançado pela venda. Para cancelar, estorne a venda.'}
+                : insurerClaim
+                  ? 'Repasse do convênio. Concilie, glose ou desfaça em Convênios › Repasses.'
+                  : clientAccount
+                    ? 'Ficou na conta do cliente. Receba em Vendas › Recebimentos, pelo caixa; para cancelar, estorne a venda.'
+                    : 'Lançado pela venda. Para cancelar, estorne a venda.'}
           </p>
         ) : null}
       </div>

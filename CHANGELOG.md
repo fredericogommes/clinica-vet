@@ -49,6 +49,7 @@
 - Prescrição da internação: grade de 24 horas com horários aprazados, dose calculada pelo peso com volume final, execução com programado × executado e autor, suspensão com motivo e Mapa de execução da unidade.
 - Internação: modelos de prescrição (Salvar como modelo e Usar modelo), ficha de internação para imprimir e mensagem ao tutor registrada no histórico e pronta para o WhatsApp.
 - Convênios: cadastro com prazo de repasse, coparticipação e autorização prévia, tabela de preços sobre os itens do catálogo e plano de saúde no cadastro do animal.
+- Convênios: venda pelo convênio no PDV, com a tabela do plano, coparticipação do tutor e autorização obrigatória para receber; cada procedimento vira um repasse a receber, conciliado em lote, glosado em parte ou no todo com motivo, na nova tela Convênios › Repasses.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
 ### Corrigido

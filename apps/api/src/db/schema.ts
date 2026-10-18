@@ -860,6 +860,11 @@ export const sales = pgTable(
     grossTotal: money('gross_total').notNull(),
     discountTotal: money('discount_total').notNull(),
     netTotal: money('net_total').notNull(),
+    /** Venda pelo convênio [RN-43]: o convênio e a carteirinha do plano do animal. */
+    insurerId: uuid('insurer_id').references((): AnyPgColumn => insurers.id),
+    insuranceCardNumber: text('insurance_card_number'),
+    /** Parte do convênio no líquido, recebida pelo repasse e não no balcão. */
+    insurerTotal: money('insurer_total').notNull().default(0),
     notes: text('notes').notNull().default(''),
     createdBy: uuid('created_by')
       .notNull()
@@ -884,6 +889,12 @@ export const sales = pgTable(
       'sales_totals_ck',
       sql`${t.grossTotal} >= 0 and ${t.discountTotal} >= 0 and ${t.discountTotal} <= ${t.grossTotal}
         and ${t.netTotal} = ${t.grossTotal} - ${t.discountTotal} and ${t.discountValue} >= 0`,
+    ),
+    check(
+      'sales_insurer_ck',
+      sql`(${t.insurerId} is null) = (${t.insuranceCardNumber} is null)
+        and ${t.insurerTotal} >= 0 and ${t.insurerTotal} <= ${t.netTotal}
+        and (${t.insurerId} is not null or ${t.insurerTotal} = 0)`,
     ),
     check(
       'sales_closed_ck',
@@ -938,9 +949,23 @@ export const saleItems = pgTable(
       mode: 'number',
     }).notNull(),
     clinicalEventId: uuid('clinical_event_id').references(() => clinicalEvents.id),
+    /** Coparticipação do item coberto pelo convênio; nula no item particular [RN-43]. */
+    insurerCopayPercent: numeric('insurer_copay_percent', {
+      precision: 5,
+      scale: 2,
+      mode: 'number',
+    }),
+    insurerAmount: money('insurer_amount').notNull().default(0),
+    requiresAuthorization: boolean('requires_authorization').notNull().default(false),
+    authorizationCode: text('authorization_code').notNull().default(''),
   },
   (t) => [
     uniqueIndex('sale_items_sale_position_uq').on(t.saleId, t.position),
+    check(
+      'sale_items_insurer_ck',
+      sql`${t.insurerAmount} >= 0 and ${t.insurerAmount} <= ${t.netTotal}
+        and (${t.insurerCopayPercent} is not null or (${t.insurerAmount} = 0 and not ${t.requiresAuthorization}))`,
+    ),
     // Um evento clínico lança no máximo um item: publicar de novo não duplica a cobrança.
     uniqueIndex('sale_items_clinical_event_uq')
       .on(t.clinicalEventId)
@@ -1796,6 +1821,7 @@ export const financialEntries = pgTable(
         'purchase',
         'commission',
         'client_account',
+        'insurer',
       ],
     }).notNull(),
     status: text('status', { enum: ['open', 'paid', 'cancelled'] }).notNull(),
@@ -2752,6 +2778,59 @@ export const insurerPrices = pgTable(
     check(
       'insurer_prices_values_ck',
       sql`${t.price} >= 0 and (${t.copayPercent} is null or ${t.copayPercent} between 0 and 100)`,
+    ),
+  ],
+);
+
+/**
+ * Repasse de um procedimento coberto [p.20, RN-43]: nasce na baixa da venda pelo convênio, com o
+ * valor e a data prevista, e é conciliado quando o dinheiro cai ou glosado (total ou em parte) com
+ * motivo. A receita a receber correspondente fica em `financial_entries`.
+ */
+export const insurerClaims = pgTable(
+  'insurer_claims',
+  {
+    id: uuid('id').primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id),
+    insurerId: uuid('insurer_id')
+      .notNull()
+      .references(() => insurers.id),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => sales.id),
+    saleItemId: uuid('sale_item_id')
+      .notNull()
+      .references(() => saleItems.id),
+    financialEntryId: uuid('financial_entry_id').references(() => financialEntries.id),
+    serviceDate: date('service_date').notNull(),
+    dueDate: date('due_date').notNull(),
+    amount: money('amount').notNull(),
+    glossAmount: money('gloss_amount').notNull().default(0),
+    glossReason: text('gloss_reason'),
+    glossedAt: timestamp('glossed_at', { withTimezone: true }),
+    glossedBy: uuid('glossed_by').references(() => users.id),
+    status: text('status', {
+      enum: ['pending', 'reconciled', 'glossed', 'cancelled'],
+    }).notNull(),
+    reconciledOn: date('reconciled_on'),
+    reconciledBy: uuid('reconciled_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('insurer_claims_item_uq').on(t.saleItemId),
+    index('insurer_claims_org_date_idx').on(t.organizationId, t.serviceDate),
+    index('insurer_claims_sale_idx').on(t.saleId),
+    check(
+      'insurer_claims_values_ck',
+      sql`${t.amount} > 0 and ${t.glossAmount} >= 0 and ${t.glossAmount} <= ${t.amount}
+        and (${t.status} = 'glossed') = (${t.glossAmount} = ${t.amount})
+        and (${t.glossAmount} = 0) = (${t.glossReason} is null)
+        and (${t.status} = 'reconciled') = (${t.reconciledOn} is not null)`,
     ),
   ],
 );

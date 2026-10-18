@@ -1,24 +1,72 @@
 import {
+  claimListQuerySchema,
+  claimListSchema,
+  claimSchema,
+  glossClaimSchema,
   insurerCandidateSchema,
   insurerInputSchema,
   insurerOptionSchema,
   insurerPricesInputSchema,
   insurerPricesSchema,
   insurerSchema,
+  reconcileClaimsSchema,
 } from '@clinica/contracts';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireAuth } from '../../http/access-guard.js';
+import type { ClaimService } from './claims.js';
 import type { InsurerService } from './service.js';
 
 const idParams = z.object({ id: z.uuid() });
 const configure = { kind: 'permission', permission: 'insurers.configure' } as const;
 
 /** Convênios e tabelas de preço [RN-43]. */
-export const insurerRoutes: FastifyPluginAsyncZod<{ insurers: InsurerService }> = async (
-  app,
-  { insurers },
-) => {
+const reconcile = { kind: 'permission', permission: 'insurers.reconcile' } as const;
+
+export const insurerRoutes: FastifyPluginAsyncZod<{
+  insurers: InsurerService;
+  claims: ClaimService;
+}> = async (app, { insurers, claims }) => {
+  // Repasses [p.20]: cartões por situação e a lista por data do atendimento.
+  app.get(
+    '/claims',
+    {
+      config: { access: reconcile },
+      schema: { querystring: claimListQuerySchema, response: { 200: claimListSchema } },
+    },
+    async (request) => claims.list(requireAuth(request), request.query),
+  );
+
+  app.post(
+    '/claims/reconcile',
+    {
+      config: { access: reconcile },
+      schema: {
+        body: reconcileClaimsSchema,
+        response: { 200: z.object({ count: z.number().int() }) },
+      },
+    },
+    async (request) => claims.reconcile(requireAuth(request), request.body),
+  );
+
+  app.post(
+    '/claims/:id/undo',
+    {
+      config: { access: reconcile },
+      schema: { params: idParams, response: { 200: claimSchema } },
+    },
+    async (request) => claims.undo(requireAuth(request), request.params.id),
+  );
+
+  app.post(
+    '/claims/:id/gloss',
+    {
+      config: { access: reconcile },
+      schema: { params: idParams, body: glossClaimSchema, response: { 200: claimSchema } },
+    },
+    async (request) => claims.gloss(requireAuth(request), request.params.id, request.body),
+  );
+
   app.get(
     '/',
     {
