@@ -27,6 +27,8 @@ import { ProductService } from '../modules/products/service.js';
 import { cashRoutes } from '../modules/cash/routes.js';
 import { InventoryService } from '../modules/inventory/service.js';
 import { CashService } from '../modules/cash/service.js';
+import { insurerRoutes } from '../modules/insurers/routes.js';
+import { InsurerService } from '../modules/insurers/service.js';
 import { paymentMethodRoutes } from '../modules/payments/routes.js';
 import { PaymentMethodService } from '../modules/payments/service.js';
 import { examRoutes } from '../modules/exams/routes.js';
@@ -179,6 +181,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     prefix: '/api/payment-methods',
     methods: paymentMethods,
   });
+  await app.register(insurerRoutes, { prefix: '/api/insurers', insurers: new InsurerService(db) });
   await app.register(cashRoutes, { prefix: '/api/cash', cash });
   await app.register(financeRoutes, {
     prefix: '/api/finance',

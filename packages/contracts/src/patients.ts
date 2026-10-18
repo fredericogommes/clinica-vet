@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { patientInsuranceInputSchema, patientInsuranceSchema } from './insurers.js';
 
 export const patientStatuses = ['alive', 'deceased'] as const;
 export const patientSexes = ['female', 'male', 'unknown'] as const;
@@ -34,6 +35,8 @@ export const patientInputSchema = z
     hasPedigree: z.boolean(),
     /** Alertas fixos exibidos no atendimento, ex. "Agressivo", "Alergia a dipirona". */
     markings: z.array(z.string().trim().min(1).max(60)).max(10),
+    /** Plano de saúde [p.7]; nulo quando o animal não tem convênio. */
+    insurance: patientInsuranceInputSchema.nullable().default(null),
   })
   .superRefine((p, ctx) => {
     if (p.breedId && !p.speciesId) {
@@ -106,6 +109,7 @@ export const patientSchema = z.object({
   hasPedigree: z.boolean(),
   pedigreeNumber: z.string().nullable(),
   markings: z.array(z.string()),
+  insurance: patientInsuranceSchema.nullable(),
   archived: z.boolean(),
   owner: z.object({
     id: z.uuid(),
