@@ -4,6 +4,9 @@ import { ADMIN_STATE, run, sidebar, toasts } from './helpers';
 
 test.use({ storageState: ADMIN_STATE });
 
+// Nomes sem o sufixo `run` literal: products.spec conta as linhas por ele.
+const reversed = Array.from(run).reverse().join('');
+
 /**
  * Convênio com consulta (R$ 120 na tabela) e ultrassom (R$ 200, com autorização), coparticipação
  * de 20%, e um cão com plano nele. Tudo via API; a venda e os repasses são feitos pela tela.
@@ -135,7 +138,7 @@ async function startSale(page: Page, pet: string, insurer: string, items: string
 test('venda pelo convênio: coparticipação, autorização e repasses conciliados e glosados', async ({
   page,
 }) => {
-  const tag = `rp${run}`;
+  const tag = `rp${reversed}`;
   const { consulta, exame, insurer, pet } = await seed(page, tag);
 
   // PDV: os itens da tabela saem pelo valor do convênio, divididos entre tutor e convênio.
@@ -226,7 +229,7 @@ test('venda pelo convênio: coparticipação, autorização e repasses conciliad
 });
 
 test('venda pelo convênio e repasses no celular sem rolagem lateral @mobile', async ({ page }) => {
-  const tag = `rm${run}`;
+  const tag = `rm${reversed}`;
   const { consulta, exame, insurer, insurerId, pet } = await seed(page, tag);
   const noOverflow = async () => {
     expect(
