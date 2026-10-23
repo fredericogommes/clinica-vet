@@ -147,6 +147,7 @@ export const roleTemplates: readonly RoleTemplate[] = [
       'sales.view',
       'sales.manage',
       'sales.receive',
+      'sales.on_account',
       'sales.debts',
       'sales.packages',
       'sales.view_own',

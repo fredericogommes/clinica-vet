@@ -192,9 +192,10 @@ describe('formas de recebimento [RN-27]', () => {
       (await recep.send('POST', '/api/payment-methods', methodInput({ name: 'Elo' }))).statusCode,
     ).toBe(403);
     expect((await recep.get('/api/payment-methods')).statusCode).toBe(403);
-    // Mas vê as formas ativas no PDV, sem a conta do cliente (não vende fiado).
+    // Mas vê as formas ativas no PDV, inclusive a conta do cliente (vende a prazo).
     const context = (await recep.get('/api/sales/context')).json<SaleContext>();
-    expect(context.paymentMethods).toHaveLength(3);
+    expect(context.paymentMethods).toHaveLength(4);
+    expect(context.paymentMethods.map((m) => m.kind)).toContain('account');
   });
 });
 

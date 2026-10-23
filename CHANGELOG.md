@@ -53,6 +53,10 @@
 - Inteligência › Vendas: indicadores de vendas, clientes e animais no período, com receita por espécie, faixas de idade e de peso, esterilização, filtros de dia da semana e turno e indicadores favoritos por usuário.
 - CI com lint, tipos, testes de integração em PostgreSQL e testes ponta a ponta.
 
+### Alterado
+
+- O perfil Recepcionista passa a vender na conta do cliente (venda a prazo), como o Gestor.
+
 ### Corrigido
 
 - O campo "Serviço cobrado" do tipo de atendimento lista todos os serviços, não só os 100 primeiros.

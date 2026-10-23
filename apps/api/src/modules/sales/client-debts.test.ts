@@ -6,6 +6,7 @@ import type {
   CurrentCash,
   PaymentMethod,
   Product,
+  Role,
   ProductInput,
   Sale,
   SalesSummary,
@@ -215,13 +216,33 @@ describe('conta do cliente (fiado) [p.10]', () => {
     expect(res.statusCode).toBe(400);
     expect(fieldError(res.body)?.message).toBe('Use a conta do cliente uma vez só');
 
-    // A recepção recebe o que está pendurado, mas não vende fiado.
-    const recep = await loginAs(h, admin, 'Recepcionista');
-    await recep.send('POST', '/api/cash', { openingAmount: 0 });
-    res = await receive(sale, [pay(conta, 95)], recep);
+    // Um perfil que recebe, mas sem a permissão de vender fiado, não vê nem usa a conta.
+    const roles = (await admin.get('/api/admin/roles')).json<Role[]>();
+    const recepRole = roles.find((r) => r.name === 'Recepcionista')!;
+    const clone = (
+      await admin.send('POST', `/api/admin/roles/${recepRole.id}/clone`, { name: 'Balcao' })
+    ).json<Role>();
+    await admin.send('PUT', `/api/admin/roles/${clone.id}`, {
+      name: 'Balcao',
+      description: '',
+      permissions: clone.permissions.filter((p) => p !== 'sales.on_account'),
+    });
+    const balcao = await loginAs(h, admin, 'Balcao');
+    const kinds = async (as: TestClient) =>
+      (await as.get('/api/sales/context'))
+        .json<{ paymentMethods: PaymentMethod[] }>()
+        .paymentMethods.map((m) => m.kind);
+    expect(await kinds(balcao)).not.toContain('account');
+    res = await receive(sale, [pay(conta, 95)], balcao);
     expect(res.statusCode).toBe(400);
     expect(fieldError(res.body)?.message).toContain('permissão');
-    expect((await receive(sale, [pay(conta, 95)])).statusCode).toBe(200);
+
+    // A recepção vende fiado e recebe o que está pendurado.
+    const recep = await loginAs(h, admin, 'Recepcionista');
+    await recep.send('POST', '/api/cash', { openingAmount: 0 });
+    expect(await kinds(recep)).toContain('account');
+    res = await receive(sale, [pay(conta, 95)], recep);
+    expect(res.statusCode, res.body).toBe(200);
     expect((await recep.get('/api/sales/debts')).statusCode).toBe(200);
     const methods = (await recep.get('/api/sales/debts/methods')).json<PaymentMethod[]>();
     expect(methods.map((m) => m.kind)).not.toContain('account');
